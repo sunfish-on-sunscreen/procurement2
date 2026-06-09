@@ -2,6 +2,7 @@ import { requireAuth } from "@/lib/auth";
 import { getAllPeriods, getCurrentPeriodId } from "@/lib/period";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { Toaster } from "@/components/ui/sonner";
 
 export default async function DashboardLayout({
   children,
@@ -28,6 +29,7 @@ export default async function DashboardLayout({
         />
         <main className="flex-1 p-6">{children}</main>
       </div>
+      <Toaster />
     </div>
   );
 }

@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Procurement Analytics
 
-## Getting Started
+A Next.js web app for presenting mining procurement analytics from synthetic data.
+Multi-user with auth, single organization, fixed analytical methodology.
 
-First, run the development server:
+## Tech stack
+Next.js 16 (App Router), TypeScript, Prisma 7, PostgreSQL, Tailwind v4, shadcn/ui,
+Recharts, bcrypt + iron-session, Python (for analysis compute scripts).
+
+## Local setup
+
+### Prerequisites
+- Node.js 20+
+- PostgreSQL 17+ running locally
+- Python 3.10+
+
+### Installation
 
 ```bash
+# Clone and install
+npm install
+
+# Create the database (one-time)
+psql -U postgres -c "CREATE DATABASE procurement_analytics;"
+
+# Configure environment
+cp .env.example .env
+# Edit .env: set DATABASE_URL, SESSION_SECRET (32+ chars), NODE_ENV
+
+# Generate Prisma client (required after every clone)
+npx prisma generate
+
+# Run migrations
+npx prisma migrate dev
+
+# Seed the database
+npx prisma db seed
+
+# Start dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Seeded test users
+- Admin: `admin@adaro.com` / `admin123`
+- Viewer: `viewer@adaro.com` / `viewer123`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project structure
+- `app/` — Next.js pages and API routes (App Router)
+- `app/(dashboard)/` — Authenticated routes (sidebar + header)
+- `app/login/` — Authentication
+- `app/api/` — API endpoints
+- `components/` — Shared React components (UI primitives + custom)
+- `lib/` — Server utilities (prisma, auth, session, period)
+- `prisma/` — Schema, migrations, seed
+- `python/` — Analysis compute scripts (Phase 7+)
+- `data/raw/` — Sample data for testing
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Reference docs
+- `CLAUDE.md` — Project rules for AI assistance
+- `nextjs_build_plan.md` — Full architecture and phase-by-phase build plan
+- `procurement_analytics_gameplan_technical.md` — Analytical methodology
+- `dataset_type_explainer.md` — Data field definitions and provenance
