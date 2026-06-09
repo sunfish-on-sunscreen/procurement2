@@ -4,12 +4,17 @@ A full-stack Next.js web app for presenting mining procurement analytics from sy
 data. Multi-user with auth, single organization, fixed analyses (no parameter tweaking).
 
 ## Tech stack
-- Next.js 15 (App Router) + TypeScript
+- Next.js 16 (App Router) + TypeScript
 - Prisma 7 + PostgreSQL (local)
-- Tailwind + shadcn/ui
+- Tailwind v4 + shadcn/ui
 - Recharts for charts
 - bcrypt + iron-session for auth
 - Python script computes analyses post-import
+
+## Note on shadcn components
+- `toast` was removed upstream; we use `sonner` for notifications instead
+- `form` was pulled from the `new-york` style (base-nova ships an empty placeholder)
+- All other components are standard shadcn defaults with Slate base color
 
 ## Architecture
 - /app — Next.js pages and API routes (App Router)
