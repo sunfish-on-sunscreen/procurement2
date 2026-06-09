@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -10,4 +8,191 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ============= AUTH =============
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+
+  sessions Session[]
+  imports  Import[]
+  reports  ExecutiveSummary[]
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ============= REPORTING PERIODS =============
+
+model ReportingPeriod {
+  id        String   @id @default(cuid())
+  name      String   @unique // "Q1 2024", "FY 2024", etc.
+  startDate DateTime
+  endDate   DateTime
+  isLocked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  suppliers          Supplier[]
+  purchases          Purchase[]
+  metrics            SupplierMetric[]
+  imports            Import[]
+  analysisResults    AnalysisResult[]
+  executiveSummaries ExecutiveSummary[]
+}
+
+// ============= DATA =============
+
+model Supplier {
+  id                 String          @id @default(cuid())
+  externalId         String // S001, S002, etc.
+  supplierName       String
+  country            String
+  category           String
+  productDescription String
+  tier               String // Legacy tier
+  periodId           String
+  period             ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([externalId, periodId])
+  @@index([periodId])
+  @@index([category])
+}
+
+model Purchase {
+  id                    String          @id @default(cuid())
+  poId                  String
+  supplierExternalId    String
+  supplierName          String
+  category              String
+  itemDescription       String
+  unit                  String
+  quantity              Float
+  unitPriceUsd          Float
+  totalValueUsd         Float
+  prDate                DateTime
+  poDate                DateTime
+  deliveryDate          DateTime
+  invoiceDate           DateTime
+  paymentDate           DateTime
+  prToPoDays            Int
+  poToDeliveryDays      Int
+  deliveryToInvoiceDays Int
+  invoiceToPaymentDays  Int
+  totalCycleDays        Int
+  onTimeDelivery        Boolean
+  threeWayMatchPass     Boolean
+  automationPeriod      String // "pre" or "post"
+  periodId              String
+  period                ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([poId, periodId])
+  @@index([periodId])
+  @@index([supplierExternalId, periodId])
+  @@index([automationPeriod])
+}
+
+model SupplierMetric {
+  id                   String          @id @default(cuid())
+  supplierExternalId   String
+  supplierName         String
+  category             String
+  tier                 String
+  totalSpendUsd        Float
+  numPos               Int
+  avgPoValueUsd        Float
+  avgLeadTimeDays      Float
+  avgCycleTimeDays     Float
+  onTimeDeliveryPct    Float
+  threeWayMatchPct     Float
+  defectRatePct        Float
+  complaintCountAnnual Int
+  rfxResponseRatePct   Float
+  avgResponseTimeDays  Float
+  singleSourceRisk     Int
+  qualityScore         Float
+  deliveryScore        Float
+  serviceScore         Float
+  processScore         Float
+  riskScore            Float
+  compositeScore       Float
+  calculatedTier       String
+  tierMismatch         Boolean
+  periodId             String
+  period               ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierExternalId, periodId])
+  @@index([periodId])
+}
+
+// ============= IMPORTS =============
+
+model Import {
+  id           String          @id @default(cuid())
+  userId       String
+  user         User            @relation(fields: [userId], references: [id])
+  periodId     String
+  period       ReportingPeriod @relation(fields: [periodId], references: [id])
+  filename     String
+  fileType     String // 'suppliers' | 'purchases' | 'supplier_metrics'
+  rowCount     Int
+  status       ImportStatus
+  errorMessage String?
+  uploadedAt   DateTime        @default(now())
+  processedAt  DateTime?
+
+  @@index([periodId])
+  @@index([uploadedAt])
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+// ============= PRE-COMPUTED ANALYSES =============
+
+model AnalysisResult {
+  id           String          @id @default(cuid())
+  periodId     String
+  period       ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  analysisType String // 'abc' | 'clustering' | 'hypothesis' | 'spend_overview'
+  resultJson   Json
+  computedAt   DateTime        @default(now())
+
+  @@unique([periodId, analysisType])
+  @@index([periodId])
+}
+
+// ============= EXECUTIVE SUMMARIES =============
+
+model ExecutiveSummary {
+  id              String          @id @default(cuid())
+  periodId        String
+  period          ReportingPeriod @relation(fields: [periodId], references: [id])
+  title           String
+  narrative       String          @db.Text
+  metricsJson     Json
+  createdAt       DateTime        @default(now())
+  generatedBy     String
+  generatedByUser User            @relation(fields: [generatedBy], references: [id])
+
+  @@index([periodId])
 }
