@@ -18,7 +18,7 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 ## Architecture
 - /app — Next.js pages and API routes (App Router)
-- /lib — utilities (prisma client, auth, calculation helpers)
+- /lib — utilities (prisma.ts client singleton, session.ts edge-safe iron-session config, auth.ts helpers, calculation helpers)
 - /components — reusable React components
 - /hooks — React hooks
 - /types — shared TypeScript types
@@ -34,9 +34,14 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 ## Auth pattern
 - Hardcoded seeded users (admin + viewer roles)
 - bcrypt for passwords, iron-session for sessions
-- Middleware protects all routes except /login
+- `proxy.ts` (Next.js 16 proxy convention — replaces the deprecated `middleware.ts`) protects all routes except /login, /api/auth/*, and static assets
 - Admin: full access (import, generate reports, manage periods)
 - Viewer: read-only access to dashboards and reports
+
+### Auth architecture (Phase 4)
+- `lib/prisma.ts` — shared PrismaClient singleton using the pg driver adapter (`new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) })`) with a `globalThis` HMR guard. Always import the generated client from `@/lib/generated/prisma/client`.
+- `lib/session.ts` — edge-safe iron-session config: the `SessionData` type + `sessionOptions` only. NO Prisma import, so `proxy.ts` (Edge runtime) can import it safely.
+- `lib/auth.ts` — Node-side auth helpers that DO use Prisma (`getSession`, `createSession`, `destroySession`, `requireAuth`, `requireAdmin`); re-exports `SessionData` from `lib/session.ts`.
 
 ## Critical scope rules — DO NOT VIOLATE
 - ALL analyses use FIXED methodology — no parameter sliders
