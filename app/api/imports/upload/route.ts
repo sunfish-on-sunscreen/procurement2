@@ -3,6 +3,7 @@ import * as xlsx from "xlsx";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { runComputeAnalyses } from "@/lib/python";
 
 export const runtime = "nodejs";
 
@@ -316,7 +317,16 @@ export async function POST(request: Request) {
     ),
   );
 
-  // TODO: Phase 7 - spawn Python compute script here
+  // 13. Spawn the Python analysis pipeline. Data is already committed, so a
+  // compute failure does NOT fail the upload — analyses can be recomputed via
+  // POST /api/analyses/compute.
+  let analysesComputed = false;
+  const compute = await runComputeAnalyses(periodId);
+  if (compute.code === 0) {
+    analysesComputed = true;
+  } else {
+    console.error("compute_analyses failed after import:", compute.stderr);
+  }
 
   // 14. Summary
   return NextResponse.json({
@@ -324,5 +334,6 @@ export async function POST(request: Request) {
     suppliers: supplierData.length,
     purchases: purchaseData.length,
     metrics: metricData.length,
+    analyses_computed: analysesComputed,
   });
 }
