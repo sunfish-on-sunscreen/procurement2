@@ -24,29 +24,49 @@ function resolvePythonExecutable(): string {
   return isWindows ? "python" : "python3";
 }
 
-/**
- * Spawn the analysis compute script for a period. Never throws — resolves with
- * the exit code and captured output so callers can decide how to react.
- */
-export function runComputeAnalyses(periodId: string): Promise<PythonResult> {
+function runScript(args: string[], timeoutMs?: number): Promise<PythonResult> {
   return new Promise((resolve) => {
     const root = process.cwd();
     const script = path.join(root, "python", "compute_analyses.py");
-    const child = spawn(
-      resolvePythonExecutable(),
-      [script, "--period-id", periodId],
-      { cwd: root, detached: false, stdio: "pipe" },
-    );
+    const child = spawn(resolvePythonExecutable(), [script, ...args], {
+      cwd: root,
+      detached: false,
+      stdio: "pipe",
+    });
 
     let stdout = "";
     let stderr = "";
+    let timer: NodeJS.Timeout | undefined;
+    if (timeoutMs) {
+      timer = setTimeout(() => {
+        stderr += `\n[python killed after ${timeoutMs}ms timeout]`;
+        child.kill();
+      }, timeoutMs);
+    }
+
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
     child.on("error", (err) => {
+      if (timer) clearTimeout(timer);
       resolve({ code: -1, stdout, stderr: `${stderr}\n${String(err)}` });
     });
     child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
       resolve({ code: code ?? -1, stdout, stderr });
     });
   });
+}
+
+/** Mode A: compute + upsert AnalysisResult rows for a single period. */
+export function runComputeAnalyses(periodId: string): Promise<PythonResult> {
+  return runScript(["--period-id", periodId]);
+}
+
+/** Mode B: compute over a date range and return the analyses JSON on stdout. */
+export function runComputeRange(
+  startDate: string,
+  endDate: string,
+  timeoutMs = 30000,
+): Promise<PythonResult> {
+  return runScript(["--start-date", startDate, "--end-date", endDate], timeoutMs);
 }

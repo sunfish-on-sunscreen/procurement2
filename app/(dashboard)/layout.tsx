@@ -1,5 +1,5 @@
 import { requireAuth } from "@/lib/auth";
-import { getAllPeriods, getCurrentPeriodId } from "@/lib/period";
+import { getAllPeriods, getCurrentPeriodSelection } from "@/lib/period";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { Toaster } from "@/components/ui/sonner";
@@ -11,7 +11,7 @@ export default async function DashboardLayout({
 }) {
   const session = await requireAuth();
   const periods = await getAllPeriods();
-  const currentPeriodId = await getCurrentPeriodId();
+  const selection = await getCurrentPeriodSelection();
 
   const periodOptions = periods.map((period) => ({
     id: period.id,
@@ -25,7 +25,7 @@ export default async function DashboardLayout({
         <Header
           user={session}
           periods={periodOptions}
-          currentPeriodId={currentPeriodId}
+          selection={selection}
         />
         <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">
           {children}

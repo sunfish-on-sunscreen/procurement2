@@ -6,27 +6,8 @@ import bcrypt from "bcrypt";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-const reportingPeriods = [
-  {
-    name: "FY 2024",
-    startDate: new Date("2024-01-01"),
-    endDate: new Date("2024-12-31"),
-    isLocked: false,
-  },
-  {
-    name: "FY 2025",
-    startDate: new Date("2025-01-01"),
-    endDate: new Date("2025-12-31"),
-    isLocked: false,
-  },
-  {
-    name: "FY 2024-2025 Combined",
-    startDate: new Date("2024-01-01"),
-    endDate: new Date("2025-12-31"),
-    isLocked: false,
-  },
-];
-
+// Reporting periods are NO LONGER seeded — they are auto-created from the years
+// detected in uploaded data (see app/api/imports/upload/route.ts).
 const users = [
   {
     email: "admin@adaro.com",
@@ -44,19 +25,6 @@ const users = [
 
 async function main() {
   try {
-    // Reporting periods (idempotent via unique `name`)
-    for (const period of reportingPeriods) {
-      await prisma.reportingPeriod.upsert({
-        where: { name: period.name },
-        update: {
-          startDate: period.startDate,
-          endDate: period.endDate,
-          isLocked: period.isLocked,
-        },
-        create: period,
-      });
-    }
-
     // Users with bcrypt-hashed passwords (12 rounds), idempotent via unique `email`
     for (const user of users) {
       const passwordHash = await bcrypt.hash(user.password, 12);
@@ -76,11 +44,8 @@ async function main() {
       });
     }
 
-    const periodCount = await prisma.reportingPeriod.count();
     const userCount = await prisma.user.count();
-    console.log(
-      `Seed complete: ${userCount} users, ${periodCount} reporting periods.`,
-    );
+    console.log(`Seed complete: ${userCount} users (periods are created on import).`);
   } catch (error) {
     console.error("Seed failed:", error);
     process.exitCode = 1;

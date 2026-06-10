@@ -1,5 +1,4 @@
 import { requireAdmin } from "@/lib/auth";
-import { getAllPeriods, getCurrentPeriodId } from "@/lib/period";
 import { prisma } from "@/lib/prisma";
 import { ImportForm } from "@/components/ImportForm";
 import { Badge } from "@/components/ui/badge";
@@ -29,13 +28,6 @@ function formatDate(value: Date | null): string {
 export default async function ImportPage() {
   await requireAdmin();
 
-  const periods = await getAllPeriods();
-  const currentPeriodId = await getCurrentPeriodId();
-  const periodOptions = periods.map((period) => ({
-    id: period.id,
-    name: period.name,
-  }));
-
   const imports = await prisma.import.findMany({
     take: 20,
     orderBy: { uploadedAt: "desc" },
@@ -44,7 +36,7 @@ export default async function ImportPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <ImportForm periods={periodOptions} currentPeriodId={currentPeriodId} />
+      <ImportForm />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Recent Imports</h2>

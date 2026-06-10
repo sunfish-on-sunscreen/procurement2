@@ -111,21 +111,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
   const file = formData.get("file");
-  const periodId = formData.get("periodId");
-
   if (!(file instanceof Blob)) {
     return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   }
-  if (typeof periodId !== "string" || periodId.length === 0) {
-    return NextResponse.json({ error: "Missing periodId" }, { status: 400 });
-  }
-
-  // 3. Validate the period exists
-  const period = await prisma.reportingPeriod.findUnique({ where: { id: periodId } });
-  if (!period) {
-    return NextResponse.json({ error: "Reporting period not found" }, { status: 400 });
-  }
-
   const filename = file instanceof File ? file.name : "upload.xlsx";
 
   // 4. Parse workbook
@@ -175,7 +163,42 @@ export async function POST(request: Request) {
     );
   }
 
-  // 10. Transform CSV column names -> Prisma field names (+ periodId)
+  // 9. Auto-create reporting periods from the YEARS present in Purchases.prDate.
+  let years: number[];
+  try {
+    years = [
+      ...new Set(
+        purchasesParsed.data.map((r) => parseExcelDate(r.pr_date).getUTCFullYear()),
+      ),
+    ].sort((a, b) => a - b);
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Date parsing failed in Purchases sheet: ${(err as Error).message}` },
+      { status: 400 },
+    );
+  }
+  if (years.length === 0) {
+    return NextResponse.json({ error: "No purchase rows to import" }, { status: 400 });
+  }
+
+  const yearToPeriodId = new Map<number, string>();
+  for (const year of years) {
+    const rp = await prisma.reportingPeriod.upsert({
+      where: { name: String(year) },
+      create: {
+        name: String(year),
+        startDate: new Date(Date.UTC(year, 0, 1)),
+        endDate: new Date(Date.UTC(year, 11, 31, 23, 59, 59)),
+      },
+      update: {}, // never mutate an existing period
+    });
+    yearToPeriodId.set(year, rp.id);
+  }
+  // Suppliers/metrics aren't year-specific; tag them to the latest detected year.
+  const maxYearPeriodId = yearToPeriodId.get(years[years.length - 1])!;
+  const affectedPeriodIds = [...yearToPeriodId.values()];
+
+  // 10. Transform CSV column names -> Prisma field names (+ period tagging)
   const supplierData = suppliersParsed.data.map((r) => ({
     externalId: r.supplier_id,
     supplierName: r.supplier_name,
@@ -183,36 +206,40 @@ export async function POST(request: Request) {
     category: r.category,
     productDescription: r.product_description,
     tier: r.tier,
-    periodId,
+    periodId: maxYearPeriodId,
   }));
 
   let purchaseData;
   try {
-    purchaseData = purchasesParsed.data.map((r) => ({
-      poId: r.po_id,
-      supplierExternalId: r.supplier_id,
-      supplierName: r.supplier_name,
-      category: r.category,
-      itemDescription: r.item_description,
-      unit: r.unit,
-      quantity: r.quantity,
-      unitPriceUsd: r.unit_price_usd,
-      totalValueUsd: r.total_value_usd,
-      prDate: parseExcelDate(r.pr_date),
-      poDate: parseExcelDate(r.po_date),
-      deliveryDate: parseExcelDate(r.delivery_date),
-      invoiceDate: parseExcelDate(r.invoice_date),
-      paymentDate: parseExcelDate(r.payment_date),
-      prToPoDays: r.pr_to_po_days,
-      poToDeliveryDays: r.po_to_delivery_days,
-      deliveryToInvoiceDays: r.delivery_to_invoice_days,
-      invoiceToPaymentDays: r.invoice_to_payment_days,
-      totalCycleDays: r.total_cycle_days,
-      onTimeDelivery: r.on_time_delivery,
-      threeWayMatchPass: r.three_way_match_pass,
-      automationPeriod: r.automation_period,
-      periodId,
-    }));
+    purchaseData = purchasesParsed.data.map((r) => {
+      const prDate = parseExcelDate(r.pr_date);
+      return {
+        poId: r.po_id,
+        supplierExternalId: r.supplier_id,
+        supplierName: r.supplier_name,
+        category: r.category,
+        itemDescription: r.item_description,
+        unit: r.unit,
+        quantity: r.quantity,
+        unitPriceUsd: r.unit_price_usd,
+        totalValueUsd: r.total_value_usd,
+        prDate,
+        poDate: parseExcelDate(r.po_date),
+        deliveryDate: parseExcelDate(r.delivery_date),
+        invoiceDate: parseExcelDate(r.invoice_date),
+        paymentDate: parseExcelDate(r.payment_date),
+        prToPoDays: r.pr_to_po_days,
+        poToDeliveryDays: r.po_to_delivery_days,
+        deliveryToInvoiceDays: r.delivery_to_invoice_days,
+        invoiceToPaymentDays: r.invoice_to_payment_days,
+        totalCycleDays: r.total_cycle_days,
+        onTimeDelivery: r.on_time_delivery,
+        threeWayMatchPass: r.three_way_match_pass,
+        automationPeriod: r.automation_period,
+        // Tag each purchase to the period for the YEAR of its pr_date.
+        periodId: yearToPeriodId.get(prDate.getUTCFullYear())!,
+      };
+    });
   } catch (err) {
     return NextResponse.json(
       { error: `Date parsing failed in Purchases sheet: ${(err as Error).message}` },
@@ -245,7 +272,7 @@ export async function POST(request: Request) {
     compositeScore: r.composite_score,
     calculatedTier: r.calculated_tier,
     tierMismatch: r.tier_mismatch,
-    periodId,
+    periodId: maxYearPeriodId,
   }));
 
   // 11a. Create PROCESSING import records OUTSIDE the data transaction, so a
@@ -260,7 +287,7 @@ export async function POST(request: Request) {
       prisma.import.create({
         data: {
           userId: session.userId,
-          periodId,
+          periodId: maxYearPeriodId,
           filename,
           fileType: meta.fileType,
           rowCount: 0,
@@ -274,13 +301,14 @@ export async function POST(request: Request) {
   try {
     await prisma.$transaction(
       async (tx) => {
-        await tx.supplier.deleteMany({ where: { periodId } });
+        const where = { periodId: { in: affectedPeriodIds } };
+        await tx.supplier.deleteMany({ where });
         await tx.supplier.createMany({ data: supplierData });
 
-        await tx.purchase.deleteMany({ where: { periodId } });
+        await tx.purchase.deleteMany({ where });
         await tx.purchase.createMany({ data: purchaseData });
 
-        await tx.supplierMetric.deleteMany({ where: { periodId } });
+        await tx.supplierMetric.deleteMany({ where });
         await tx.supplierMetric.createMany({ data: metricData });
       },
       { timeout: 30000 },
@@ -317,15 +345,16 @@ export async function POST(request: Request) {
     ),
   );
 
-  // 13. Spawn the Python analysis pipeline. Data is already committed, so a
-  // compute failure does NOT fail the upload — analyses can be recomputed via
-  // POST /api/analyses/compute.
-  let analysesComputed = false;
-  const compute = await runComputeAnalyses(periodId);
-  if (compute.code === 0) {
-    analysesComputed = true;
-  } else {
-    console.error("compute_analyses failed after import:", compute.stderr);
+  // 13. Compute analyses for EACH detected year period, SEQUENTIALLY (avoids
+  // concurrent python/DB contention). Data is already committed, so a compute
+  // failure does NOT fail the upload — recompute via POST /api/analyses/compute.
+  let analysesComputed = true;
+  for (const year of years) {
+    const compute = await runComputeAnalyses(yearToPeriodId.get(year)!);
+    if (compute.code !== 0) {
+      analysesComputed = false;
+      console.error(`compute_analyses failed for ${year}:`, compute.stderr);
+    }
   }
 
   // 14. Summary
@@ -335,5 +364,6 @@ export async function POST(request: Request) {
     purchases: purchaseData.length,
     metrics: metricData.length,
     analyses_computed: analysesComputed,
+    periodsCreated: years.map(String),
   });
 }

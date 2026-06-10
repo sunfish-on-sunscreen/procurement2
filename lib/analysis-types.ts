@@ -32,6 +32,62 @@ export type AbcResult = {
   crosstab: Record<string, Record<string, number>>; // tier -> abc_class -> count
 };
 
+export type ClusterAssignment = {
+  supplier_id: string;
+  supplier_name: string;
+  tier: string;
+  cluster: number;
+  pca1: number;
+  pca2: number;
+};
+
+export type ClusterProfile = {
+  cluster: number;
+  n_suppliers: number;
+  [feature: string]: number;
+};
+
+export type ClusteringResult = {
+  k: number;
+  features_used: string[];
+  cluster_assignments: ClusterAssignment[];
+  cluster_profiles: ClusterProfile[];
+  explained_variance: { pc1: number; pc2: number };
+  tier_vs_cluster: Record<string, Record<string, number>>;
+};
+
+export type HypothesisStats = {
+  n: number;
+  mean: number | null;
+  median: number | null;
+  std: number | null;
+  q1: number | null;
+  q3: number | null;
+};
+
+export type HypothesisResult = {
+  test: string;
+  alpha: number;
+  pre_stats: HypothesisStats;
+  post_stats: HypothesisStats;
+  statistic: number | null;
+  p_value: number | null;
+  effect_size: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  significant: boolean;
+  insufficient_data?: boolean;
+  monthly_trend: { month: string; mean_days: number }[];
+};
+
+/** Full payload returned by /api/analyses/compute-range (Python Mode B). */
+export type RangeAnalyses = {
+  spend_overview: SpendOverviewResult;
+  abc: AbcResult;
+  clustering: ClusteringResult;
+  hypothesis: HypothesisResult;
+};
+
 /**
  * Fetch a pre-computed AnalysisResult's resultJson, typed as T, or null if it
  * has not been computed for the period yet.
