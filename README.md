@@ -35,8 +35,34 @@ npx prisma migrate dev
 
 # Seed the database
 npx prisma db seed
+```
 
-# Start dev server
+### Python environment (for analysis compute)
+
+The analysis pipeline (ABC, clustering, hypothesis test) runs as a Python script
+called by the Next.js import route. Set up a venv:
+
+```bash
+# Create venv
+python -m venv python/.venv
+
+# Activate (Windows PowerShell)
+python\.venv\Scripts\Activate.ps1
+
+# Or activate (Mac/Linux)
+source python/.venv/bin/activate
+
+# Install dependencies
+pip install -r python/requirements.txt
+```
+
+If the venv is missing or dependencies aren't installed, uploads still succeed but
+the response will show "analyses_computed: false" — you can fix the venv and call
+POST /api/analyses/compute to retry.
+
+### Start the dev server
+
+```bash
 npm run dev
 ```
 
