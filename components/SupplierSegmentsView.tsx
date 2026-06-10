@@ -1,7 +1,7 @@
 "use client";
 
 import type { ClusteringResult, ClusterProfile } from "@/lib/analysis-types";
-import { CHART_COLORS } from "@/lib/chart-colors";
+import { SEGMENT_COLORS } from "@/lib/chart-colors";
 import { PcaScatterChart } from "@/components/charts/PcaScatterChart";
 import {
   Card,
@@ -108,6 +108,10 @@ export function SupplierSegmentsView({
     (a, b) => a.cluster - b.cluster,
   );
   const segments = assignSegments(profiles);
+  const segmentNames: Record<number, string> = {};
+  segments.forEach((name, cluster) => {
+    segmentNames[cluster] = name;
+  });
   const tiers = Object.keys(clustering.tier_vs_cluster);
   const clusterIds = profiles.map((p) => p.cluster);
 
@@ -138,6 +142,7 @@ export function SupplierSegmentsView({
           <PcaScatterChart
             data={clustering.cluster_assignments}
             explainedVariance={clustering.explained_variance}
+            segmentNames={segmentNames}
           />
         </CardContent>
       </Card>
@@ -167,8 +172,7 @@ export function SupplierSegmentsView({
                     <span
                       className="inline-block h-3 w-3 rounded-full align-middle"
                       style={{
-                        backgroundColor:
-                          CHART_COLORS[p.cluster % CHART_COLORS.length],
+                        backgroundColor: SEGMENT_COLORS[segmentNames[p.cluster]],
                       }}
                     />{" "}
                     {p.cluster}
@@ -203,7 +207,7 @@ export function SupplierSegmentsView({
             <Card
               key={p.cluster}
               style={{
-                borderLeft: `4px solid ${CHART_COLORS[p.cluster % CHART_COLORS.length]}`,
+                borderLeft: `4px solid ${SEGMENT_COLORS[name]}`,
               }}
             >
               <CardHeader className="pb-2">
