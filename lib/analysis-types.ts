@@ -63,6 +63,14 @@ export type HypothesisStats = {
   std: number | null;
   q1: number | null;
   q3: number | null;
+  min: number | null;
+  max: number | null;
+};
+
+export type HypothesisHistogram = {
+  bin_centers: number[];
+  pre: number[];
+  post: number[];
 };
 
 export type HypothesisResult = {
@@ -70,6 +78,7 @@ export type HypothesisResult = {
   alpha: number;
   pre_stats: HypothesisStats;
   post_stats: HypothesisStats;
+  histogram: HypothesisHistogram;
   statistic: number | null;
   p_value: number | null;
   effect_size: number | null;

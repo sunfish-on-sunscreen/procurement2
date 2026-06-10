@@ -30,7 +30,7 @@ export function ChartFrame({
   return (
     <div style={{ width: "100%", height }}>
       {hydrated ? (
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height={height} minHeight={height}>
           {children}
         </ResponsiveContainer>
       ) : null}

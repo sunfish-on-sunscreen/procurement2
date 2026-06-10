@@ -328,7 +328,10 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
 
     def stats_block(arr):
         if len(arr) == 0:
-            return {"n": 0, "mean": None, "median": None, "std": None, "q1": None, "q3": None}
+            return {
+                "n": 0, "mean": None, "median": None, "std": None,
+                "q1": None, "q3": None, "min": None, "max": None,
+            }
         return {
             "n": int(len(arr)),
             "mean": num(np.mean(arr)),
@@ -336,6 +339,25 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
             "std": num(np.std(arr, ddof=1)) if len(arr) > 1 else None,
             "q1": num(np.percentile(arr, 25)),
             "q3": num(np.percentile(arr, 75)),
+            "min": num(np.min(arr)),
+            "max": num(np.max(arr)),
+        }
+
+    def make_histogram(a, b, nbins=12):
+        combined = np.concatenate([x for x in (a, b) if len(x)]) if (len(a) or len(b)) else np.array([])
+        if len(combined) == 0:
+            return {"bin_centers": [], "pre": [], "post": []}
+        lo, hi = float(np.min(combined)), float(np.max(combined))
+        if hi <= lo:
+            hi = lo + 1.0
+        edges = np.linspace(lo, hi, nbins + 1)
+        pre_counts = np.histogram(a, bins=edges)[0].tolist() if len(a) else [0] * nbins
+        post_counts = np.histogram(b, bins=edges)[0].tolist() if len(b) else [0] * nbins
+        centers = (edges[:-1] + edges[1:]) / 2
+        return {
+            "bin_centers": [round(float(c), 1) for c in centers],
+            "pre": [int(c) for c in pre_counts],
+            "post": [int(c) for c in post_counts],
         }
 
     pm = purchases.copy()
@@ -348,6 +370,7 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
         "alpha": 0.05,
         "pre_stats": stats_block(pre),
         "post_stats": stats_block(post),
+        "histogram": make_histogram(pre, post),
         "monthly_trend": monthly_trend,
     }
 
