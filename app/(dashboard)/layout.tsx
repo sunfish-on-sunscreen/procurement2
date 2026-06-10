@@ -27,7 +27,9 @@ export default async function DashboardLayout({
           periods={periodOptions}
           currentPeriodId={currentPeriodId}
         />
-        <main className="flex-1 p-6">{children}</main>
+        <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">
+          {children}
+        </main>
       </div>
       <Toaster />
     </div>
