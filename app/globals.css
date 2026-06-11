@@ -128,3 +128,12 @@
     @apply font-sans;
   }
 }
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .pdf-page-break {
+    page-break-after: always;
+  }
+}
