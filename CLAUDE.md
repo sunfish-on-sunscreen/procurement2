@@ -3,6 +3,33 @@
 A full-stack Next.js web app for presenting mining procurement analytics from synthetic 
 data. Multi-user with auth, single organization, fixed analyses (no parameter tweaking).
 
+## Current Work — Phase 11: K-means → Kraljic Matrix architecture (IN PROGRESS)
+
+Replacing the K-means supplier clustering with a Kraljic Matrix approach, plus a
+Performance vs Spend diagnostic, cross-references, and a recommendations engine.
+
+**5-phase plan:**
+- **11A — Data layer (schema + Python): ✅ DONE** (commit `7595758`)
+- **11B — Kraljic Matrix page (replaces Supplier Segments): ⏭️ NEXT**
+- **11C — Performance vs Spend page (NEW)**
+- **11D — Process Quality page + cross-references**
+- **11E — Action Dashboard + recommendations + new PDF**
+
+**Key architectural decisions:**
+- **Supply Risk Score** = `single_source(30) + category_competition(30) + country_distance(20) + switching_cost(20)`, clipped to 100.
+- **Kraljic quadrants** assigned by a **median split on `log_spend` × `supply_risk_score`** (Strategic = high/high, Leverage = high spend/low risk, Bottleneck = low spend/high risk, Routine = low/low).
+- **Performance score = `SupplierMetric.compositeScore`** (used as-is; NOT recomputed per range).
+- **Per-period quadrant data lives in `AnalysisResult.kraljic`** (one row per period). It is NOT period-accurate in `SupplierMetric` — the writeback there is **last-period-wins** (one row per supplier, tagged to the max year), so it's only a convenience snapshot.
+- **11B–11E pages should query `AnalysisResult.kraljic`** for period-specific data, not `SupplierMetric`.
+
+**Known data-quality flags (deferred — fix later by editing `generate_dataset.py`, NOT the app):**
+- `risk_score == 100` for all suppliers.
+- `single_source_risk == 0` for all suppliers, so the single-source component contributes nothing and the effective supply-risk range is ~0–70 (not 0–100).
+
+**Legacy code still present (remove in 11B):** the existing K-means `clustering()` in
+`python/compute_analyses.py` and `components/SupplierSegmentsView.tsx` remain for now;
+they'll be removed in 11B when the Kraljic Matrix page replaces Supplier Segments.
+
 ## Tech stack
 - Next.js 16 (App Router) + TypeScript
 - Prisma 7 + PostgreSQL (local)
