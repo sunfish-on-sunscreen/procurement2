@@ -133,6 +133,12 @@ model SupplierMetric {
   compositeScore       Float
   calculatedTier       String
   tierMismatch         Boolean
+
+  // Phase 11A: Kraljic matrix data layer (computed post-import, nullable until run)
+  supplyRiskScore     Float?  @db.Real // 0-100 supply-risk index
+  kraljicQuadrant     String? @db.VarChar(30) // Strategic | Leverage | Bottleneck | Routine
+  categoryCompetition Int? // count of OTHER suppliers in the same category
+
   periodId             String
   period               ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 

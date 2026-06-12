@@ -89,12 +89,44 @@ export type HypothesisResult = {
   monthly_trend: { month: string; mean_days: number }[];
 };
 
+export type KraljicQuadrant = "Strategic" | "Leverage" | "Bottleneck" | "Routine";
+
+export interface QuadrantAssignment {
+  supplier_id: string;
+  supplier_name: string;
+  tier: string;
+  log_spend: number;
+  supply_risk_score: number;
+  quadrant: KraljicQuadrant;
+}
+
+export interface QuadrantProfile {
+  quadrant: KraljicQuadrant;
+  n_suppliers: number;
+  total_spend: number;
+  pct_of_total_spend: number;
+  avg_performance_score: number;
+  median_risk: number;
+  median_spend: number;
+}
+
+export interface KraljicResult {
+  quadrant_assignments: QuadrantAssignment[];
+  quadrant_profiles: QuadrantProfile[];
+  axis_thresholds: {
+    spend_median: number;
+    risk_median: number;
+  };
+  quadrant_vs_tier: Record<KraljicQuadrant, Record<string, number>>;
+}
+
 /** Full payload returned by /api/analyses/compute-range (Python Mode B). */
 export type RangeAnalyses = {
   spend_overview: SpendOverviewResult;
   abc: AbcResult;
   clustering: ClusteringResult;
   hypothesis: HypothesisResult;
+  kraljic: KraljicResult;
 };
 
 /**

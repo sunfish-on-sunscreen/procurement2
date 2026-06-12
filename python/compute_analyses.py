@@ -422,6 +422,195 @@ ANALYSES = [
 
 
 # --------------------------------------------------------------------------- #
+# e) Kraljic matrix  (supply-risk score + quadrant assignment)
+# --------------------------------------------------------------------------- #
+# ASEAN ISO alpha-2 codes (data stores codes, not names).
+ASEAN_CODES = {"SG", "MY", "TH", "VN", "PH", "BN", "MM", "LA", "KH"}
+ASEAN_NAMES = {
+    "Singapore", "Malaysia", "Thailand", "Vietnam", "Philippines",
+    "Brunei", "Myanmar", "Laos", "Cambodia",
+}
+
+
+def _country_distance_points(country):
+    c = str(country).strip()
+    if c in ("ID", "Indonesia"):
+        return 0.0
+    if c in ASEAN_CODES or c in ASEAN_NAMES:
+        return 10.0
+    return 20.0
+
+
+def compute_supply_risk(suppliers, metrics):
+    """Return (risk_map, competition_map) over the given supplier set.
+
+    risk = single_source(0/30) + category_competition(0-30)
+         + country_distance(0/10/20) + switching_cost(0-20), clipped to [0,100].
+    """
+    sup = suppliers.rename(columns={"externalId": "supplierExternalId"}).drop_duplicates(
+        "supplierExternalId"
+    )
+    df = sup[["supplierExternalId", "category", "country"]].copy()
+
+    # category competition: OTHER suppliers in the same category (this supplier set)
+    cat_size = df.groupby("category")["supplierExternalId"].transform("size")
+    df["other_in_category"] = (cat_size - 1).astype(int)
+
+    m = (
+        metrics[["supplierExternalId", "singleSourceRisk", "avgLeadTimeDays"]]
+        .drop_duplicates("supplierExternalId")
+        if len(metrics)
+        else pd.DataFrame(
+            columns=["supplierExternalId", "singleSourceRisk", "avgLeadTimeDays"]
+        )
+    )
+    df = df.merge(m, on="supplierExternalId", how="left")
+
+    # 1. single source (0 or 30)
+    c_single = np.where(df["singleSourceRisk"].fillna(0).astype(float) >= 1, 30.0, 0.0)
+    # 2. category competition (0-30): (5 - other) * 7.5, clipped
+    c_category = ((5 - df["other_in_category"]) * 7.5).clip(0, 30).astype(float)
+    # 3. country distance (0/10/20)
+    c_country = df["country"].apply(_country_distance_points).astype(float)
+    # 4. switching cost (0-20): min-max normalized lead time
+    lead = df["avgLeadTimeDays"].astype(float)
+    lead = lead.fillna(lead.mean())
+    lmin, lmax = float(lead.min()), float(lead.max())
+    lead_norm = (lead - lmin) / (lmax - lmin) if lmax > lmin else lead * 0.0
+    c_switch = lead_norm * 20.0
+
+    risk = np.clip(c_single + c_category.values + c_country.values + c_switch.values, 0, 100)
+
+    risk_map = {sid: float(r) for sid, r in zip(df["supplierExternalId"], risk)}
+    competition_map = {
+        sid: int(o) for sid, o in zip(df["supplierExternalId"], df["other_in_category"])
+    }
+    return risk_map, competition_map
+
+
+def assign_kraljic_quadrants(spend_map, risk_map):
+    """Median split on log_spend (x) and supply_risk (y) as the crossing point."""
+    sids = list(spend_map.keys())
+    spend_med = float(np.median([spend_map[s] for s in sids])) if sids else 0.0
+    risk_med = float(np.median([risk_map[s] for s in sids])) if sids else 0.0
+    quad = {}
+    for s in sids:
+        hi_spend = spend_map[s] > spend_med
+        hi_risk = risk_map[s] > risk_med
+        if hi_spend and hi_risk:
+            quad[s] = "Strategic"
+        elif hi_spend and not hi_risk:
+            quad[s] = "Leverage"
+        elif not hi_spend and hi_risk:
+            quad[s] = "Bottleneck"
+        else:
+            quad[s] = "Routine"
+    return quad, spend_med, risk_med
+
+
+def kraljic_analysis(purchases, suppliers, metrics):
+    """Build the KraljicResult and return (result, risk_map, comp_map, quad_map)."""
+    spend_raw = purchases.groupby("supplierExternalId")["totalValueUsd"].sum()
+    total_spend_map = {sid: float(v) for sid, v in spend_raw.items()}
+    spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
+
+    risk_map, comp_map = compute_supply_risk(suppliers, metrics)
+
+    # Only suppliers with both spend (purchases) and a computed risk.
+    sids = [s for s in spend_map if s in risk_map]
+    spend_map = {s: spend_map[s] for s in sids}
+    risk_map = {s: risk_map[s] for s in sids}
+    comp_map = {s: comp_map.get(s, 0) for s in sids}
+
+    quad_map, spend_med, risk_med = assign_kraljic_quadrants(spend_map, risk_map)
+
+    sup_meta = (
+        suppliers.rename(columns={"externalId": "supplierExternalId"})
+        .drop_duplicates("supplierExternalId")
+        .set_index("supplierExternalId")
+    )
+    comp_score = (
+        metrics.drop_duplicates("supplierExternalId").set_index("supplierExternalId")
+        if len(metrics)
+        else pd.DataFrame()
+    )
+
+    def tier_of(s):
+        return str(sup_meta.loc[s, "tier"]) if s in sup_meta.index else "Unknown"
+
+    def name_of(s):
+        return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
+
+    def perf_of(s):
+        if len(comp_score) and s in comp_score.index:
+            v = comp_score.loc[s, "compositeScore"]
+            return float(v) if pd.notna(v) else None
+        return None
+
+    quadrant_assignments = [
+        {
+            "supplier_id": s,
+            "supplier_name": name_of(s),
+            "tier": tier_of(s),
+            "log_spend": num(spend_map[s]),
+            "supply_risk_score": num(risk_map[s]),
+            "quadrant": quad_map[s],
+        }
+        for s in sids
+    ]
+
+    grand_total = sum(total_spend_map[s] for s in sids) or 1.0
+    quadrant_profiles = []
+    quadrant_vs_tier = {}
+    for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
+        members = [s for s in sids if quad_map[s] == q]
+        tot = sum(total_spend_map[s] for s in members)
+        perfs = [perf_of(s) for s in members if perf_of(s) is not None]
+        quadrant_profiles.append(
+            {
+                "quadrant": q,
+                "n_suppliers": len(members),
+                "total_spend": num(tot),
+                "pct_of_total_spend": num((tot / grand_total) * 100),
+                "avg_performance_score": num(np.mean(perfs)) if perfs else None,
+                "median_risk": num(np.median([risk_map[s] for s in members])) if members else None,
+                "median_spend": num(np.median([spend_map[s] for s in members])) if members else None,
+            }
+        )
+        tier_counts = {}
+        for s in members:
+            t = tier_of(s)
+            tier_counts[t] = tier_counts.get(t, 0) + 1
+        quadrant_vs_tier[q] = tier_counts
+
+    result = {
+        "quadrant_assignments": quadrant_assignments,
+        "quadrant_profiles": quadrant_profiles,
+        "axis_thresholds": {"spend_median": num(spend_med), "risk_median": num(risk_med)},
+        "quadrant_vs_tier": quadrant_vs_tier,
+    }
+    return result, risk_map, comp_map, quad_map
+
+
+def writeback_supplier_metrics(conn, risk_map, comp_map, quad_map):
+    """Mode A only: denormalize the latest computed risk/quadrant onto SupplierMetric."""
+    with conn.cursor() as cur:
+        for sid, quadrant in quad_map.items():
+            cur.execute(
+                'UPDATE "SupplierMetric" '
+                'SET "supplyRiskScore" = %s, "kraljicQuadrant" = %s, "categoryCompetition" = %s '
+                'WHERE "supplierExternalId" = %s',
+                (
+                    float(round(risk_map.get(sid, 0.0), 2)),
+                    quadrant,
+                    int(comp_map.get(sid, 0)),
+                    sid,
+                ),
+            )
+    conn.commit()
+
+
+# --------------------------------------------------------------------------- #
 # Persistence (Mode A)
 # --------------------------------------------------------------------------- #
 def upsert(conn, period_id, analysis_type, result):
@@ -503,14 +692,36 @@ def main():
                 traceback.print_exc(file=sys.stderr)
                 results[name] = None
 
+        # Kraljic is computed separately: it returns supplier-level maps used for
+        # the Mode A SupplierMetric writeback in addition to the result payload.
+        kraljic_writeback = None
+        try:
+            log("Computing kraljic...")
+            kr_result, risk_map, comp_map, quad_map = kraljic_analysis(
+                purchases, suppliers, metrics
+            )
+            results["kraljic"] = kr_result
+            kraljic_writeback = (risk_map, comp_map, quad_map)
+        except Exception as exc:  # noqa: BLE001
+            log(f"FAILED kraljic: {exc}")
+            traceback.print_exc(file=sys.stderr)
+            results["kraljic"] = None
+
+        all_types = [n for n, _ in ANALYSES] + ["kraljic"]
+
         if mode == "A":
             succeeded = 0
-            for name in [n for n, _ in ANALYSES]:
+            for name in all_types:
                 if results.get(name) is not None:
                     upsert(conn, args.period_id, name, results[name])
                     succeeded += 1
-            log(f"Done. {succeeded}/4 analyses upserted for period {args.period_id}.")
-            sys.exit(0 if succeeded == 4 else 1)
+            # Denormalize risk/quadrant onto SupplierMetric (latest period wins).
+            if kraljic_writeback is not None:
+                writeback_supplier_metrics(conn, *kraljic_writeback)
+            log(
+                f"Done. {succeeded}/{len(all_types)} analyses upserted for period {args.period_id}."
+            )
+            sys.exit(0 if succeeded == len(all_types) else 1)
         else:
             # Mode B: pure JSON to stdout.
             print(json.dumps(results, default=json_default, allow_nan=False))
