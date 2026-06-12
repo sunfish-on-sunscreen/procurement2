@@ -93,10 +93,10 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 3. The Three Analyses */}
+      {/* 3. The Four Analyses */}
       <Card>
         <CardHeader>
-          <CardTitle>3. The Three Analyses</CardTitle>
+          <CardTitle>3. The Four Analyses</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6 text-sm leading-relaxed text-muted-foreground">
           <section className="space-y-2">
@@ -188,7 +188,47 @@ export default async function MethodologyPage() {
 
           <section className="space-y-2">
             <h3 className="text-base font-semibold text-foreground">
-              3.3 Mann-Whitney U Hypothesis Test
+              3.3 Performance vs Spend Diagnostic
+            </h3>
+            <p>
+              A two-axis diagnostic crossing spend volume with supplier
+              performance score. Suppliers are split into 4 zones via median
+              lines:
+            </p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>Stars</strong> (high spend + high performance): preserve
+                and partner.
+              </li>
+              <li>
+                <strong>Critical Issues</strong> (high spend + low performance):
+                top priority for engagement.
+              </li>
+              <li>
+                <strong>Hidden Gems</strong> (low spend + high performance):
+                promotion candidates.
+              </li>
+              <li>
+                <strong>Long Tail</strong> (low spend + low performance):
+                simplify or rationalize.
+              </li>
+            </ul>
+            <p>
+              The diagnostic cross-references with the Kraljic quadrant analysis
+              via the color coding on the scatter, surfacing tier mismatches and
+              engagement priorities. Performance score uses the existing
+              CIPS-aligned composite score (quality 25%, delivery 25%, process
+              20%, service 15%, risk 15%).
+            </p>
+            <p className="text-xs">
+              Reference: CIPS supplier scorecard methodology; cross-tabulation
+              diagnostic pattern from strategic sourcing practice.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              3.4 Mann-Whitney U Hypothesis Test
             </h3>
             <p>
               A non-parametric, two-sample test of whether automation (introduced

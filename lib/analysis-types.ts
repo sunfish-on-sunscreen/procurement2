@@ -96,11 +96,49 @@ export interface KraljicResult {
   quadrant_vs_tier: Record<KraljicQuadrant, Record<string, number>>;
 }
 
+export type PerformanceZone =
+  | "Stars"
+  | "Critical Issues"
+  | "Hidden Gems"
+  | "Long Tail";
+
+export interface PerformanceSpendSupplier {
+  supplier_id: string;
+  supplier_name: string;
+  tier: string;
+  log_spend: number;
+  total_spend_usd: number; // raw spend for display
+  performance_score: number;
+  kraljic_quadrant: KraljicQuadrant;
+  zone: PerformanceZone;
+}
+
+export interface ZoneProfile {
+  zone: PerformanceZone;
+  n_suppliers: number;
+  total_spend_usd: number;
+  pct_of_total_spend: number;
+  avg_performance: number;
+}
+
+export interface PerformanceSpendResult {
+  suppliers: PerformanceSpendSupplier[];
+  zone_profiles: ZoneProfile[];
+  axis_thresholds: {
+    spend_median: number;
+    performance_median: number;
+  };
+  top_critical_issues: PerformanceSpendSupplier[]; // top 5 by spend
+  top_hidden_gems: PerformanceSpendSupplier[]; // top 5 by performance
+  performance_by_quadrant: Record<KraljicQuadrant, number>;
+}
+
 /** Full payload returned by /api/analyses/compute-range (Python Mode B). */
 export type RangeAnalyses = {
   spend_overview: SpendOverviewResult;
   abc: AbcResult;
   hypothesis: HypothesisResult;
+  performance_spend: PerformanceSpendResult;
   kraljic: KraljicResult;
 };
 

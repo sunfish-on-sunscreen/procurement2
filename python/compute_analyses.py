@@ -7,7 +7,8 @@ Two modes:
       into AnalysisResult (one row per analysisType per period).
   Mode B (on-the-fly):  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
       Computes over the date span and prints a single JSON object
-      {spend_overview, abc, hypothesis, kraljic} to STDOUT. No DB writes.
+      {spend_overview, abc, hypothesis, performance_spend, kraljic} to STDOUT.
+      No DB writes.
 
 Data is filtered by Purchase.prDate (periodId on rows is decorative). Suppliers
 and metrics are derived from the suppliers that appear in the filtered purchases.
@@ -314,10 +315,142 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
     return base
 
 
+# --------------------------------------------------------------------------- #
+# d) Performance vs Spend diagnostic  (median split on log_spend x performance)
+#    Crosses spend volume against the supplier compositeScore and tags each
+#    supplier with its PERIOD-ACCURATE Kraljic quadrant (recomputed here via the
+#    same helpers kraljic_analysis uses) for cross-reference colouring.
+# --------------------------------------------------------------------------- #
+def performance_spend_analysis(purchases, suppliers, metrics):
+    spend_raw = purchases.groupby("supplierExternalId")["totalValueUsd"].sum()
+    total_spend_map = {sid: float(v) for sid, v in spend_raw.items()}
+    log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
+
+    # Period-accurate Kraljic quadrant (mirrors kraljic_analysis's setup).
+    risk_map, _comp = compute_supply_risk(suppliers, metrics)
+    krj_sids = [s for s in log_spend_map if s in risk_map]
+    quad_map, _sm, _rm = assign_kraljic_quadrants(
+        {s: log_spend_map[s] for s in krj_sids},
+        {s: risk_map[s] for s in krj_sids},
+    )
+
+    sup_meta = (
+        suppliers.rename(columns={"externalId": "supplierExternalId"})
+        .drop_duplicates("supplierExternalId")
+        .set_index("supplierExternalId")
+    )
+    comp_score = (
+        metrics.drop_duplicates("supplierExternalId").set_index("supplierExternalId")
+        if len(metrics)
+        else pd.DataFrame()
+    )
+
+    def tier_of(s):
+        return str(sup_meta.loc[s, "tier"]) if s in sup_meta.index else "Unknown"
+
+    def name_of(s):
+        return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
+
+    def perf_of(s):
+        if len(comp_score) and s in comp_score.index:
+            v = comp_score.loc[s, "compositeScore"]
+            return float(v) if pd.notna(v) else None
+        return None
+
+    empty = {
+        "suppliers": [],
+        "zone_profiles": [],
+        "axis_thresholds": {"spend_median": 0, "performance_median": 0},
+        "top_critical_issues": [],
+        "top_hidden_gems": [],
+        "performance_by_quadrant": {},
+    }
+
+    # Suppliers needing both spend AND a performance score (and a quadrant).
+    sids = [s for s in krj_sids if perf_of(s) is not None]
+    if not sids:
+        return empty
+
+    spend_med = float(np.median([log_spend_map[s] for s in sids]))
+    perf_med = float(np.median([perf_of(s) for s in sids]))
+
+    def zone_of(s):
+        hi_spend = log_spend_map[s] > spend_med
+        hi_perf = perf_of(s) > perf_med
+        if hi_spend and hi_perf:
+            return "Stars"
+        if hi_spend and not hi_perf:
+            return "Critical Issues"
+        if not hi_spend and hi_perf:
+            return "Hidden Gems"
+        return "Long Tail"
+
+    rows = [
+        {
+            "supplier_id": s,
+            "supplier_name": name_of(s),
+            "tier": tier_of(s),
+            "log_spend": num(log_spend_map[s]),
+            "total_spend_usd": num(total_spend_map[s]),
+            "performance_score": num(perf_of(s)),
+            "kraljic_quadrant": quad_map[s],
+            "zone": zone_of(s),
+        }
+        for s in sids
+    ]
+
+    grand_total = sum(total_spend_map[s] for s in sids) or 1.0
+    zone_profiles = []
+    for z in ["Stars", "Critical Issues", "Hidden Gems", "Long Tail"]:
+        members = [s for s in sids if zone_of(s) == z]
+        tot = sum(total_spend_map[s] for s in members)
+        perfs = [perf_of(s) for s in members]
+        zone_profiles.append(
+            {
+                "zone": z,
+                "n_suppliers": len(members),
+                "total_spend_usd": num(tot),
+                "pct_of_total_spend": num((tot / grand_total) * 100),
+                "avg_performance": num(np.mean(perfs)) if perfs else None,
+            }
+        )
+
+    top_critical_issues = sorted(
+        [r for r in rows if r["zone"] == "Critical Issues"],
+        key=lambda r: r["total_spend_usd"],
+        reverse=True,
+    )[:5]
+    top_hidden_gems = sorted(
+        [r for r in rows if r["zone"] == "Hidden Gems"],
+        key=lambda r: r["performance_score"],
+        reverse=True,
+    )[:5]
+
+    performance_by_quadrant = {}
+    for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
+        qmembers = [s for s in sids if quad_map[s] == q]
+        performance_by_quadrant[q] = (
+            num(np.mean([perf_of(s) for s in qmembers])) if qmembers else 0
+        )
+
+    return {
+        "suppliers": rows,
+        "zone_profiles": zone_profiles,
+        "axis_thresholds": {
+            "spend_median": num(spend_med),
+            "performance_median": num(perf_med),
+        },
+        "top_critical_issues": top_critical_issues,
+        "top_hidden_gems": top_hidden_gems,
+        "performance_by_quadrant": performance_by_quadrant,
+    }
+
+
 ANALYSES = [
     ("spend_overview", spend_overview),
     ("abc", abc_analysis),
     ("hypothesis", hypothesis_test),
+    ("performance_spend", performance_spend_analysis),
 ]
 
 

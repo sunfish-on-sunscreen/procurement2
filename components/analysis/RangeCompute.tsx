@@ -6,10 +6,16 @@ import type { RangeAnalyses } from "@/lib/analysis-types";
 import { OverviewCharts } from "./OverviewCharts";
 import { AbcView } from "./AbcView";
 import { SupplierKraljicView } from "@/components/SupplierKraljicView";
+import { PerformanceSpendView } from "@/components/PerformanceSpendView";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { EmptyState } from "@/components/EmptyState";
 
-type View = "overview" | "abc" | "kraljic" | "hypothesis";
+type View =
+  | "overview"
+  | "abc"
+  | "kraljic"
+  | "performance_spend"
+  | "hypothesis";
 
 type State =
   | { status: "loading" }
@@ -93,6 +99,16 @@ export function RangeCompute({
   if (kind === "kraljic") {
     return state.data.kraljic ? (
       <SupplierKraljicView kraljic={state.data.kraljic} period={period} />
+    ) : (
+      <EmptyState />
+    );
+  }
+  if (kind === "performance_spend") {
+    return state.data.performance_spend ? (
+      <PerformanceSpendView
+        data={state.data.performance_spend}
+        period={period}
+      />
     ) : (
       <EmptyState />
     );
