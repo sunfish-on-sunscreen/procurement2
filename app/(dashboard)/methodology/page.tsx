@@ -135,37 +135,54 @@ export default async function MethodologyPage() {
 
           <section className="space-y-2">
             <h3 className="text-base font-semibold text-foreground">
-              3.2 K-Means Supplier Segmentation
+              3.2 Kraljic Matrix Segmentation
             </h3>
             <p>
-              Unsupervised clustering that groups suppliers by behavioural and
-              quality profile across <strong>6 features</strong>:
+              A deterministic, two-axis segmentation that maps each supplier onto
+              the classic Kraljic purchasing portfolio matrix:
             </p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>on_time_delivery_pct</li>
-              <li>defect_rate_pct</li>
-              <li>rfx_response_rate_pct</li>
-              <li>avg_lead_time_days</li>
-              <li>three_way_match_pct</li>
-              <li>log_spend</li>
+              <li>
+                <strong>Profit Impact</strong> (X-axis) — the supplier&apos;s spend
+                volume, measured as <code>log_spend</code>.
+              </li>
+              <li>
+                <strong>Supply Risk</strong> (Y-axis) — a composite of
+                single-source status, category competition, country distance, and
+                switching cost (lead-time proxy).
+              </li>
             </ul>
             <p>
-              Four of these (on-time delivery, three-way match, lead time, and
-              log-spend) are computed directly from purchase transactions for the
-              selected period.{" "}
-              <strong>defect_rate_pct</strong> and{" "}
-              <strong>rfx_response_rate_pct</strong> come from the supplier
-              scorecard as annual values, since they originate from QC and
-              sourcing systems rather than the transaction stream.
+              A <strong>median split</strong> on each axis divides the supplier
+              set into four quadrants, each mapping to a distinct management
+              approach:
             </p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>Strategic</strong> (high spend, high risk) — partnership
+                and joint planning.
+              </li>
+              <li>
+                <strong>Leverage</strong> (high spend, low risk) — competitive
+                negotiation and volume consolidation.
+              </li>
+              <li>
+                <strong>Bottleneck</strong> (low spend, high risk) — secure
+                supply, develop alternatives, buffer stock.
+              </li>
+              <li>
+                <strong>Routine</strong> (low spend, low risk) — automate and
+                simplify.
+              </li>
+            </ul>
             <p>
-              The pipeline uses <strong>StandardScaler</strong> normalization, a
-              fixed <strong>k = 4</strong> clusters (per the CIPS supplier
-              segmentation framework), and <strong>PCA</strong> dimensionality
-              reduction to project the clusters into 2D for visualization.
-              Segments are named from their performance and spend profile (Star
-              Performers, Reliable Specialists, Strategic Underperformers, Tail
-              Spenders).
+              Unlike clustering, the assignment is fully deterministic — the same
+              data always produces the same quadrants — and the axes are directly
+              interpretable in procurement terms.
+            </p>
+            <p className="text-xs">
+              Reference: Kraljic, P. (1983). &ldquo;Purchasing must become supply
+              management.&rdquo; Harvard Business Review.
             </p>
           </section>
 

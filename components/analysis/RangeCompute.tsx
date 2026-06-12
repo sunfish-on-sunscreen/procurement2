@@ -5,11 +5,11 @@ import { Loader2 } from "lucide-react";
 import type { RangeAnalyses } from "@/lib/analysis-types";
 import { OverviewCharts } from "./OverviewCharts";
 import { AbcView } from "./AbcView";
-import { SupplierSegmentsView } from "@/components/SupplierSegmentsView";
+import { SupplierKraljicView } from "@/components/SupplierKraljicView";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { EmptyState } from "@/components/EmptyState";
 
-type View = "overview" | "abc" | "clustering" | "hypothesis";
+type View = "overview" | "abc" | "kraljic" | "hypothesis";
 
 type State =
   | { status: "loading" }
@@ -25,10 +25,12 @@ export function RangeCompute({
   kind,
   startDate,
   endDate,
+  period = "",
 }: {
   kind: View;
   startDate: string;
   endDate: string;
+  period?: string;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
 
@@ -88,9 +90,9 @@ export function RangeCompute({
   if (kind === "abc") {
     return state.data.abc ? <AbcView abc={state.data.abc} /> : <EmptyState />;
   }
-  if (kind === "clustering") {
-    return state.data.clustering ? (
-      <SupplierSegmentsView clustering={state.data.clustering} />
+  if (kind === "kraljic") {
+    return state.data.kraljic ? (
+      <SupplierKraljicView kraljic={state.data.kraljic} period={period} />
     ) : (
       <EmptyState />
     );

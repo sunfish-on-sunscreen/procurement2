@@ -7,16 +7,24 @@ import {
   getAnalysisResult,
   type SpendOverviewResult,
   type AbcResult,
-  type ClusteringResult,
+  type KraljicResult,
+  type KraljicQuadrant,
   type HypothesisResult,
 } from "@/lib/analysis-types";
 import type { ReportMetrics } from "@/lib/report-templates";
+import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import { buttonVariants } from "@/components/ui/button";
 import { OverviewCharts } from "@/components/analysis/OverviewCharts";
 import { AbcView } from "@/components/analysis/AbcView";
-import { SupplierSegmentsView } from "@/components/SupplierSegmentsView";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { DownloadPdfButton } from "@/components/DownloadPdfButton";
+
+const QUADRANT_ORDER: KraljicQuadrant[] = [
+  "Strategic",
+  "Leverage",
+  "Bottleneck",
+  "Routine",
+];
 
 export default async function ReportDetailPage({
   params,
@@ -35,10 +43,10 @@ export default async function ReportDetailPage({
   const metrics = summary.metricsJson as unknown as ReportMetrics;
   const periodId = summary.periodId;
 
-  const [spend, abc, clustering, hypothesis] = await Promise.all([
+  const [spend, abc, kraljic, hypothesis] = await Promise.all([
     getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
     getAnalysisResult<AbcResult>(periodId, "abc"),
-    getAnalysisResult<ClusteringResult>(periodId, "clustering"),
+    getAnalysisResult<KraljicResult>(periodId, "kraljic"),
     getAnalysisResult<HypothesisResult>(periodId, "hypothesis"),
   ]);
 
@@ -109,14 +117,54 @@ export default async function ReportDetailPage({
           </section>
         )}
 
-        {/* 4. Supplier Segments */}
-        {clustering && (
+        {/* 4. Supplier Quadrant (Kraljic) */}
+        {kraljic && (
           <section className="pdf-page-break flex flex-col gap-4">
-            <h2 className="text-xl font-semibold">Supplier Segments</h2>
-            <SupplierSegmentsView clustering={clustering} />
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {metrics.narratives.clustering}
-            </p>
+            <h2 className="text-xl font-semibold">
+              Supplier Quadrant (Kraljic Matrix)
+            </h2>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-2 font-medium">Quadrant</th>
+                  <th className="py-2 text-right font-medium">Suppliers</th>
+                  <th className="py-2 text-right font-medium">% of Spend</th>
+                  <th className="py-2 text-right font-medium">Avg Performance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {QUADRANT_ORDER.map((q) => {
+                  const p = kraljic.quadrant_profiles.find(
+                    (x) => x.quadrant === q,
+                  );
+                  return (
+                    <tr key={q} className="border-b">
+                      <td className="py-2 font-medium">
+                        <span
+                          className="mr-2 inline-block h-3 w-3 rounded-full align-middle"
+                          style={{ backgroundColor: QUADRANT_COLORS[q] }}
+                        />
+                        {q}
+                      </td>
+                      <td className="py-2 text-right">{p?.n_suppliers ?? 0}</td>
+                      <td className="py-2 text-right">
+                        {(p?.pct_of_total_spend ?? 0).toFixed(1)}%
+                      </td>
+                      <td className="py-2 text-right">
+                        {p?.avg_performance_score != null
+                          ? p.avg_performance_score.toFixed(1)
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {metrics.narratives.kraljic && (
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {metrics.narratives.kraljic}
+              </p>
+            )}
           </section>
         )}
 
@@ -148,10 +196,10 @@ export default async function ReportDetailPage({
           <h2 className="text-xl font-semibold text-foreground">Methodology</h2>
           <p>
             ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier
-            segmentation uses K-means (k = 4) on six features with a PCA
-            projection. Automation impact uses the Mann-Whitney U test (α = 0.05)
-            with a rank-biserial effect size and a bootstrap 95% confidence
-            interval.
+            segmentation uses the Kraljic Matrix — a median split of profit
+            impact (log spend) against supply risk into four quadrants.
+            Automation impact uses the Mann-Whitney U test (α = 0.05) with a
+            rank-biserial effect size and a bootstrap 95% confidence interval.
           </p>
           <p className="text-xs">
             Synthetic data calibrated to APQC, Hackett Group, CIPS, MOPS, and AME

@@ -5,7 +5,7 @@ import {
   getAnalysisResult,
   type SpendOverviewResult,
   type AbcResult,
-  type ClusteringResult,
+  type KraljicResult,
   type HypothesisResult,
 } from "@/lib/analysis-types";
 import { generateExecutiveSummary } from "@/lib/report-templates";
@@ -37,14 +37,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Reporting period not found" }, { status: 400 });
   }
 
-  const [spendOverview, abc, clustering, hypothesis] = await Promise.all([
+  const [spendOverview, abc, kraljic, hypothesis] = await Promise.all([
     getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
     getAnalysisResult<AbcResult>(periodId, "abc"),
-    getAnalysisResult<ClusteringResult>(periodId, "clustering"),
+    getAnalysisResult<KraljicResult>(periodId, "kraljic"),
     getAnalysisResult<HypothesisResult>(periodId, "hypothesis"),
   ]);
 
-  if (!spendOverview || !abc || !clustering || !hypothesis) {
+  if (!spendOverview || !abc || !kraljic || !hypothesis) {
     return NextResponse.json(
       { error: "Compute analyses first before generating a summary." },
       { status: 400 },
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     },
     spendOverview,
     abc,
-    clustering,
+    kraljic,
     hypothesis,
   });
 

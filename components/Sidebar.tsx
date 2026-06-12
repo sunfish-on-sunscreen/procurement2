@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   BarChart3,
-  Target,
+  Grid3x3,
   Clock,
   Upload,
   FileText,
@@ -23,7 +23,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/abc-analysis", label: "ABC Analysis", icon: BarChart3 },
-  { href: "/supplier-segments", label: "Supplier Segments", icon: Target },
+  { href: "/supplier-quadrant", label: "Supplier Quadrant", icon: Grid3x3 },
   { href: "/cycle-time", label: "Cycle Time", icon: Clock },
   { href: "/import", label: "Import", icon: Upload, adminOnly: true },
   { href: "/reports", label: "Reports", icon: FileText },

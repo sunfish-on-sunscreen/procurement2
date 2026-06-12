@@ -15,11 +15,14 @@ export const ABC_COLORS: Record<"A" | "B" | "C", string> = {
   C: "#84cc16",
 };
 
-// Keyed by SEGMENT NAME (not cluster id) so the semantic colour is stable across
-// years: green = good, red = concerning, blue = reliable, amber = peripheral.
-export const SEGMENT_COLORS: Record<string, string> = {
-  "Star Performers": "#10b981", // green
-  "Reliable Specialists": "#3b82f6", // blue
-  "Strategic Underperformers": "#ef4444", // red
-  "Tail Spenders": "#f59e0b", // amber
+// Keyed by Kraljic QUADRANT so the semantic colour is stable across years.
+// Strategic = critical (red), Leverage = best position (green),
+// Bottleneck = vulnerable (amber), Routine = manage by exception (blue).
+import type { KraljicQuadrant } from "@/lib/analysis-types";
+
+export const QUADRANT_COLORS: Record<KraljicQuadrant, string> = {
+  Strategic: "#ef4444", // red — critical, dangerous to lose
+  Leverage: "#10b981", // green — best position, use buying power
+  Bottleneck: "#f59e0b", // amber — vulnerable, secure or replace
+  Routine: "#3b82f6", // blue — automate, simplify
 };

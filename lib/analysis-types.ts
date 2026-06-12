@@ -32,30 +32,6 @@ export type AbcResult = {
   crosstab: Record<string, Record<string, number>>; // tier -> abc_class -> count
 };
 
-export type ClusterAssignment = {
-  supplier_id: string;
-  supplier_name: string;
-  tier: string;
-  cluster: number;
-  pca1: number;
-  pca2: number;
-};
-
-export type ClusterProfile = {
-  cluster: number;
-  n_suppliers: number;
-  [feature: string]: number;
-};
-
-export type ClusteringResult = {
-  k: number;
-  features_used: string[];
-  cluster_assignments: ClusterAssignment[];
-  cluster_profiles: ClusterProfile[];
-  explained_variance: { pc1: number; pc2: number };
-  tier_vs_cluster: Record<string, Record<string, number>>;
-};
-
 export type HypothesisStats = {
   n: number;
   mean: number | null;
@@ -124,7 +100,6 @@ export interface KraljicResult {
 export type RangeAnalyses = {
   spend_overview: SpendOverviewResult;
   abc: AbcResult;
-  clustering: ClusteringResult;
   hypothesis: HypothesisResult;
   kraljic: KraljicResult;
 };

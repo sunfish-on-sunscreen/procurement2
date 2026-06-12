@@ -1,11 +1,11 @@
 import { requireAuth } from "@/lib/auth";
 import { getCurrentPeriodSelection, resolveAnalysisSource } from "@/lib/period";
-import { getAnalysisResult, type ClusteringResult } from "@/lib/analysis-types";
+import { getAnalysisResult, type KraljicResult } from "@/lib/analysis-types";
 import { EmptyState } from "@/components/EmptyState";
-import { SupplierSegmentsView } from "@/components/SupplierSegmentsView";
+import { SupplierKraljicView } from "@/components/SupplierKraljicView";
 import { RangeCompute } from "@/components/analysis/RangeCompute";
 
-export default async function SupplierSegmentsPage() {
+export default async function SupplierQuadrantPage() {
   await requireAuth();
   const selection = await getCurrentPeriodSelection();
   const source = await resolveAnalysisSource(selection);
@@ -17,12 +17,12 @@ export default async function SupplierSegmentsPage() {
     body = <EmptyState />;
   } else if (source.kind === "cached") {
     label = source.periodLabel;
-    const clustering = await getAnalysisResult<ClusteringResult>(
+    const kraljic = await getAnalysisResult<KraljicResult>(
       source.periodId,
-      "clustering",
+      "kraljic",
     );
-    body = clustering ? (
-      <SupplierSegmentsView clustering={clustering} />
+    body = kraljic ? (
+      <SupplierKraljicView kraljic={kraljic} period={label} />
     ) : (
       <EmptyState />
     );
@@ -31,9 +31,10 @@ export default async function SupplierSegmentsPage() {
     body = (
       <RangeCompute
         key={`${source.startDate}_${source.endDate}`}
-        kind="clustering"
+        kind="kraljic"
         startDate={source.startDate}
         endDate={source.endDate}
+        period={label}
       />
     );
   }
@@ -41,7 +42,7 @@ export default async function SupplierSegmentsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">
-        Supplier Segments{label ? ` — ${label}` : ""}
+        Supplier Quadrant{label ? ` — ${label}` : ""}
       </h1>
       {body}
     </div>

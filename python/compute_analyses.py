@@ -7,13 +7,13 @@ Two modes:
       into AnalysisResult (one row per analysisType per period).
   Mode B (on-the-fly):  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
       Computes over the date span and prints a single JSON object
-      {spend_overview, abc, clustering, hypothesis} to STDOUT. No DB writes.
+      {spend_overview, abc, hypothesis, kraljic} to STDOUT. No DB writes.
 
 Data is filtered by Purchase.prDate (periodId on rows is decorative). Suppliers
 and metrics are derived from the suppliers that appear in the filtered purchases.
 Progress logs go to STDERR so Mode B's stdout stays pure JSON.
 
-Methodology is FIXED (ABC 80/95, KMeans k=4 rs=42, Mann-Whitney U) per scope.
+Methodology is FIXED (ABC 80/95, Mann-Whitney U, Kraljic median split) per scope.
 """
 
 import os
@@ -31,9 +31,6 @@ import pandas as pd
 from dotenv import load_dotenv
 import psycopg2
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
 from scipy.stats import mannwhitneyu
 
 
@@ -218,103 +215,7 @@ def abc_analysis(purchases, suppliers, metrics):
 
 
 # --------------------------------------------------------------------------- #
-# c) Clustering  (fixed k=4, rs=42) — HYBRID features
-#    Behavioral features recomputed from filtered purchases; the 2 synthetic
-#    quality features (defect_rate, rfx_response) come from SupplierMetric.
-# --------------------------------------------------------------------------- #
-def clustering(purchases, suppliers, metrics):
-    features = [
-        "onTimeDeliveryPct",
-        "defectRatePct",
-        "rfxResponseRatePct",
-        "avgLeadTimeDays",
-        "threeWayMatchPct",
-        "log_spend",
-    ]
-
-    g = purchases.groupby("supplierExternalId")
-    feat = pd.DataFrame(
-        {
-            "onTimeDeliveryPct": g["onTimeDelivery"].mean() * 100.0,
-            "threeWayMatchPct": g["threeWayMatchPass"].mean() * 100.0,
-            "avgLeadTimeDays": g["poToDeliveryDays"].mean(),
-            "total_spend": g["totalValueUsd"].sum(),
-        }
-    ).reset_index()
-    feat["log_spend"] = np.log1p(feat["total_spend"].astype(float))
-
-    m = (
-        metrics[["supplierExternalId", "defectRatePct", "rfxResponseRatePct"]]
-        .drop_duplicates("supplierExternalId")
-        if len(metrics)
-        else pd.DataFrame(columns=["supplierExternalId", "defectRatePct", "rfxResponseRatePct"])
-    )
-    s = (
-        suppliers[["externalId", "supplierName", "tier"]]
-        .drop_duplicates("externalId")
-        .rename(columns={"externalId": "supplierExternalId"})
-        if len(suppliers)
-        else pd.DataFrame(columns=["supplierExternalId", "supplierName", "tier"])
-    )
-
-    df = feat.merge(m, on="supplierExternalId", how="left").merge(
-        s, on="supplierExternalId", how="left"
-    )
-    df["supplierName"] = df["supplierName"].fillna(df["supplierExternalId"])
-    df["tier"] = df["tier"].fillna("Unknown")
-
-    if len(df) < 4:
-        raise ValueError(f"clustering needs >= 4 suppliers, got {len(df)}")
-
-    X = df[features].astype(float)
-    X = X.fillna(X.mean())
-
-    Xs = StandardScaler().fit_transform(X)
-    df["cluster"] = KMeans(n_clusters=4, random_state=42, n_init=10).fit_predict(Xs)
-
-    pca = PCA(n_components=2, random_state=42)
-    coords = pca.fit_transform(Xs)
-    df["pca1"] = coords[:, 0]
-    df["pca2"] = coords[:, 1]
-
-    cluster_assignments = [
-        {
-            "supplier_id": str(r["supplierExternalId"]),
-            "supplier_name": str(r["supplierName"]),
-            "tier": str(r["tier"]),
-            "cluster": int(r["cluster"]),
-            "pca1": num(r["pca1"]),
-            "pca2": num(r["pca2"]),
-        }
-        for _, r in df.iterrows()
-    ]
-
-    cluster_profiles = []
-    for c in range(4):
-        sub = df[df["cluster"] == c]
-        profile = {"cluster": int(c), "n_suppliers": int(len(sub))}
-        for f in features:
-            profile[f] = num(sub[f].mean())
-        cluster_profiles.append(profile)
-
-    ev = pca.explained_variance_ratio_
-    ct = pd.crosstab(df["tier"], df["cluster"])
-    tier_vs_cluster = {
-        str(t): {str(int(c)): int(ct.loc[t, c]) for c in ct.columns} for t in ct.index
-    }
-
-    return {
-        "k": 4,
-        "features_used": features,
-        "cluster_assignments": cluster_assignments,
-        "cluster_profiles": cluster_profiles,
-        "explained_variance": {"pc1": num(ev[0] * 100), "pc2": num(ev[1] * 100)},
-        "tier_vs_cluster": tier_vs_cluster,
-    }
-
-
-# --------------------------------------------------------------------------- #
-# d) Hypothesis test  (Mann-Whitney U on invoice_to_payment_days, pre vs post)
+# c) Hypothesis test  (Mann-Whitney U on invoice_to_payment_days, pre vs post)
 # --------------------------------------------------------------------------- #
 def hypothesis_test(purchases, suppliers=None, metrics=None):
     pre = (
@@ -416,13 +317,12 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
 ANALYSES = [
     ("spend_overview", spend_overview),
     ("abc", abc_analysis),
-    ("clustering", clustering),
     ("hypothesis", hypothesis_test),
 ]
 
 
 # --------------------------------------------------------------------------- #
-# e) Kraljic matrix  (supply-risk score + quadrant assignment)
+# d) Kraljic matrix  (supply-risk score + quadrant assignment)
 # --------------------------------------------------------------------------- #
 # ASEAN ISO alpha-2 codes (data stores codes, not names).
 ASEAN_CODES = {"SG", "MY", "TH", "VN", "PH", "BN", "MM", "LA", "KH"}

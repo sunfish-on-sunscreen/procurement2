@@ -1,8 +1,9 @@
 import type {
   SpendOverviewResult,
   AbcResult,
-  ClusteringResult,
-  ClusterProfile,
+  KraljicResult,
+  KraljicQuadrant,
+  QuadrantProfile,
   HypothesisResult,
 } from "@/lib/analysis-types";
 
@@ -10,7 +11,7 @@ export type ReportNarratives = {
   cover_intro: string;
   spend: string;
   abc: string;
-  clustering: string;
+  kraljic: string;
   cycle_time: string;
 };
 
@@ -30,82 +31,13 @@ export type ReportInput = {
   period: { name: string; startDate: string; endDate: string };
   spendOverview: SpendOverviewResult;
   abc: AbcResult;
-  clustering: ClusteringResult;
+  kraljic: KraljicResult;
   hypothesis: HypothesisResult;
 };
 
 const intl = new Intl.NumberFormat("en-US");
 const usdM = (n: number) => `$${(n / 1_000_000).toFixed(1)}M`;
 const pct = (n: number) => `${n.toFixed(1)}%`;
-
-const SEGMENT_ORDER = [
-  "Star Performers",
-  "Strategic Underperformers",
-  "Reliable Specialists",
-  "Tail Spenders",
-] as const;
-
-function normalize(values: number[]): number[] {
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  if (max === min) return values.map(() => 0.5);
-  return values.map((v) => (v - min) / (max - min));
-}
-
-/** Bijective cluster -> segment-name mapping (mirrors SupplierSegmentsView). */
-function assignSegments(profiles: ClusterProfile[]): Map<number, string> {
-  const otd = normalize(profiles.map((p) => p.onTimeDeliveryPct));
-  const rfx = normalize(profiles.map((p) => p.rfxResponseRatePct));
-  const tw = normalize(profiles.map((p) => p.threeWayMatchPct));
-  const defectInv = normalize(profiles.map((p) => -p.defectRatePct));
-  const leadInv = normalize(profiles.map((p) => -p.avgLeadTimeDays));
-  const perf = profiles.map(
-    (_p, i) => (otd[i] + rfx[i] + tw[i] + defectInv[i] + leadInv[i]) / 5,
-  );
-  const spend = profiles.map((p) => p.log_spend);
-
-  const out = new Map<number, string>();
-  const remaining = new Set(profiles.map((_p, i) => i));
-  const pick = (score: (i: number) => number, best: "max" | "min") =>
-    [...remaining].reduce((a, b) =>
-      best === "max"
-        ? score(a) >= score(b)
-          ? a
-          : b
-        : score(a) <= score(b)
-          ? a
-          : b,
-    );
-
-  const tail = pick((i) => spend[i], "min");
-  out.set(profiles[tail].cluster, "Tail Spenders");
-  remaining.delete(tail);
-  const star = pick((i) => perf[i], "max");
-  out.set(profiles[star].cluster, "Star Performers");
-  remaining.delete(star);
-  const under = pick((i) => spend[i], "max");
-  out.set(profiles[under].cluster, "Strategic Underperformers");
-  remaining.delete(under);
-  out.set(profiles[[...remaining][0]].cluster, "Reliable Specialists");
-  return out;
-}
-
-function segmentSentence(name: string, p: ClusterProfile): string {
-  const otime = p.onTimeDeliveryPct.toFixed(1);
-  const defect = p.defectRatePct.toFixed(2);
-  switch (name) {
-    case "Star Performers":
-      return `Star Performers — ${p.n_suppliers} suppliers with strong all-around performance (${otime}% on-time, ${defect}% defects). Consider strategic partnerships and contract extensions.`;
-    case "Strategic Underperformers":
-      return `Strategic Underperformers — ${p.n_suppliers} high-spend suppliers with quality concerns (${defect}% defects, ${otime}% on-time). Highest-priority improvement targets given spend exposure.`;
-    case "Reliable Specialists":
-      return `Reliable Specialists — ${p.n_suppliers} mid-spend suppliers with solid, consistent scores across delivery, quality, and process. Maintain steady engagement.`;
-    case "Tail Spenders":
-      return `Tail Spenders — ${p.n_suppliers} low-spend tail suppliers. Candidates for consolidation or simplified management.`;
-    default:
-      return "";
-  }
-}
 
 function effectWord(r: number | null): string {
   if (r == null) return "—";
@@ -120,7 +52,7 @@ export function generateExecutiveSummary(input: ReportInput): {
   narrative: string;
   metrics: ReportMetrics;
 } {
-  const { period, spendOverview: s, abc, clustering, hypothesis: h } = input;
+  const { period, spendOverview: s, abc, kraljic, hypothesis: h } = input;
 
   const cover_intro = `This executive summary covers procurement activity for ${period.name} at Adaro. Total spend of ${usdM(
     s.total_spend,
@@ -161,18 +93,28 @@ export function generateExecutiveSummary(input: ReportInput): {
     C.pct_of_spend * 100,
   )}).${mismatchNote}`;
 
-  const profiles = [...clustering.cluster_profiles].sort(
-    (a, b) => a.cluster - b.cluster,
-  );
-  const seg = assignSegments(profiles);
-  const byName = new Map<string, ClusterProfile>();
-  profiles.forEach((p) => byName.set(seg.get(p.cluster)!, p));
-  const clusteringNarr = SEGMENT_ORDER.map((name) => {
-    const p = byName.get(name);
-    return p ? segmentSentence(name, p) : "";
-  })
-    .filter(Boolean)
-    .join(" ");
+  // --- Kraljic quadrant narrative -----------------------------------------
+  const byQ = new Map<KraljicQuadrant, QuadrantProfile>();
+  for (const p of kraljic.quadrant_profiles) byQ.set(p.quadrant, p);
+  const qp = (q: KraljicQuadrant): QuadrantProfile =>
+    byQ.get(q) ?? {
+      quadrant: q,
+      n_suppliers: 0,
+      total_spend: 0,
+      pct_of_total_spend: 0,
+      avg_performance_score: 0,
+      median_risk: 0,
+      median_spend: 0,
+    };
+  const strat = qp("Strategic");
+  const lev = qp("Leverage");
+  const bott = qp("Bottleneck");
+  const rout = qp("Routine");
+  const kraljicNarr = `Kraljic segmentation maps suppliers on profit impact (spend) against supply risk. ${strat.n_suppliers} suppliers fall in the Strategic quadrant (high spend, high risk — ${pct(
+    strat.pct_of_total_spend,
+  )} of spend), ${lev.n_suppliers} in Leverage (high spend, low risk — ${pct(
+    lev.pct_of_total_spend,
+  )}), ${bott.n_suppliers} in Bottleneck (low spend, high risk), and ${rout.n_suppliers} in Routine (low spend, low risk). Strategic suppliers warrant partnership and senior relationship management, while Leverage suppliers are where competitive buying power should be applied.`;
 
   let cycle_time: string;
   if (h.insufficient_data) {
@@ -205,19 +147,26 @@ export function generateExecutiveSummary(input: ReportInput): {
       `Reclassify ${strategicNonA} supplier(s) whose legacy tier no longer matches their actual spend and ABC class.`,
     );
   }
-  const underProfile = profiles.find(
-    (p) => seg.get(p.cluster) === "Strategic Underperformers",
-  );
-  if (underProfile) {
-    const names = clustering.cluster_assignments
-      .filter((a) => a.cluster === underProfile.cluster)
-      .slice(0, 2)
-      .map((a) => a.supplier_name);
-    for (const nm of names) {
-      recommendations.push(
-        `Engage supplier development for ${nm} (Strategic Underperformer segment).`,
-      );
-    }
+  // Name a couple of Strategic-quadrant suppliers for relationship management.
+  const strategicNames = kraljic.quadrant_assignments
+    .filter((a) => a.quadrant === "Strategic")
+    .slice(0, 2)
+    .map((a) => a.supplier_name);
+  for (const nm of strategicNames) {
+    recommendations.push(
+      `Establish senior-level relationship management for ${nm} (Strategic quadrant — high spend and high supply risk).`,
+    );
+  }
+  // Under-tiered: Approved suppliers sitting in high-impact quadrants.
+  const underTiered = kraljic.quadrant_assignments.filter(
+    (a) =>
+      a.tier === "Approved" &&
+      (a.quadrant === "Strategic" || a.quadrant === "Leverage"),
+  ).length;
+  if (underTiered > 0) {
+    recommendations.push(
+      `Review ${underTiered} Approved-tier supplier(s) sitting in the Strategic or Leverage quadrant — their spend impact suggests they are promotion candidates.`,
+    );
   }
   if (!h.insufficient_data && h.significant) {
     recommendations.push(
@@ -240,7 +189,7 @@ export function generateExecutiveSummary(input: ReportInput): {
     cover_intro,
     spend,
     abc: abcNarr,
-    clustering: clusteringNarr,
+    kraljic: kraljicNarr,
     cycle_time,
   };
 
@@ -264,8 +213,8 @@ export function generateExecutiveSummary(input: ReportInput): {
     spend,
     `## ABC Analysis`,
     abcNarr,
-    `## Supplier Segments`,
-    clusteringNarr,
+    `## Supplier Quadrant`,
+    kraljicNarr,
     `## Cycle Time`,
     cycle_time,
     `## Recommendations`,
