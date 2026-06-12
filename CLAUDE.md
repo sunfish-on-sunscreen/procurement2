@@ -22,6 +22,8 @@ Performance vs Spend diagnostic, cross-references, and a recommendations engine.
 - **Per-period quadrant data lives in `AnalysisResult.kraljic`** (one row per period). It is NOT period-accurate in `SupplierMetric` — the writeback there is **last-period-wins** (one row per supplier, tagged to the max year), so it's only a convenience snapshot.
 - **11B–11E pages should query `AnalysisResult.kraljic`** for period-specific data, not `SupplierMetric`.
 
+**11A verification (passed):** supply-risk range **1.2–66.1**; all 4 quadrants populated each period; Strategic + Leverage hold **~98% of spend** (correct Pareto skew from the median split on log-spend); existing pages (Overview, ABC, Segments, Cycle Time, Reports, Methodology) all still render unchanged.
+
 **Known data-quality flags (deferred — fix later by editing `generate_dataset.py`, NOT the app):**
 - `risk_score == 100` for all suppliers.
 - `single_source_risk == 0` for all suppliers, so the single-source component contributes nothing and the effective supply-risk range is ~0–70 (not 0–100).
