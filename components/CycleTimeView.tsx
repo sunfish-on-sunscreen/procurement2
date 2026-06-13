@@ -75,10 +75,15 @@ function quadrantCallout(
   const top = sorted[0];
   const deltas = entries.map((e) => e.s.delta!);
   const concentrated = Math.max(...deltas) - Math.min(...deltas) > 2;
-  const bott = data["Bottleneck"];
-  const bottNote =
-    bott && bott.post_mean != null && bott.post_mean > (top.s.post_mean ?? 0)
-      ? ` The Bottleneck quadrant still averages ${bott.post_mean.toFixed(
+  // Only warn about remaining friction if the slowest quadrant is genuinely
+  // slow post-automation (>8 days; pre-automation averaged ~18 days).
+  const withPost = entries.filter((e) => e.s.post_mean != null);
+  const slowest = withPost.length
+    ? [...withPost].sort((a, b) => b.s.post_mean! - a.s.post_mean!)[0]
+    : null;
+  const frictionNote =
+    slowest && slowest.s.post_mean! > 8
+      ? ` The ${slowest.q} quadrant still averages ${slowest.s.post_mean!.toFixed(
           1,
         )} days post-automation, suggesting remaining process friction.`
       : "";
@@ -86,7 +91,7 @@ function quadrantCallout(
     concentrated
       ? `concentrated in the ${top.q} quadrant (${top.s.delta!.toFixed(1)}-day reduction)`
       : "fairly evenly distributed across quadrants"
-  }.${bottNote}`;
+  }.${frictionNote}`;
 }
 
 function complianceCallout(
@@ -317,8 +322,9 @@ export function CycleTimeView({ hypothesis }: { hypothesis: HypothesisResult }) 
                   ...hypothesis.three_way_match_by_quadrant![q],
                 }))
                   .sort((a, b) => b.fail_rate_pct - a.fail_rate_pct)
-                  .map((row) => {
-                    const high = row.fail_rate_pct > 10;
+                  .map((row, i) => {
+                    // Relative highlight: only the worst quadrant (sorted first).
+                    const high = i === 0;
                     return (
                       <TableRow key={row.q}>
                         <TableCell className="font-medium">{row.q}</TableCell>
