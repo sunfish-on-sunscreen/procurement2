@@ -245,6 +245,24 @@ export default async function MethodologyPage() {
               <strong>95% confidence interval</strong> on the mean difference is
               estimated via bootstrap resampling (1000 iterations).
             </p>
+            <p>
+              In addition to the overall test, the analysis now includes:
+            </p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>Stage decomposition</strong>: per-stage mean times
+                (PR→PO, PO→delivery, delivery→invoice, invoice→payment) showing
+                where automation impact landed.
+              </li>
+              <li>
+                <strong>Quadrant breakdown</strong>: pre/post invoice-to-payment
+                comparison for each Kraljic quadrant.
+              </li>
+              <li>
+                <strong>3-way match compliance</strong> by quadrant, surfacing
+                process-control gaps among the most important suppliers.
+              </li>
+            </ul>
             <p className="text-xs">
               Reference: Mann &amp; Whitney (1947).
             </p>

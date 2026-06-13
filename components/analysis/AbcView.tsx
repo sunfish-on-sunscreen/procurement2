@@ -28,6 +28,7 @@ const usdCompact = new Intl.NumberFormat("en-US", {
 });
 const pct1 = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
 const ABC_CLASSES = ["A", "B", "C"] as const;
+const DECLARED_TIERS = ["Strategic", "Preferred", "Approved"] as const;
 
 export function AbcView({ abc }: { abc: AbcResult }) {
   const tiers = Object.keys(abc.crosstab);
@@ -151,6 +152,63 @@ export function AbcView({ abc }: { abc: AbcResult }) {
           </Table>
         </CardContent>
       </Card>
+
+      {abc.abc_vs_tier && (
+        <Card>
+          <CardHeader>
+            <CardTitle>ABC Class × Declared Tier</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Class</TableHead>
+                  {DECLARED_TIERS.map((t) => (
+                    <TableHead key={t} className="text-right">
+                      {t}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ABC_CLASSES.map((cls) => (
+                  <TableRow key={cls}>
+                    <TableCell className="font-medium">Class {cls}</TableCell>
+                    {DECLARED_TIERS.map((t) => (
+                      <TableCell key={t} className="text-right">
+                        {abc.abc_vs_tier![cls]?.[t] ?? 0}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {(() => {
+              const A = abc.abc_vs_tier!.A ?? {};
+              const C = abc.abc_vs_tier!.C ?? {};
+              const aNotStrategic =
+                (A.Preferred ?? 0) + (A.Approved ?? 0);
+              const cStrategic = C.Strategic ?? 0;
+              return (
+                <div className="rounded-md border-l-4 border-primary bg-muted/50 p-3 text-sm leading-relaxed">
+                  <p className="mb-1 font-semibold">Insights</p>
+                  <p className="text-muted-foreground">
+                    {aNotStrategic} high-spend Class A supplier
+                    {aNotStrategic === 1 ? " isn't" : "s aren't"} classified as
+                    Strategic in our tier system — tier review candidates.{" "}
+                    {cStrategic} supplier
+                    {cStrategic === 1 ? " is" : "s are"} labeled Strategic but
+                    fall in Class C, contributing little to spend — possibly
+                    stale designations or critical low-volume partners worth
+                    keeping at Strategic.
+                  </p>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }

@@ -349,6 +349,70 @@ export function PerformanceSpendView({
         orderBy="performance"
       />
 
+      {/* Tier mismatch by zone */}
+      {data.tier_mismatch_by_zone && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Tier Mismatch by Zone</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Zone</TableHead>
+                  <TableHead className="text-right">Mismatched / Total</TableHead>
+                  <TableHead className="text-right">% Mismatched</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ZONE_TABLE_ORDER.map((z) => {
+                  const m = data.tier_mismatch_by_zone![z] ?? {
+                    mismatched: 0,
+                    total: 0,
+                  };
+                  const pctVal = m.total ? (m.mismatched / m.total) * 100 : 0;
+                  return (
+                    <TableRow key={z}>
+                      <TableCell className="font-medium">
+                        <Dot color={ZONE_COLORS[z]} /> {z}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {m.mismatched} / {m.total}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {pctVal.toFixed(0)}%
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+
+            {(() => {
+              const totalMismatch = ZONE_TABLE_ORDER.reduce(
+                (a, z) => a + (data.tier_mismatch_by_zone![z]?.mismatched ?? 0),
+                0,
+              );
+              const gemNames = data.top_hidden_gems
+                .slice(0, 3)
+                .map((g) => g.supplier_name);
+              return (
+                <div className="rounded-md border-l-4 border-primary bg-muted/50 p-3 text-sm leading-relaxed">
+                  <p className="mb-1 font-semibold">Insights</p>
+                  <p className="text-muted-foreground">
+                    {totalMismatch} total tier mismatch
+                    {totalMismatch === 1 ? "" : "es"} across all zones. The most
+                    actionable group is Hidden Gems (Approved suppliers
+                    performing well — promotion candidates
+                    {gemNames.length ? `: ${gemNames.join(", ")}` : ""}).
+                  </p>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Performance by Kraljic quadrant */}
       <Card>
         <CardHeader>

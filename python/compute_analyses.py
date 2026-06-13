@@ -207,11 +207,21 @@ def abc_analysis(purchases, suppliers, metrics):
     ct = pd.crosstab(spend["tier"], spend["abc_class"])
     crosstab = {str(t): {str(c): int(ct.loc[t, c]) for c in ct.columns} for t in ct.index}
 
+    # Class-major crosstab over the declared tiers (for the ABC × Tier insight).
+    abc_vs_tier = {}
+    for cls in ["A", "B", "C"]:
+        sub = spend[spend["abc_class"] == cls]
+        abc_vs_tier[cls] = {
+            t: int((sub["tier"] == t).sum())
+            for t in ["Strategic", "Preferred", "Approved"]
+        }
+
     return {
         "thresholds": [0.80, 0.95],
         "classifications": classifications,
         "summary": summary,
         "crosstab": crosstab,
+        "abc_vs_tier": abc_vs_tier,
     }
 
 
@@ -267,6 +277,76 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
     mt = pm.groupby("month")["invoiceToPaymentDays"].mean().sort_index()
     monthly_trend = [{"month": str(m), "mean_days": num(v)} for m, v in mt.items()]
 
+    # ----- 11D enrichments: stage decomposition + per-quadrant breakdowns ---- #
+    def _stage_means(df):
+        def m(col):
+            v = pd.to_numeric(df[col], errors="coerce").dropna()
+            return num(v.mean()) if len(v) else None
+        return {
+            "pr_to_po": m("prToPoDays"),
+            "po_to_delivery": m("poToDeliveryDays"),
+            "delivery_to_invoice": m("deliveryToInvoiceDays"),
+            "invoice_to_payment": m("invoiceToPaymentDays"),
+        }
+
+    pre_df = purchases[purchases["automationPeriod"] == "pre"]
+    post_df = purchases[purchases["automationPeriod"] == "post"]
+    stage_breakdown = {
+        "overall": _stage_means(purchases),
+        "pre": _stage_means(pre_df),
+        "post": _stage_means(post_df),
+    }
+
+    # Period-accurate Kraljic quadrant per supplier (same helpers as 11C).
+    quad_map = {}
+    if suppliers is not None and metrics is not None and len(suppliers):
+        risk_map, _c = compute_supply_risk(suppliers, metrics)
+        spend_raw = purchases.groupby("supplierExternalId")["totalValueUsd"].sum()
+        log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
+        krj_sids = [s for s in log_spend_map if s in risk_map]
+        if krj_sids:
+            quad_map, _sm, _rm = assign_kraljic_quadrants(
+                {s: log_spend_map[s] for s in krj_sids},
+                {s: risk_map[s] for s in krj_sids},
+            )
+
+    pq = purchases.copy()
+    pq["quadrant"] = pq["supplierExternalId"].map(quad_map)
+
+    cycle_by_quadrant = {}
+    three_way_match_by_quadrant = {}
+    for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
+        sub = pq[pq["quadrant"] == q]
+        pre_v = pd.to_numeric(
+            sub.loc[sub["automationPeriod"] == "pre", "invoiceToPaymentDays"],
+            errors="coerce",
+        ).dropna()
+        post_v = pd.to_numeric(
+            sub.loc[sub["automationPeriod"] == "post", "invoiceToPaymentDays"],
+            errors="coerce",
+        ).dropna()
+        pre_mean = num(pre_v.mean()) if len(pre_v) else None
+        post_mean = num(post_v.mean()) if len(post_v) else None
+        delta = (
+            num(pre_mean - post_mean)
+            if (pre_mean is not None and post_mean is not None)
+            else None
+        )
+        cycle_by_quadrant[q] = {
+            "pre_mean": pre_mean,
+            "post_mean": post_mean,
+            "delta": delta,
+            "n_suppliers": int(sub["supplierExternalId"].nunique()),
+        }
+
+        n_pos = int(len(sub))
+        fail_rate = (
+            num((~sub["threeWayMatchPass"].astype(bool)).sum() / n_pos * 100)
+            if n_pos
+            else 0
+        )
+        three_way_match_by_quadrant[q] = {"fail_rate_pct": fail_rate, "n_pos": n_pos}
+
     base = {
         "test": "Mann-Whitney U",
         "alpha": 0.05,
@@ -274,6 +354,9 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
         "post_stats": stats_block(post),
         "histogram": make_histogram(pre, post),
         "monthly_trend": monthly_trend,
+        "stage_breakdown": stage_breakdown,
+        "cycle_by_quadrant": cycle_by_quadrant,
+        "three_way_match_by_quadrant": three_way_match_by_quadrant,
     }
 
     # Both pre and post groups are required (e.g. a single-year range has only one).
@@ -364,6 +447,7 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         "top_critical_issues": [],
         "top_hidden_gems": [],
         "performance_by_quadrant": {},
+        "tier_mismatch_by_zone": {},
     }
 
     # Suppliers needing both spend AND a performance score (and a quadrant).
@@ -433,6 +517,26 @@ def performance_spend_analysis(purchases, suppliers, metrics):
             num(np.mean([perf_of(s) for s in qmembers])) if qmembers else 0
         )
 
+    # Tier mismatches by zone: the declared tier that's "wrong" for each zone.
+    def _is_mismatch(zone, tier):
+        if zone == "Stars":
+            return tier != "Strategic"  # high-spend high-perf under-classified
+        if zone == "Critical Issues":
+            return tier == "Strategic"  # labeled Strategic but underperforming
+        if zone == "Hidden Gems":
+            return tier == "Approved"  # small-but-excellent, promotion candidate
+        if zone == "Long Tail":
+            return tier == "Strategic"  # labeled Strategic but low/low
+        return False
+
+    tier_mismatch_by_zone = {}
+    for z in ["Stars", "Critical Issues", "Hidden Gems", "Long Tail"]:
+        members = [r for r in rows if r["zone"] == z]
+        tier_mismatch_by_zone[z] = {
+            "mismatched": sum(1 for r in members if _is_mismatch(z, r["tier"])),
+            "total": len(members),
+        }
+
     return {
         "suppliers": rows,
         "zone_profiles": zone_profiles,
@@ -443,6 +547,7 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         "top_critical_issues": top_critical_issues,
         "top_hidden_gems": top_hidden_gems,
         "performance_by_quadrant": performance_by_quadrant,
+        "tier_mismatch_by_zone": tier_mismatch_by_zone,
     }
 
 

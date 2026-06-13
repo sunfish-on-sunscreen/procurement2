@@ -30,6 +30,7 @@ export type AbcResult = {
     C: { n: number; total_spend: number; pct_of_spend: number };
   };
   crosstab: Record<string, Record<string, number>>; // tier -> abc_class -> count
+  abc_vs_tier?: Record<"A" | "B" | "C", Record<string, number>>; // class -> tier -> count
 };
 
 export type HypothesisStats = {
@@ -49,6 +50,25 @@ export type HypothesisHistogram = {
   post: number[];
 };
 
+export interface StageBreakdown {
+  pr_to_po: number | null;
+  po_to_delivery: number | null;
+  delivery_to_invoice: number | null;
+  invoice_to_payment: number | null;
+}
+
+export interface QuadrantCycleStats {
+  pre_mean: number | null;
+  post_mean: number | null;
+  delta: number | null;
+  n_suppliers: number;
+}
+
+export interface ThreeWayMatchStats {
+  fail_rate_pct: number;
+  n_pos: number;
+}
+
 export type HypothesisResult = {
   test: string;
   alpha: number;
@@ -63,6 +83,14 @@ export type HypothesisResult = {
   significant: boolean;
   insufficient_data?: boolean;
   monthly_trend: { month: string; mean_days: number }[];
+  // 11D enrichments (optional for backward compatibility with old results).
+  stage_breakdown?: {
+    overall: StageBreakdown;
+    pre: StageBreakdown;
+    post: StageBreakdown;
+  };
+  cycle_by_quadrant?: Record<KraljicQuadrant, QuadrantCycleStats | null>;
+  three_way_match_by_quadrant?: Record<KraljicQuadrant, ThreeWayMatchStats>;
 };
 
 export type KraljicQuadrant = "Strategic" | "Leverage" | "Bottleneck" | "Routine";
@@ -131,6 +159,11 @@ export interface PerformanceSpendResult {
   top_critical_issues: PerformanceSpendSupplier[]; // top 5 by spend
   top_hidden_gems: PerformanceSpendSupplier[]; // top 5 by performance
   performance_by_quadrant: Record<KraljicQuadrant, number>;
+  // 11D cross-reference (optional for backward compatibility).
+  tier_mismatch_by_zone?: Record<
+    PerformanceZone,
+    { mismatched: number; total: number }
+  >;
 }
 
 /** Full payload returned by /api/analyses/compute-range (Python Mode B). */
