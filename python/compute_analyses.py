@@ -10,8 +10,9 @@ Two modes:
       {spend_overview, abc, hypothesis, performance_spend, kraljic,
       recommendations} to STDOUT. No DB writes.
 
-Data is filtered by Purchase.prDate (periodId on rows is decorative). Suppliers
-and metrics are derived from the suppliers that appear in the filtered purchases.
+Data is filtered by Purchase invoice date — COALESCE(invoiceDate, prDate) — so a
+period's compute covers exactly the rows tagged to it at import. Suppliers and
+metrics are derived from the suppliers that appear in the filtered purchases.
 Progress logs go to STDERR so Mode B's stdout stays pure JSON.
 
 Methodology is FIXED (ABC 80/95, Mann-Whitney U, Kraljic median split) per scope.
@@ -97,9 +98,15 @@ def _df(conn, query, params):
 def load_frames(conn, start_ts, end_ts):
     """Load purchases in [start_ts, end_ts] plus the suppliers/metrics for the
     suppliers that appear in those purchases (deduped across periods)."""
+    # Filter by INVOICE date (when spend is realized), falling back to PR date
+    # for any row without an invoice. This mirrors the period TAG assigned at
+    # import (invoiceDate ?? prDate), so a period's compute covers exactly the
+    # rows tagged to it.
     purchases = _df(
         conn,
-        'SELECT * FROM "Purchase" WHERE "prDate" >= %s AND "prDate" <= %s',
+        'SELECT * FROM "Purchase" '
+        'WHERE COALESCE("invoiceDate", "prDate") >= %s '
+        'AND COALESCE("invoiceDate", "prDate") <= %s',
         (start_ts, end_ts),
     )
     if len(purchases) == 0:

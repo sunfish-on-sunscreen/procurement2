@@ -163,12 +163,20 @@ export async function POST(request: Request) {
     );
   }
 
-  // 9. Auto-create reporting periods from the YEARS present in Purchases.prDate.
+  // 9. Auto-create reporting periods from the YEARS present in Purchases.
+  // Periods are keyed by INVOICE date (when spend is realized), falling back to
+  // PR date for any row missing an invoice. This is what surfaces e.g. a 2026
+  // period from invoices that arrive after their 2025 POs.
   let years: number[];
   try {
     years = [
       ...new Set(
-        purchasesParsed.data.map((r) => parseExcelDate(r.pr_date).getUTCFullYear()),
+        purchasesParsed.data.map((r) =>
+          (r.invoice_date
+            ? parseExcelDate(r.invoice_date)
+            : parseExcelDate(r.pr_date)
+          ).getUTCFullYear(),
+        ),
       ),
     ].sort((a, b) => a - b);
   } catch (err) {
@@ -213,6 +221,7 @@ export async function POST(request: Request) {
   try {
     purchaseData = purchasesParsed.data.map((r) => {
       const prDate = parseExcelDate(r.pr_date);
+      const invoiceDate = parseExcelDate(r.invoice_date);
       return {
         poId: r.po_id,
         supplierExternalId: r.supplier_id,
@@ -226,7 +235,7 @@ export async function POST(request: Request) {
         prDate,
         poDate: parseExcelDate(r.po_date),
         deliveryDate: parseExcelDate(r.delivery_date),
-        invoiceDate: parseExcelDate(r.invoice_date),
+        invoiceDate,
         paymentDate: parseExcelDate(r.payment_date),
         prToPoDays: r.pr_to_po_days,
         poToDeliveryDays: r.po_to_delivery_days,
@@ -236,8 +245,11 @@ export async function POST(request: Request) {
         onTimeDelivery: r.on_time_delivery,
         threeWayMatchPass: r.three_way_match_pass,
         automationPeriod: r.automation_period,
-        // Tag each purchase to the period for the YEAR of its pr_date.
-        periodId: yearToPeriodId.get(prDate.getUTCFullYear())!,
+        // Tag each purchase to the period for the YEAR it was invoiced (when
+        // spend is realized), falling back to its pr_date year if no invoice.
+        periodId: yearToPeriodId.get(
+          (invoiceDate ?? prDate).getUTCFullYear(),
+        )!,
       };
     });
   } catch (err) {
