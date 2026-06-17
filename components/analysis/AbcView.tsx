@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { AbcResult } from "@/lib/analysis-types";
 import { ABC_COLORS } from "@/lib/chart-colors";
+import { cn } from "@/lib/utils";
 import { ParetoChart } from "@/components/charts/ParetoChart";
 import {
   Card,
@@ -32,6 +34,31 @@ const DECLARED_TIERS = ["Strategic", "Preferred", "Approved"] as const;
 
 export function AbcView({ abc }: { abc: AbcResult }) {
   const tiers = Object.keys(abc.crosstab);
+
+  // Tier chips for the classification table (declared tiers first, then any
+  // others like "Unknown" that appear in the data). Visibility-only: the ABC
+  // classification itself never changes — Class A stays Class A.
+  const presentTiers = [
+    ...DECLARED_TIERS.filter((t) =>
+      abc.classifications.some((c) => c.tier === t),
+    ),
+    ...[...new Set(abc.classifications.map((c) => c.tier))].filter(
+      (t) => !(DECLARED_TIERS as readonly string[]).includes(t),
+    ),
+  ];
+  const [selectedTiers, setSelectedTiers] = useState<Set<string>>(
+    new Set(presentTiers),
+  );
+  const toggleTier = (t: string) =>
+    setSelectedTiers((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  const visibleClassifications = abc.classifications.filter((c) =>
+    selectedTiers.has(c.tier),
+  );
 
   return (
     <>
@@ -77,7 +104,31 @@ export function AbcView({ abc }: { abc: AbcResult }) {
         <CardHeader>
           <CardTitle>Supplier Classification</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Filter by tier:</span>
+            {presentTiers.map((t) => {
+              const on = selectedTiers.has(t);
+              return (
+                <button
+                  key={t}
+                  onClick={() => toggleTier(t)}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs transition-colors",
+                    on
+                      ? "border-foreground/40 text-foreground"
+                      : "text-muted-foreground opacity-60 hover:opacity-100",
+                  )}
+                >
+                  {t}
+                </button>
+              );
+            })}
+            <span className="ml-auto text-xs text-muted-foreground">
+              Showing {visibleClassifications.length} of{" "}
+              {abc.classifications.length} suppliers
+            </span>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -91,7 +142,7 @@ export function AbcView({ abc }: { abc: AbcResult }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {abc.classifications.map((c) => (
+              {visibleClassifications.map((c) => (
                 <TableRow key={c.supplier_id}>
                   <TableCell className="text-right">{c.rank}</TableCell>
                   <TableCell className="font-medium">{c.supplier_name}</TableCell>

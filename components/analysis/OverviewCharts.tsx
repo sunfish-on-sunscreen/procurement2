@@ -70,6 +70,9 @@ export function OverviewCharts({ spend }: { spend: SpendOverviewResult }) {
       <Card>
         <CardHeader>
           <CardTitle>Monthly Spend Trend</CardTitle>
+          <CardDescription>
+            Realized spend, bucketed by supplier invoice date.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <MonthlySpendTrendChart data={spend.monthly_trend} />

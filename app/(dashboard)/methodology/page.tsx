@@ -295,6 +295,55 @@ export default async function MethodologyPage() {
             severity. Recommendations include specific data backing and
             suggested action language.
           </p>
+
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">
+              Impact Score Calculation
+            </h4>
+            <p>
+              Every recommendation carries an impact score (0–100) used to rank
+              actions globally across categories. Each category is normalized to
+              the same 0–100 scale so a tier change and a process fix are
+              comparable. All categories share a spend term:
+            </p>
+            <p className="rounded-md bg-muted/50 p-2 text-xs">
+              <code>
+                spend_normalized = log(1 + total_spend) ÷ max(log(1 +
+                total_spend)) × 100
+              </code>
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>Tier Reclassification</strong> —{" "}
+                <code>spend_normalized × severity</code>, where severity is{" "}
+                <strong>1.0</strong> (promote), <strong>0.9</strong> (review),
+                or <strong>0.6</strong> (demote). Higher-spend mismatches rank
+                first.
+              </li>
+              <li>
+                <strong>Critical Issues Engagement</strong> —{" "}
+                <code>0.7 × spend_normalized + 0.3 × performance_gap</code>{" "}
+                (gap below the performance median, scaled to 0–100). High-spend
+                underperformers rank highest.
+              </li>
+              <li>
+                <strong>Hidden Gems Promotion</strong> —{" "}
+                <code>(performance − median) ÷ (100 − median) × 100</code>.
+                Performance above the median, scaled to 0–100.
+              </li>
+              <li>
+                <strong>Bottleneck Risk Mitigation</strong> — the supplier&apos;s{" "}
+                <code>supply_risk_score</code> (already 0–100). Direct
+                risk-based ranking.
+              </li>
+              <li>
+                <strong>Process Improvement</strong> — 3-way-match issues use{" "}
+                <code>fail_rate_pct</code>; stage-time issues use{" "}
+                <code>mean_days ÷ 18 × 100</code>, calibrated against the
+                pre-automation baseline (~18 days).
+              </li>
+            </ul>
+          </section>
         </CardContent>
       </Card>
 

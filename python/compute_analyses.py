@@ -139,8 +139,13 @@ def spend_overview(purchases, suppliers, metrics):
     )
     top_suppliers = [{"supplier_name": str(n), "total": num(t)} for (_s, n), t in sup.items()]
 
+    # Realized spend is bucketed by INVOICE date (spend isn't realized until an
+    # invoice exists). Rows without an invoice date are excluded from the trend
+    # only — they still count toward every other aggregation above.
     pm = purchases.copy()
-    pm["month"] = pd.to_datetime(pm["poDate"]).dt.strftime("%Y-%m")
+    pm["_invoice"] = pd.to_datetime(pm["invoiceDate"], errors="coerce")
+    pm = pm.dropna(subset=["_invoice"])
+    pm["month"] = pm["_invoice"].dt.strftime("%Y-%m")
     mt = pm.groupby("month")["totalValueUsd"].sum().sort_index()
     monthly_trend = [{"month": str(m), "total": num(t)} for m, t in mt.items()]
 
