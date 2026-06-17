@@ -5,6 +5,10 @@ import type {
   KraljicQuadrant,
   QuadrantProfile,
   HypothesisResult,
+  PerformanceSpendResult,
+  RecommendationsResult,
+  Recommendation,
+  RecommendationAction,
 } from "@/lib/analysis-types";
 
 export type ReportNarratives = {
@@ -12,6 +16,7 @@ export type ReportNarratives = {
   spend: string;
   abc: string;
   kraljic: string;
+  performance: string;
   cycle_time: string;
 };
 
@@ -23,7 +28,9 @@ export type ReportMetrics = {
     avg_cycle_time: number;
   };
   key_findings: string[];
-  recommendations: string[];
+  recommendations: string[]; // legacy free-text recommendation lines
+  action_items: string[]; // NEW: action-oriented one-liners (top recs)
+  priorities: Recommendation[]; // NEW: structured top recommendations
   narratives: ReportNarratives;
 };
 
@@ -32,8 +39,45 @@ export type ReportInput = {
   spendOverview: SpendOverviewResult;
   abc: AbcResult;
   kraljic: KraljicResult;
+  performanceSpend: PerformanceSpendResult;
   hypothesis: HypothesisResult;
+  recommendations: RecommendationsResult;
 };
+
+const ACTION_VERB: Record<RecommendationAction, string> = {
+  promote: "Promote",
+  demote: "Demote",
+  review: "Review tier for",
+  engage: "Engage",
+  mitigate: "Mitigate risk for",
+  improve: "Improve",
+};
+
+/** First sentence of a reasoning string, for compact bullets. */
+function firstSentence(s: string): string {
+  const i = s.indexOf(". ");
+  return i === -1 ? s : s.slice(0, i + 1);
+}
+
+function actionLine(r: Recommendation): string {
+  const who = r.supplier_name ?? r.scope ?? "Process";
+  return `${ACTION_VERB[r.action]} ${who} — ${firstSentence(r.reasoning)}`;
+}
+
+/**
+ * Turns the recommendations engine output into the report's action sections:
+ * a short "key actions" bullet list and the top-N structured priorities.
+ */
+export function generateActionOrientedNarratives(recs: RecommendationsResult): {
+  actionItems: string[];
+  priorities: Recommendation[];
+} {
+  const ranked = recs.recommendations; // already sorted by impact desc
+  return {
+    actionItems: ranked.slice(0, 8).map(actionLine),
+    priorities: ranked.slice(0, 10),
+  };
+}
 
 const intl = new Intl.NumberFormat("en-US");
 const usdM = (n: number) => `$${(n / 1_000_000).toFixed(1)}M`;
@@ -52,7 +96,15 @@ export function generateExecutiveSummary(input: ReportInput): {
   narrative: string;
   metrics: ReportMetrics;
 } {
-  const { period, spendOverview: s, abc, kraljic, hypothesis: h } = input;
+  const {
+    period,
+    spendOverview: s,
+    abc,
+    kraljic,
+    performanceSpend: ps,
+    hypothesis: h,
+    recommendations: recs,
+  } = input;
 
   const cover_intro = `This executive summary covers procurement activity for ${period.name} at Adaro. Total spend of ${usdM(
     s.total_spend,
@@ -115,6 +167,22 @@ export function generateExecutiveSummary(input: ReportInput): {
   )} of spend), ${lev.n_suppliers} in Leverage (high spend, low risk — ${pct(
     lev.pct_of_total_spend,
   )}), ${bott.n_suppliers} in Bottleneck (low spend, high risk), and ${rout.n_suppliers} in Routine (low spend, low risk). Strategic suppliers warrant partnership and senior relationship management, while Leverage suppliers are where competitive buying power should be applied.`;
+
+  // --- Performance vs Spend narrative -------------------------------------
+  const zoneOf = (z: PerformanceSpendResult["zone_profiles"][number]["zone"]) =>
+    ps.zone_profiles.find((p) => p.zone === z);
+  const stars = zoneOf("Stars");
+  const critical = zoneOf("Critical Issues");
+  const gems = zoneOf("Hidden Gems");
+  const performance = `Crossing spend against performance, ${
+    stars?.n_suppliers ?? 0
+  } suppliers are Stars (high spend, strong performance) and ${
+    critical?.n_suppliers ?? 0
+  } are Critical Issues (high spend, lagging performance — ${pct(
+    critical?.pct_of_total_spend ?? 0,
+  )} of spend). A further ${
+    gems?.n_suppliers ?? 0
+  } Hidden Gems perform well on small spend and are promotion candidates.`;
 
   let cycle_time: string;
   if (h.insufficient_data) {
@@ -185,11 +253,15 @@ export function generateExecutiveSummary(input: ReportInput): {
     `The top 10 suppliers account for ${pct(top10Pct)} of spend.`,
   ];
 
+  // --- Action-oriented sections (NEW) -------------------------------------
+  const { actionItems, priorities } = generateActionOrientedNarratives(recs);
+
   const narratives: ReportNarratives = {
     cover_intro,
     spend,
     abc: abcNarr,
     kraljic: kraljicNarr,
+    performance,
     cycle_time,
   };
 
@@ -202,6 +274,8 @@ export function generateExecutiveSummary(input: ReportInput): {
     },
     key_findings,
     recommendations,
+    action_items: actionItems,
+    priorities,
     narratives,
   };
 
@@ -209,16 +283,20 @@ export function generateExecutiveSummary(input: ReportInput): {
     `# Executive Summary — ${period.name}`,
     `## Overview`,
     cover_intro,
+    `## Key Findings & Actions`,
+    ...actionItems.map((a) => `- ${a}`),
     `## Spend`,
     spend,
-    `## ABC Analysis`,
-    abcNarr,
-    `## Supplier Quadrant`,
-    kraljicNarr,
+    `## ABC Analysis & Supplier Quadrant`,
+    `${abcNarr} ${kraljicNarr}`,
+    `## Performance vs Spend`,
+    performance,
     `## Cycle Time`,
     cycle_time,
-    `## Recommendations`,
-    ...recommendations.map((r) => `- ${r}`),
+    `## Recommended Priorities`,
+    ...priorities.map(
+      (p) => `- ${ACTION_VERB[p.action]} ${p.supplier_name ?? p.scope}: ${p.reasoning}`,
+    ),
   ].join("\n\n");
 
   return { narrative, metrics };

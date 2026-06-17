@@ -7,6 +7,8 @@ import {
   type AbcResult,
   type KraljicResult,
   type HypothesisResult,
+  type PerformanceSpendResult,
+  type RecommendationsResult,
 } from "@/lib/analysis-types";
 import { generateExecutiveSummary } from "@/lib/report-templates";
 
@@ -37,16 +39,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Reporting period not found" }, { status: 400 });
   }
 
-  const [spendOverview, abc, kraljic, hypothesis] = await Promise.all([
-    getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
-    getAnalysisResult<AbcResult>(periodId, "abc"),
-    getAnalysisResult<KraljicResult>(periodId, "kraljic"),
-    getAnalysisResult<HypothesisResult>(periodId, "hypothesis"),
-  ]);
+  const [spendOverview, abc, kraljic, performanceSpend, hypothesis, recommendations] =
+    await Promise.all([
+      getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
+      getAnalysisResult<AbcResult>(periodId, "abc"),
+      getAnalysisResult<KraljicResult>(periodId, "kraljic"),
+      getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
+      getAnalysisResult<HypothesisResult>(periodId, "hypothesis"),
+      getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
+    ]);
 
-  if (!spendOverview || !abc || !kraljic || !hypothesis) {
+  if (
+    !spendOverview ||
+    !abc ||
+    !kraljic ||
+    !performanceSpend ||
+    !hypothesis ||
+    !recommendations
+  ) {
     return NextResponse.json(
-      { error: "Compute analyses first before generating a summary." },
+      {
+        error:
+          "Compute analyses first by running an import or selecting Range mode.",
+      },
       { status: 400 },
     );
   }
@@ -60,7 +75,9 @@ export async function POST(request: Request) {
     spendOverview,
     abc,
     kraljic,
+    performanceSpend,
     hypothesis,
+    recommendations,
   });
 
   const today = new Date().toISOString().slice(0, 10);

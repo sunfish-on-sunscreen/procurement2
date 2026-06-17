@@ -26,6 +26,15 @@ const QUADRANT_ORDER: KraljicQuadrant[] = [
   "Routine",
 ];
 
+const ACTION_COLORS: Record<string, string> = {
+  engage: "#ef4444",
+  review: "#f59e0b",
+  mitigate: "#f97316",
+  promote: "#10b981",
+  demote: "#64748b",
+  improve: "#3b82f6",
+};
+
 export default async function ReportDetailPage({
   params,
 }: {
@@ -189,6 +198,47 @@ export default async function ReportDetailPage({
               <li key={i}>{r}</li>
             ))}
           </ul>
+        </section>
+
+        {/* 6b. Recommended Priorities (action recommendations) */}
+        <section className="pdf-page-break flex flex-col gap-3">
+          <h2 className="text-xl font-semibold">Recommended Priorities</h2>
+          {metrics.priorities ? (
+            <div className="flex flex-col gap-3">
+              {metrics.priorities.map((p, i) => (
+                <div
+                  key={i}
+                  className="rounded-md border p-3"
+                  style={{ borderLeft: `4px solid ${ACTION_COLORS[p.action] ?? "#64748b"}` }}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide">
+                      {p.action}
+                    </span>
+                    <span className="font-medium">
+                      {p.supplier_name ?? p.scope}
+                    </span>
+                    {p.current_tier && (
+                      <span className="text-xs text-muted-foreground">
+                        ({p.current_tier})
+                      </span>
+                    )}
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Impact {p.impact_score.toFixed(0)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {p.reasoning}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This report was generated before action recommendations were
+              available. Generate a new report to see recommendations.
+            </p>
+          )}
         </section>
 
         {/* 7. Methodology footer */}

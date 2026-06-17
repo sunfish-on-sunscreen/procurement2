@@ -7,6 +7,7 @@ import { OverviewCharts } from "./OverviewCharts";
 import { AbcView } from "./AbcView";
 import { SupplierKraljicView } from "@/components/SupplierKraljicView";
 import { PerformanceSpendView } from "@/components/PerformanceSpendView";
+import { ActionDashboardView } from "@/components/ActionDashboardView";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -15,6 +16,7 @@ type View =
   | "abc"
   | "kraljic"
   | "performance_spend"
+  | "recommendations"
   | "hypothesis";
 
 type State =
@@ -107,6 +109,16 @@ export function RangeCompute({
     return state.data.performance_spend ? (
       <PerformanceSpendView
         data={state.data.performance_spend}
+        period={period}
+      />
+    ) : (
+      <EmptyState />
+    );
+  }
+  if (kind === "recommendations") {
+    return state.data.recommendations ? (
+      <ActionDashboardView
+        data={state.data.recommendations}
         period={period}
       />
     ) : (

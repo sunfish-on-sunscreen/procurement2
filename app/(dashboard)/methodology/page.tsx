@@ -270,10 +270,38 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 4. Reporting Periods */}
+      {/* 4. Action Recommendations Synthesis */}
       <Card>
         <CardHeader>
-          <CardTitle>4. Reporting Periods</CardTitle>
+          <CardTitle>4. Action Recommendations Synthesis</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            The Action Dashboard synthesizes findings from the 4 analyses into
+            ranked, specific actions. The recommendations engine evaluates:
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              Tier mismatches across ABC, Kraljic, and Performance vs Spend.
+            </li>
+            <li>High-spend underperformers (Critical Issues).</li>
+            <li>Low-spend high performers (Hidden Gems).</li>
+            <li>High-risk low-impact suppliers (Bottleneck Risk).</li>
+            <li>Process compliance issues by stage and quadrant.</li>
+          </ul>
+          <p>
+            Each recommendation is ranked by an impact score (normalized to
+            0–100) combining spend exposure, risk magnitude, or process
+            severity. Recommendations include specific data backing and
+            suggested action language.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 5. Reporting Periods */}
+      <Card>
+        <CardHeader>
+          <CardTitle>5. Reporting Periods</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">
@@ -300,7 +328,7 @@ export default async function MethodologyPage() {
       {/* 5. Assumptions and Limitations */}
       <Card>
         <CardHeader>
-          <CardTitle>5. Assumptions and Limitations</CardTitle>
+          <CardTitle>6. Assumptions and Limitations</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-2 pl-5">
@@ -336,7 +364,7 @@ export default async function MethodologyPage() {
       {/* 6. References */}
       <Card>
         <CardHeader>
-          <CardTitle>6. References</CardTitle>
+          <CardTitle>7. References</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">

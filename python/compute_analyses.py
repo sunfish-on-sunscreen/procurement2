@@ -7,8 +7,8 @@ Two modes:
       into AnalysisResult (one row per analysisType per period).
   Mode B (on-the-fly):  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
       Computes over the date span and prints a single JSON object
-      {spend_overview, abc, hypothesis, performance_spend, kraljic} to STDOUT.
-      No DB writes.
+      {spend_overview, abc, hypothesis, performance_spend, kraljic,
+      recommendations} to STDOUT. No DB writes.
 
 Data is filtered by Purchase.prDate (periodId on rows is decorative). Suppliers
 and metrics are derived from the suppliers that appear in the filtered purchases.
@@ -730,6 +730,288 @@ def kraljic_analysis(purchases, suppliers, metrics):
     return result, risk_map, comp_map, quad_map
 
 
+# --------------------------------------------------------------------------- #
+# f) Recommendations engine  (synthesizes all 4 analyses into ranked actions)
+#    Self-contained: recomputes its own intermediate data via the shared 11A
+#    helpers so it never depends on execution order. All impact scores are
+#    normalized to [0, 100] so the global ranking is comparable across the 5
+#    categories, while each remains proportional to its category's key metric.
+# --------------------------------------------------------------------------- #
+def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
+    from datetime import datetime, timezone
+
+    spend_raw = purchases.groupby("supplierExternalId")["totalValueUsd"].sum()
+    total_spend_map = {sid: float(v) for sid, v in spend_raw.items()}
+    log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
+    max_log = max(log_spend_map.values()) if log_spend_map else 1.0
+
+    risk_map, comp_map = compute_supply_risk(suppliers, metrics)
+    krj_sids = [s for s in log_spend_map if s in risk_map]
+    if krj_sids:
+        quad_map, _sm, _rm = assign_kraljic_quadrants(
+            {s: log_spend_map[s] for s in krj_sids},
+            {s: risk_map[s] for s in krj_sids},
+        )
+    else:
+        quad_map = {}
+
+    sup_meta = (
+        suppliers.rename(columns={"externalId": "supplierExternalId"})
+        .drop_duplicates("supplierExternalId")
+        .set_index("supplierExternalId")
+    )
+    m = (
+        metrics.drop_duplicates("supplierExternalId").set_index("supplierExternalId")
+        if len(metrics)
+        else pd.DataFrame()
+    )
+
+    def tier_of(s):
+        return str(sup_meta.loc[s, "tier"]) if s in sup_meta.index else "Unknown"
+
+    def name_of(s):
+        return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
+
+    def country_of(s):
+        return (
+            str(sup_meta.loc[s, "country"])
+            if s in sup_meta.index and "country" in sup_meta.columns
+            else ""
+        )
+
+    def perf_of(s):
+        if len(m) and s in m.index and pd.notna(m.loc[s, "compositeScore"]):
+            return float(m.loc[s, "compositeScore"])
+        return None
+
+    def single_source_of(s):
+        if (
+            len(m)
+            and s in m.index
+            and "singleSourceRisk" in m.columns
+            and pd.notna(m.loc[s, "singleSourceRisk"])
+        ):
+            return float(m.loc[s, "singleSourceRisk"])
+        return 0.0
+
+    def spend_norm(s):
+        return (log_spend_map[s] / max_log * 100.0) if max_log > 0 else 0.0
+
+    def usd(v):
+        return f"${v:,.0f}"
+
+    # Suppliers with spend + performance + a quadrant (zone universe).
+    sids = [s for s in krj_sids if perf_of(s) is not None]
+    spend_med = float(np.median([log_spend_map[s] for s in sids])) if sids else 0.0
+    perf_med = float(np.median([perf_of(s) for s in sids])) if sids else 0.0
+
+    def zone_of(s):
+        hi_spend = log_spend_map[s] > spend_med
+        hi_perf = perf_of(s) > perf_med
+        if hi_spend and hi_perf:
+            return "Stars"
+        if hi_spend and not hi_perf:
+            return "Critical Issues"
+        if not hi_spend and hi_perf:
+            return "Hidden Gems"
+        return "Long Tail"
+
+    recs = []
+
+    # CATEGORY 1: tier reclassification (one verdict per supplier — bijective).
+    for s in sids:
+        t = tier_of(s)
+        z = zone_of(s)
+        q = quad_map.get(s)
+        action = rec_tier = reasoning = None
+        sev = 0.0
+        if t in ("Approved", "Preferred") and z == "Stars" and q in ("Strategic", "Leverage"):
+            action, rec_tier, sev = "promote", "Strategic", 1.0
+            reasoning = (
+                f"Currently {t} but performs strongly under high spend (Stars zone, "
+                f"{q} quadrant). Evidence: spend {usd(total_spend_map[s])}, "
+                f"performance {perf_of(s):.1f}."
+            )
+        elif t == "Strategic" and z == "Critical Issues":
+            # Review (NOT demote): underperforming, but the tier may still fit.
+            action, rec_tier, sev = "review", "review", 0.9
+            reasoning = (
+                f"Currently Strategic but underperforming on high spend (Critical "
+                f"Issues zone). Evidence: spend {usd(total_spend_map[s])}, performance "
+                f"{perf_of(s):.1f} (below {perf_med:.1f} median)."
+            )
+        elif t == "Strategic" and (z == "Long Tail" or q == "Routine"):
+            action, rec_tier, sev = "demote", "Preferred", 0.6
+            reasoning = (
+                f"Currently Strategic but low spend and low impact ({z} zone, "
+                f"{q} quadrant). Evidence: spend {usd(total_spend_map[s])}, "
+                f"performance {perf_of(s):.1f}."
+            )
+        if action:
+            recs.append({
+                "type": "tier_reclassification",
+                "action": action,
+                "supplier_id": s,
+                "supplier_name": name_of(s),
+                "current_tier": t,
+                "recommended_tier": rec_tier,
+                "reasoning": reasoning,
+                "impact_score": num(min(100.0, spend_norm(s) * sev)),
+                "total_spend_usd": num(total_spend_map[s]),
+                "performance_score": num(perf_of(s)),
+                "kraljic_quadrant": q,
+            })
+
+    # CATEGORY 2: critical-issues engagement (top 5 by spend).
+    crit = sorted(
+        [s for s in sids if zone_of(s) == "Critical Issues"],
+        key=lambda s: total_spend_map[s],
+        reverse=True,
+    )[:5]
+    for s in crit:
+        gap = max(0.0, perf_med - perf_of(s))
+        recs.append({
+            "type": "critical_issues_engagement",
+            "action": "engage",
+            "supplier_id": s,
+            "supplier_name": name_of(s),
+            "current_tier": tier_of(s),
+            "reasoning": (
+                f"High-spend supplier with concerning performance. Spend exposure "
+                f"{usd(total_spend_map[s])}, performance score {perf_of(s):.1f} "
+                f"(below {perf_med:.1f} median). Kraljic quadrant: {quad_map.get(s)}. "
+                f"Initiate supplier development engagement or identify alternatives."
+            ),
+            "impact_score": num(min(100.0, 0.7 * spend_norm(s) + 0.3 * min(100.0, gap * 2))),
+            "total_spend_usd": num(total_spend_map[s]),
+            "performance_score": num(perf_of(s)),
+            "kraljic_quadrant": quad_map.get(s),
+        })
+
+    # CATEGORY 3: hidden-gems promotion (top 5 by performance).
+    gems = sorted(
+        [s for s in sids if zone_of(s) == "Hidden Gems"],
+        key=lambda s: perf_of(s),
+        reverse=True,
+    )[:5]
+    denom = (100.0 - perf_med) or 1.0
+    for s in gems:
+        surplus = max(0.0, perf_of(s) - perf_med)
+        recs.append({
+            "type": "hidden_gems_promotion",
+            "action": "promote",
+            "supplier_id": s,
+            "supplier_name": name_of(s),
+            "current_tier": tier_of(s),
+            "reasoning": (
+                f"High-performance supplier (score {perf_of(s):.1f}) with currently "
+                f"small spend exposure ({usd(total_spend_map[s])}). Strong candidate "
+                f"for expanded scope. Evaluate for tier promotion and/or expanded "
+                f"share of wallet."
+            ),
+            "impact_score": num(min(100.0, surplus / denom * 100.0)),
+            "total_spend_usd": num(total_spend_map[s]),
+            "performance_score": num(perf_of(s)),
+        })
+
+    # CATEGORY 4: bottleneck risk mitigation (top 5 by supply risk).
+    bottleneck = sorted(
+        [s for s in sids if quad_map.get(s) == "Bottleneck"],
+        key=lambda s: risk_map.get(s, 0.0),
+        reverse=True,
+    )[:5]
+    for s in bottleneck:
+        ss = single_source_of(s)
+        ctry = country_of(s)
+        recs.append({
+            "type": "bottleneck_risk",
+            "action": "mitigate",
+            "supplier_id": s,
+            "supplier_name": name_of(s),
+            "current_tier": tier_of(s),
+            "reasoning": (
+                f"Low-spend supplier ({usd(total_spend_map[s])}) with high supply risk "
+                f"(score {risk_map[s]:.1f}). Single-source: {'yes' if ss >= 1 else 'no'}, "
+                f"Country: {ctry or 'n/a'}, Category alternatives: {comp_map.get(s, 0)}. "
+                f"Develop alternative suppliers, build inventory buffers, or explore "
+                f"standardization."
+            ),
+            "impact_score": num(min(100.0, risk_map[s])),
+            "supply_risk_score": num(risk_map[s]),
+            "country": ctry,
+            "total_spend_usd": num(total_spend_map[s]),
+        })
+
+    # CATEGORY 5: process improvement (non-supplier-specific; up to 3).
+    pq = purchases.copy()
+    pq["quadrant"] = pq["supplierExternalId"].map(quad_map)
+    fails = []
+    for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
+        sub = pq[pq["quadrant"] == q]
+        n = len(sub)
+        if n:
+            fails.append((q, float((~sub["threeWayMatchPass"].astype(bool)).sum() / n * 100), n))
+    proc = []
+    if fails:
+        wq = max(fails, key=lambda x: x[1])
+        proc.append({
+            "type": "process_improvement",
+            "action": "improve",
+            "scope": f"Quadrant: {wq[0]} compliance",
+            "reasoning": (
+                f"3-way match failure rate is {wq[1]:.1f}% in the {wq[0]} quadrant "
+                f"({wq[2]} POs) — concentrated process compliance issue."
+            ),
+            "impact_score": num(min(100.0, wq[1])),
+        })
+    post_df = purchases[purchases["automationPeriod"] == "post"]
+    # Internal P2P process stages only. PO→Delivery is physical supplier lead
+    # time (not a process stage automation targets), so it is excluded from the
+    # "remaining process friction" flag to avoid a non-actionable false positive.
+    stage_cols = [
+        ("prToPoDays", "PR→PO"),
+        ("deliveryToInvoiceDays", "Delivery→Invoice"),
+        ("invoiceToPaymentDays", "Invoice→Payment"),
+    ]
+    for col, label in stage_cols:
+        v = pd.to_numeric(post_df[col], errors="coerce").dropna()
+        if len(v) and v.mean() > 8:
+            proc.append({
+                "type": "process_improvement",
+                "action": "improve",
+                "scope": f"Stage: {label}",
+                "reasoning": (
+                    f"{label} averages {v.mean():.1f} days post-automation — "
+                    f"remaining process friction."
+                ),
+                "impact_score": num(min(100.0, v.mean() / 18.0 * 100.0)),
+            })
+    recs.extend(proc[:3])
+
+    recs.sort(key=lambda r: r["impact_score"] if r["impact_score"] is not None else 0.0, reverse=True)
+
+    by_category = {
+        "tier_reclassification": 0,
+        "critical_issues_engagement": 0,
+        "hidden_gems_promotion": 0,
+        "bottleneck_risk": 0,
+        "process_improvement": 0,
+    }
+    for r in recs:
+        by_category[r["type"]] = by_category.get(r["type"], 0) + 1
+
+    return {
+        "period_label": period_label,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "recommendations": recs,
+        "summary_stats": {
+            "total_recommendations": len(recs),
+            "by_category": by_category,
+            "highest_impact": recs[0] if recs else None,
+        },
+    }
+
+
 def writeback_supplier_metrics(conn, risk_map, comp_map, quad_map):
     """Mode A only: denormalize the latest computed risk/quadrant onto SupplierMetric."""
     with conn.cursor() as cur:
@@ -845,7 +1127,21 @@ def main():
             traceback.print_exc(file=sys.stderr)
             results["kraljic"] = None
 
-        all_types = [n for n, _ in ANALYSES] + ["kraljic"]
+        # Recommendations synthesize all analyses; computed separately because
+        # they need a human-readable period label (not available in the ANALYSES
+        # 3-arg loop signature).
+        period_label = period_name if mode == "A" else f"{args.start_date} – {args.end_date}"
+        try:
+            log("Computing recommendations...")
+            results["recommendations"] = recommendations_analysis(
+                purchases, suppliers, metrics, period_label
+            )
+        except Exception as exc:  # noqa: BLE001
+            log(f"FAILED recommendations: {exc}")
+            traceback.print_exc(file=sys.stderr)
+            results["recommendations"] = None
+
+        all_types = [n for n, _ in ANALYSES] + ["kraljic", "recommendations"]
 
         if mode == "A":
             succeeded = 0

@@ -166,6 +166,52 @@ export interface PerformanceSpendResult {
   >;
 }
 
+export type RecommendationCategory =
+  | "tier_reclassification"
+  | "critical_issues_engagement"
+  | "hidden_gems_promotion"
+  | "bottleneck_risk"
+  | "process_improvement";
+
+export type RecommendationAction =
+  | "promote"
+  | "demote"
+  | "review"
+  | "engage"
+  | "mitigate"
+  | "improve";
+
+// A `type` alias (not `interface`) so it satisfies Prisma's JSON index-signature
+// when persisted in ExecutiveSummary.metricsJson.
+export type Recommendation = {
+  type: RecommendationCategory;
+  action: RecommendationAction;
+  supplier_id?: string; // absent for process_improvement
+  supplier_name?: string;
+  current_tier?: string;
+  recommended_tier?: string;
+  reasoning: string;
+  impact_score: number;
+  // Category-specific optional fields:
+  total_spend_usd?: number;
+  performance_score?: number;
+  kraljic_quadrant?: KraljicQuadrant;
+  supply_risk_score?: number;
+  country?: string;
+  scope?: string; // for process_improvement
+};
+
+export interface RecommendationsResult {
+  period_label: string;
+  generated_at: string;
+  recommendations: Recommendation[];
+  summary_stats: {
+    total_recommendations: number;
+    by_category: Record<RecommendationCategory, number>;
+    highest_impact: Recommendation | null;
+  };
+}
+
 /** Full payload returned by /api/analyses/compute-range (Python Mode B). */
 export type RangeAnalyses = {
   spend_overview: SpendOverviewResult;
@@ -173,6 +219,7 @@ export type RangeAnalyses = {
   hypothesis: HypothesisResult;
   performance_spend: PerformanceSpendResult;
   kraljic: KraljicResult;
+  recommendations: RecommendationsResult;
 };
 
 /**
