@@ -41,7 +41,7 @@ const CARD_ORDER: KraljicQuadrant[] = [
 ];
 
 // Declared (legacy) tier order for the crosstab rows.
-const TIER_ORDER = ["Strategic", "Preferred", "Approved"];
+const TIER_ORDER = ["Core", "Established", "Standard"];
 
 const usd = (n: number) =>
   new Intl.NumberFormat("en-US", {
@@ -132,11 +132,11 @@ export function SupplierKraljicView({
   ];
 
   const misTiered = kraljic.quadrant_assignments.filter(
-    (a) => a.tier === "Strategic" && a.quadrant !== "Strategic",
+    (a) => a.tier === "Core" && a.quadrant !== "Strategic",
   ).length;
   const underTiered = kraljic.quadrant_assignments.filter(
     (a) =>
-      a.tier === "Approved" &&
+      a.tier === "Standard" &&
       (a.quadrant === "Strategic" || a.quadrant === "Leverage"),
   ).length;
 
@@ -303,9 +303,9 @@ export function SupplierKraljicView({
             <p className="mb-1 font-semibold">Insights</p>
             <p className="text-muted-foreground">
               {misTiered} supplier{misTiered === 1 ? "" : "s"} labeled
-              Strategic {misTiered === 1 ? "doesn't" : "don't"} sit in the
+              Core {misTiered === 1 ? "doesn't" : "don't"} sit in the
               Strategic quadrant — candidates for tier review. {underTiered}{" "}
-              Approved supplier{underTiered === 1 ? "" : "s"} carr
+              Standard supplier{underTiered === 1 ? "" : "s"} carr
               {underTiered === 1 ? "ies" : "y"} meaningful spend impact —
               promotion candidates.
             </p>

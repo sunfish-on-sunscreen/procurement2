@@ -86,9 +86,13 @@ export default async function MethodologyPage() {
             </li>
           </ul>
           <p>
-            The data generator uses a fixed random seed of{" "}
-            <strong>42</strong> for reproducibility — anyone can regenerate the
-            exact same dataset.
+            The dataset was originally generated externally (the generator is
+            not in this repository). A transformer script (
+            <code>scripts/transform_dataset.py</code>) then applies the supplier
+            tier naming (<strong>Core / Established / Standard</strong>) and two
+            data-quality fixes — varied supply-risk scores and single-source
+            flags — deterministically with a fixed seed of <strong>42</strong>.
+            A full from-scratch generator is planned for a future phase.
           </p>
         </CardContent>
       </Card>

@@ -45,9 +45,9 @@ const CARD_ORDER: PerformanceZone[] = [
 // Understated monochrome ramp for legacy tier seniority (no semantic clash with
 // the zone / quadrant colour schemes).
 const TIER_DOT: Record<string, string> = {
-  Strategic: "#475569",
-  Preferred: "#94a3b8",
-  Approved: "#cbd5e1",
+  Core: "#475569",
+  Established: "#94a3b8",
+  Standard: "#cbd5e1",
 };
 
 const usd = (n: number) =>
@@ -402,7 +402,7 @@ export function PerformanceSpendView({
                   <p className="text-muted-foreground">
                     {totalMismatch} total tier mismatch
                     {totalMismatch === 1 ? "" : "es"} across all zones. The most
-                    actionable group is Hidden Gems (Approved suppliers
+                    actionable group is Hidden Gems (Standard-tier suppliers
                     performing well — promotion candidates
                     {gemNames.length ? `: ${gemNames.join(", ")}` : ""}).
                   </p>

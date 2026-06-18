@@ -79,7 +79,18 @@ npm run dev
 - `lib/` — Server utilities (prisma, auth, session, period)
 - `prisma/` — Schema, migrations, seed
 - `python/` — Analysis compute scripts (Phase 7+)
+- `scripts/` — One-off maintenance scripts (period re-tagging, dataset transform)
 - `data/raw/` — Sample data for testing
+
+## Dataset
+
+The synthetic dataset (`data/raw/procurement_data.xlsx`) was **originally
+generated externally — the generator is not in this repository.** A deterministic
+transformer (`scripts/transform_dataset.py`, seed 42) applies targeted fixes on
+top of that output: the supplier tier rename (Strategic/Preferred/Approved →
+**Core/Established/Standard**) plus two data-quality fixes (varied `risk_score`
+and non-zero `single_source_risk`). A full from-scratch generator is planned for
+a future phase. See `dataset_type_explainer.md` for field-level provenance.
 
 ## Reference docs
 - `CLAUDE.md` — Project rules for AI assistance

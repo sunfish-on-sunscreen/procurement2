@@ -39,7 +39,7 @@ Hand-assignment is the most defensible type because every value has an explicit 
 
 - `supplier_name`: Real Indonesian and international mining suppliers chosen to ground the dataset in a realistic supplier landscape
 - `country`: ISO 3166-1 alpha-2 codes (Indonesian + international suppliers reflecting actual HQ locations)
-- `tier`: Distribution of 17 Strategic / 15 Preferred / 23 Approved chosen to reflect a typical mining procurement portfolio (heavy on tail-spend Approved suppliers)
+- `tier`: declared supplier tier — **Core / Established / Standard** (renamed in Batch 3a from the original Strategic / Preferred / Approved, partly to remove the name collision with the Kraljic "Strategic" quadrant). Actual distribution in the dataset: **16 Core / 23 Established / 16 Standard**, reflecting a typical mining procurement portfolio.
 - `category`: 14 categories covering full P2P scope (Heavy Equipment OEM, Tires, Explosives, Fuel, Mining Contractor, etc.)
 
 ### Example defense
@@ -188,6 +188,17 @@ automation_period = "pre" if year(pr_date) = 2024 else "post"
 single_source_risk = 1 if count(suppliers in same category) = 1 else 0
 ```
 
+> **Batch 3a transformer update.** The original `single_source_risk` and
+> `risk_score` formulas produced degenerate data: no category had exactly one
+> supplier, so `single_source_risk` was **0 for everyone**, which pinned
+> `risk_score` at **100 for everyone**. `scripts/transform_dataset.py` (seed 42)
+> replaces them:
+> - **`single_source_risk`** — flagged probabilistically, biased to small
+>   categories (≤3 suppliers ≈28%, 4–5 ≈12%, 6+ ≈5%) → **~20% flagged (11/55)**.
+> - **`risk_score`** — `clip(44 + Gaussian(0,18)±30 + country_distance(0/5/15)
+>   + min(complaints×3, 15) − spend_credit(≤10), 0, 100)` → spread
+>   **~19–90 (mean ≈ 58, std ≈ 15)** instead of a flat 100.
+
 Defense: documented threshold values. The 14/28 days OTD threshold reflects realistic shipping reality (local vs international).
 
 #### Normalized sub-scores (formula-driven)
@@ -244,11 +255,18 @@ This is where the weights matter most. Defense:
 #### Tier thresholds
 
 ```
-composite_score ≥ 75 → Strategic
-composite_score ≥ 60 → Preferred
-composite_score ≥ 45 → Approved
-composite_score < 45 → Probationary
+composite_score ≥ 75 → Core
+composite_score ≥ 55 → Established
+composite_score < 55 → Standard
 ```
+
+> **Batch 3a transformer update.** `calculated_tier` is recomputed from the new
+> `composite_score` using the renamed tiers and thresholds **≥75 → Core, ≥55 →
+> Established, else Standard** (the "Probationary" tier is unused). The
+> transformer also recomputes `composite_score` itself with the Phase-11E
+> weights **quality 0.25 / delivery 0.25 / process 0.20 / service 0.15 / risk
+> 0.15** (note: risk weight is 0.15 here, vs. 0.10 in the original formula
+> above), and recomputes `tier_mismatch = (tier ≠ calculated_tier)`.
 
 Defense: Thresholds set to roughly approximate the legacy tier distribution (so the comparison is meaningful), with a "Probationary" tier added for genuinely weak performers. The specific thresholds are organizational policy — most companies set them after observing the distribution of their composite scores.
 
@@ -274,7 +292,7 @@ The value is drawn from a statistical distribution calibrated to produce realist
 
 ```python
 P(supplier_i) ∝ tier_weight
-  weights: Strategic=5, Preferred=2, Approved=0.5
+  weights: Core=5, Established=2, Standard=0.5
 ```
 
 **Calibration**: Pareto principle — empirically, 10-20% of suppliers receive 70-80% of POs in procurement portfolios. Weighting by tier produces this concentration.
@@ -362,9 +380,9 @@ Random fields (like cycle time deltas) at least have a basis in transaction time
 #### `defect_rate_pct` — Beta scaled by tier
 
 ```python
-Strategic:  Beta(α=2,   β=200) × 100   →  mean ≈ 0.99%
-Preferred:  Beta(α=3,   β=150) × 100   →  mean ≈ 1.96%
-Approved:   Beta(α=4,   β=100) × 100   →  mean ≈ 3.85%
+Core:  Beta(α=2,   β=200) × 100   →  mean ≈ 0.99%
+Established:  Beta(α=3,   β=150) × 100   →  mean ≈ 1.96%
+Standard:   Beta(α=4,   β=100) × 100   →  mean ≈ 3.85%
 ```
 
 **Why Beta**: It's bounded [0,1], naturally fits percentages, and allows flexible asymmetric shapes.
@@ -377,9 +395,9 @@ Approved:   Beta(α=4,   β=100) × 100   →  mean ≈ 3.85%
 #### `complaint_count_annual` — Poisson
 
 ```python
-Strategic:  Poisson(λ=1)     →  typically 0-2 complaints/year
-Preferred:  Poisson(λ=2.5)   →  typically 1-4 complaints/year
-Approved:   Poisson(λ=4.5)   →  typically 3-6 complaints/year
+Core:  Poisson(λ=1)     →  typically 0-2 complaints/year
+Established:  Poisson(λ=2.5)   →  typically 1-4 complaints/year
+Standard:   Poisson(λ=4.5)   →  typically 3-6 complaints/year
 ```
 
 **Why Poisson**: It's the standard distribution for count data (occurrences per time period). Suitable for modeling rare events like complaints.
@@ -389,9 +407,9 @@ Approved:   Poisson(λ=4.5)   →  typically 3-6 complaints/year
 #### `rfx_response_rate_pct` — Beta scaled by tier
 
 ```python
-Strategic:  Beta(α=20, β=2)  × 100   →  mean ≈ 91%
-Preferred:  Beta(α=10, β=3)  × 100   →  mean ≈ 77%
-Approved:   Beta(α=5,  β=3)  × 100   →  mean ≈ 63%
+Core:  Beta(α=20, β=2)  × 100   →  mean ≈ 91%
+Established:  Beta(α=10, β=3)  × 100   →  mean ≈ 77%
+Standard:   Beta(α=5,  β=3)  × 100   →  mean ≈ 63%
 ```
 
 **Calibration**: Procurement RFx response rates are typically 60-95% depending on supplier engagement level. Source: CIPS engagement benchmarks.
@@ -399,9 +417,9 @@ Approved:   Beta(α=5,  β=3)  × 100   →  mean ≈ 63%
 #### `avg_response_time_days` — Log-normal
 
 ```python
-Strategic:  LogNormal(μ=0.4, σ=0.4)   →  median ≈ 1.5 days
-Preferred:  LogNormal(μ=0.9, σ=0.5)   →  median ≈ 2.5 days
-Approved:   LogNormal(μ=1.4, σ=0.6)   →  median ≈ 4.0 days
+Core:  LogNormal(μ=0.4, σ=0.4)   →  median ≈ 1.5 days
+Established:  LogNormal(μ=0.9, σ=0.5)   →  median ≈ 2.5 days
+Standard:   LogNormal(μ=1.4, σ=0.6)   →  median ≈ 4.0 days
 ```
 
 **Why Log-normal**: Response times are right-skewed (most responses fast, occasional very slow ones). Log-normal models this naturally.

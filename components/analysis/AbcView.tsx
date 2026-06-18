@@ -30,7 +30,7 @@ const usdCompact = new Intl.NumberFormat("en-US", {
 });
 const pct1 = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
 const ABC_CLASSES = ["A", "B", "C"] as const;
-const DECLARED_TIERS = ["Strategic", "Preferred", "Approved"] as const;
+const DECLARED_TIERS = ["Core", "Established", "Standard"] as const;
 
 export function AbcView({ abc }: { abc: AbcResult }) {
   const tiers = Object.keys(abc.crosstab);
@@ -238,21 +238,21 @@ export function AbcView({ abc }: { abc: AbcResult }) {
             {(() => {
               const A = abc.abc_vs_tier!.A ?? {};
               const C = abc.abc_vs_tier!.C ?? {};
-              const aNotStrategic =
-                (A.Preferred ?? 0) + (A.Approved ?? 0);
-              const cStrategic = C.Strategic ?? 0;
+              const aNotCore =
+                (A.Established ?? 0) + (A.Standard ?? 0);
+              const cCore = C.Core ?? 0;
               return (
                 <div className="rounded-md border-l-4 border-primary bg-muted/50 p-3 text-sm leading-relaxed">
                   <p className="mb-1 font-semibold">Insights</p>
                   <p className="text-muted-foreground">
-                    {aNotStrategic} high-spend Class A supplier
-                    {aNotStrategic === 1 ? " isn't" : "s aren't"} classified as
-                    Strategic in our tier system — tier review candidates.{" "}
-                    {cStrategic} supplier
-                    {cStrategic === 1 ? " is" : "s are"} labeled Strategic but
+                    {aNotCore} high-spend Class A supplier
+                    {aNotCore === 1 ? " isn't" : "s aren't"} classified as
+                    Core in our tier system — tier review candidates.{" "}
+                    {cCore} supplier
+                    {cCore === 1 ? " is" : "s are"} labeled Core but
                     fall in Class C, contributing little to spend — possibly
                     stale designations or critical low-volume partners worth
-                    keeping at Strategic.
+                    keeping at Core.
                   </p>
                 </div>
               );

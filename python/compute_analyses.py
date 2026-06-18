@@ -225,7 +225,7 @@ def abc_analysis(purchases, suppliers, metrics):
         sub = spend[spend["abc_class"] == cls]
         abc_vs_tier[cls] = {
             t: int((sub["tier"] == t).sum())
-            for t in ["Strategic", "Preferred", "Approved"]
+            for t in ["Core", "Established", "Standard"]
         }
 
     return {
@@ -532,13 +532,13 @@ def performance_spend_analysis(purchases, suppliers, metrics):
     # Tier mismatches by zone: the declared tier that's "wrong" for each zone.
     def _is_mismatch(zone, tier):
         if zone == "Stars":
-            return tier != "Strategic"  # high-spend high-perf under-classified
+            return tier != "Core"  # high-spend high-perf under-classified
         if zone == "Critical Issues":
-            return tier == "Strategic"  # labeled Strategic but underperforming
+            return tier == "Core"  # labeled Core but underperforming
         if zone == "Hidden Gems":
-            return tier == "Approved"  # small-but-excellent, promotion candidate
+            return tier == "Standard"  # small-but-excellent, promotion candidate
         if zone == "Long Tail":
-            return tier == "Strategic"  # labeled Strategic but low/low
+            return tier == "Core"  # labeled Core but low/low
         return False
 
     tier_mismatch_by_zone = {}
@@ -837,25 +837,25 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         q = quad_map.get(s)
         action = rec_tier = reasoning = None
         sev = 0.0
-        if t in ("Approved", "Preferred") and z == "Stars" and q in ("Strategic", "Leverage"):
-            action, rec_tier, sev = "promote", "Strategic", 1.0
+        if t in ("Standard", "Established") and z == "Stars" and q in ("Strategic", "Leverage"):
+            action, rec_tier, sev = "promote", "Core", 1.0
             reasoning = (
                 f"Currently {t} but performs strongly under high spend (Stars zone, "
                 f"{q} quadrant). Evidence: spend {usd(total_spend_map[s])}, "
                 f"performance {perf_of(s):.1f}."
             )
-        elif t == "Strategic" and z == "Critical Issues":
+        elif t == "Core" and z == "Critical Issues":
             # Review (NOT demote): underperforming, but the tier may still fit.
             action, rec_tier, sev = "review", "review", 0.9
             reasoning = (
-                f"Currently Strategic but underperforming on high spend (Critical "
+                f"Currently Core but underperforming on high spend (Critical "
                 f"Issues zone). Evidence: spend {usd(total_spend_map[s])}, performance "
                 f"{perf_of(s):.1f} (below {perf_med:.1f} median)."
             )
-        elif t == "Strategic" and (z == "Long Tail" or q == "Routine"):
-            action, rec_tier, sev = "demote", "Preferred", 0.6
+        elif t == "Core" and (z == "Long Tail" or q == "Routine"):
+            action, rec_tier, sev = "demote", "Established", 0.6
             reasoning = (
-                f"Currently Strategic but low spend and low impact ({z} zone, "
+                f"Currently Core but low spend and low impact ({z} zone, "
                 f"{q} quadrant). Evidence: spend {usd(total_spend_map[s])}, "
                 f"performance {perf_of(s):.1f}."
             )

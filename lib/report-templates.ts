@@ -132,12 +132,12 @@ export function generateExecutiveSummary(input: ReportInput): {
   const A = abc.summary.A;
   const B = abc.summary.B;
   const C = abc.summary.C;
-  const strategicNonA = abc.classifications.filter(
-    (c) => c.tier === "Strategic" && c.abc_class !== "A",
+  const coreNonA = abc.classifications.filter(
+    (c) => c.tier === "Core" && c.abc_class !== "A",
   ).length;
   const mismatchNote =
-    strategicNonA > 0
-      ? ` Notably, ${strategicNonA} Strategic-tier supplier(s) fell into non-A classes, indicating a tier/spend mismatch worth review.`
+    coreNonA > 0
+      ? ` Notably, ${coreNonA} Core-tier supplier(s) fell into non-A classes, indicating a tier/spend mismatch worth review.`
       : "";
   const abcNarr = `ABC classification identified ${A.n} Class A suppliers representing ${pct(
     A.pct_of_spend * 100,
@@ -210,9 +210,9 @@ export function generateExecutiveSummary(input: ReportInput): {
   }
 
   const recommendations: string[] = [];
-  if (strategicNonA > 0) {
+  if (coreNonA > 0) {
     recommendations.push(
-      `Reclassify ${strategicNonA} supplier(s) whose legacy tier no longer matches their actual spend and ABC class.`,
+      `Reclassify ${coreNonA} supplier(s) whose legacy tier no longer matches their actual spend and ABC class.`,
     );
   }
   // Name a couple of Strategic-quadrant suppliers for relationship management.
@@ -225,15 +225,15 @@ export function generateExecutiveSummary(input: ReportInput): {
       `Establish senior-level relationship management for ${nm} (Strategic quadrant — high spend and high supply risk).`,
     );
   }
-  // Under-tiered: Approved suppliers sitting in high-impact quadrants.
+  // Under-tiered: Standard suppliers sitting in high-impact quadrants.
   const underTiered = kraljic.quadrant_assignments.filter(
     (a) =>
-      a.tier === "Approved" &&
+      a.tier === "Standard" &&
       (a.quadrant === "Strategic" || a.quadrant === "Leverage"),
   ).length;
   if (underTiered > 0) {
     recommendations.push(
-      `Review ${underTiered} Approved-tier supplier(s) sitting in the Strategic or Leverage quadrant — their spend impact suggests they are promotion candidates.`,
+      `Review ${underTiered} Standard-tier supplier(s) sitting in the Strategic or Leverage quadrant — their spend impact suggests they are promotion candidates.`,
     );
   }
   if (!h.insufficient_data && h.significant) {
