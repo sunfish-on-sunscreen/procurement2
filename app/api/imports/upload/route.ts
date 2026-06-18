@@ -369,6 +369,11 @@ export async function POST(request: Request) {
     }
   }
 
+  // 13b. Invalidate the cached RANGE results — the data has changed, so every
+  // cached range must be recomputed on next view. (Range rows are the ones with
+  // a null periodId.)
+  await prisma.analysisResult.deleteMany({ where: { periodId: null } });
+
   // 14. Summary
   return NextResponse.json({
     success: true,

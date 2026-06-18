@@ -27,8 +27,11 @@ export async function getCurrentPeriodSelection(): Promise<PeriodSelection> {
   const periods = await getAllPeriods();
   const latest = periods[0]?.id ?? null;
   const oldest = periods[periods.length - 1]?.id ?? null;
+  // First visit (no cookie) lands on RANGE mode spanning all detected years, so
+  // the dashboard opens on the full dataset rather than the latest (sparse) year.
+  // An existing cookie is respected below — we never override an explicit choice.
   const fallback: PeriodSelection = {
-    mode: "single",
+    mode: "range",
     singleId: latest,
     fromId: oldest,
     toId: latest,

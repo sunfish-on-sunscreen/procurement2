@@ -176,15 +176,25 @@ enum ImportStatus {
 // ============= PRE-COMPUTED ANALYSES =============
 
 model AnalysisResult {
-  id           String          @id @default(cuid())
-  periodId     String
-  period       ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  analysisType String // 'abc' | 'clustering' | 'hypothesis' | 'spend_overview'
-  resultJson   Json
-  computedAt   DateTime        @default(now())
+  id       String           @id @default(cuid())
+  // Single-year results set periodId (range dates null). Cached RANGE results
+  // set rangeStartDate/rangeEndDate (periodId null).
+  periodId String?
+  period   ReportingPeriod? @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
+  rangeStartDate DateTime?
+  rangeEndDate   DateTime?
+
+  analysisType String // 'spend_overview' | 'abc' | 'hypothesis' | 'performance_spend' | 'kraljic' | 'recommendations'
+  resultJson   Json
+  computedAt   DateTime @default(now())
+
+  // Two constraints, each with no NULLs in its own key, so uniqueness is
+  // actually enforced (Postgres treats NULLs as distinct).
   @@unique([periodId, analysisType])
+  @@unique([rangeStartDate, rangeEndDate, analysisType])
   @@index([periodId])
+  @@index([rangeStartDate, rangeEndDate])
 }
 
 // ============= EXECUTIVE SUMMARIES =============
