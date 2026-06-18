@@ -11,6 +11,8 @@ import {
   type RecommendationsResult,
 } from "@/lib/analysis-types";
 import { generateExecutiveSummary } from "@/lib/report-templates";
+import type { ReportConfig } from "@/lib/report-config";
+import { Prisma } from "@/lib/generated/prisma/client";
 
 export const runtime = "nodejs";
 
@@ -26,12 +28,19 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const periodId =
-    body && typeof body === "object" && "periodId" in body
-      ? (body as { periodId?: unknown }).periodId
-      : undefined;
-  if (typeof periodId !== "string" || periodId.length === 0) {
-    return NextResponse.json({ error: "Missing periodId" }, { status: 400 });
+  const config = (body as { config?: ReportConfig } | null)?.config;
+  if (!config || typeof config !== "object") {
+    return NextResponse.json({ error: "Missing config" }, { status: 400 });
+  }
+  if (config.period.mode !== "single") {
+    return NextResponse.json(
+      { error: "Range reports are generated via generate-ephemeral." },
+      { status: 400 },
+    );
+  }
+  const periodId = config.period.singleId;
+  if (!periodId) {
+    return NextResponse.json({ error: "No period selected" }, { status: 400 });
   }
 
   const period = await prisma.reportingPeriod.findUnique({ where: { id: periodId } });
@@ -86,7 +95,9 @@ export async function POST(request: Request) {
       periodId,
       title: `Executive Summary — ${period.name} — ${today}`,
       narrative,
-      metricsJson: metrics,
+      // Persist the customization config alongside the metrics so the detail
+      // page can render exactly the chosen sections / detail level / filters.
+      metricsJson: { ...metrics, config } as unknown as Prisma.InputJsonValue,
       generatedBy: session.userId,
     },
     select: { id: true },
