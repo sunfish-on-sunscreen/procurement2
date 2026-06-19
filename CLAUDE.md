@@ -3,34 +3,78 @@
 A full-stack Next.js web app for presenting mining procurement analytics from synthetic 
 data. Multi-user with auth, single organization, fixed analyses (no parameter tweaking).
 
-## Current Work — Phase 11: K-means → Kraljic Matrix architecture (IN PROGRESS)
+## Current Work
 
-Replacing the K-means supplier clustering with a Kraljic Matrix approach, plus a
-Performance vs Spend diagnostic, cross-references, and a recommendations engine.
+Phase 11 (Kraljic rebuild) and Phase 11F (UX refinements) are complete through
+**Batch 3d**. **Phase 11F Batch 4 is next** (Top 10 category filter on Overview
+page). Phase 10 polish follows. Latest commit: **3b2b0c2 (Batch 3d)**.
 
-**5-phase plan:**
-- **11A — Data layer (schema + Python): ✅ DONE** (commit `7595758`)
-- **11B — Kraljic Matrix page (replaces Supplier Segments): ⏭️ NEXT**
-- **11C — Performance vs Spend page (NEW)**
-- **11D — Process Quality page + cross-references**
-- **11E — Action Dashboard + recommendations + new PDF**
+6 analytical pages live: Overview, ABC, Supplier Quadrant (Kraljic), Performance
+vs Spend, Cycle Time, Action Dashboard (+ Reports, Methodology).
 
-**Key architectural decisions:**
+### Architecture facts (current as of 11F)
+- **Tier names are `Core` / `Established` / `Standard`** (renamed in 3a from
+  Strategic/Preferred/Approved). ⚠️ **"Strategic" still exists as a Kraljic
+  QUADRANT name** — tier-Strategic and quadrant-Strategic are two distinct
+  contexts; never conflate them in grep/replace.
+- **Period tagging uses invoice date** with PR-date fallback, i.e.
+  `(invoiceDate ?? prDate).year`. Python `load_frames` filters by
+  `COALESCE(invoiceDate, prDate)`. This surfaces a **2026** period.
+- **Default landing is Range mode (all years)**, not single-year latest
+  (`getCurrentPeriodSelection` fallback in `lib/period.ts`).
+- **`AnalysisResult` has nullable `periodId` + `rangeStartDate` + `rangeEndDate`.**
+  Single-year rows set `periodId`; range cache rows set the dates. **Two separate
+  unique constraints** (`[periodId, analysisType]` and `[rangeStartDate,
+  rangeEndDate, analysisType]`), NOT one 4-column — a single nullable 4-col
+  unique would not enforce uniqueness (Postgres NULLs are distinct).
+- **Range results are cached** in `AnalysisResult` (computed once, then read);
+  the range cache (`periodId IS NULL` rows) is **invalidated on re-upload**.
+- **Reports use `ReportConfig`** (`lib/report-config.ts`): 5 customization layers
+  (period, sections, recommendation filters, detail level, tier/category filters
+  with per-section scope) + **3 tones** (executive/operational/analytical).
+- **Filter philosophy = visibility-only**: filters hide rows; narratives stay
+  full-population with a caveat (no recompute). **Tone variants are applied at
+  RENDER time** (`ReportDocument` picks `TEMPLATES[tone][section]`), not baked.
+- **Single-year reports persist** (`ExecutiveSummary` + `/api/reports/generate`);
+  **range reports are in-memory** (`/api/reports/generate-ephemeral` →
+  `/reports/preview`, never saved).
+- **`generate_dataset.py` does NOT exist in this repo.** The synthetic dataset
+  was generated externally; **`scripts/transform_dataset.py`** is the
+  deterministic transformer (seed 42) that produced the current
+  `data/raw/procurement_data.xlsx` (tier rename + risk_score/single_source fixes).
+
+### Kraljic decisions (from Phase 11)
 - **Supply Risk Score** = `single_source(30) + category_competition(30) + country_distance(20) + switching_cost(20)`, clipped to 100.
-- **Kraljic quadrants** assigned by a **median split on `log_spend` × `supply_risk_score`** (Strategic = high/high, Leverage = high spend/low risk, Bottleneck = low spend/high risk, Routine = low/low).
-- **Performance score = `SupplierMetric.compositeScore`** (used as-is; NOT recomputed per range).
-- **Per-period quadrant data lives in `AnalysisResult.kraljic`** (one row per period). It is NOT period-accurate in `SupplierMetric` — the writeback there is **last-period-wins** (one row per supplier, tagged to the max year), so it's only a convenience snapshot.
-- **11B–11E pages should query `AnalysisResult.kraljic`** for period-specific data, not `SupplierMetric`.
+- **Kraljic quadrants** = median split on `log_spend` × `supply_risk_score` (Strategic = hi/hi, Leverage = hi-spend/lo-risk, Bottleneck = lo-spend/hi-risk, Routine = lo/lo).
+- **Performance score** = `SupplierMetric.compositeScore` (used as-is; not recomputed per range).
+- Per-period quadrant data lives in `AnalysisResult.kraljic`; `SupplierMetric.kraljicQuadrant` is a last-period-wins convenience snapshot (not period-accurate).
 
-**11A verification (passed):** supply-risk range **1.2–66.1**; all 4 quadrants populated each period; Strategic + Leverage hold **~98% of spend** (correct Pareto skew from the median split on log-spend); existing pages (Overview, ABC, Segments, Cycle Time, Reports, Methodology) all still render unchanged.
+### Key files added in 11F
+- `scripts/transform_dataset.py` — one-off dataset transformer (tier rename + DQ fixes, seed 42).
+- `scripts/migrate-period-tags.ts` — re-tag purchases by invoice year (reversible: `--by=pr`).
+- `lib/report-config.ts` — `ReportConfig` type, defaults, filter helpers.
+- `lib/range-analyses.ts` — `getRangeAnalyses()` cache-or-compute helper.
+- `lib/suppliers.ts` — `getSupplierCategoryMap()` / `getCategories()`.
+- `components/Reports/ReportDocument.tsx` — shared config + tone-driven report renderer.
+- `components/Reports/CustomizeReportModal.tsx` — 5-layer + tone customization modal.
+- `components/Reports/ReportGenerator.tsx` — modal launcher (single→persist, range→preview).
+- `app/api/reports/generate-ephemeral/route.ts` — in-memory range report endpoint.
+- `app/(dashboard)/reports/preview/page.tsx` — in-memory range report viewer.
+- `prisma/migrations/.../add_range_cache_columns/` — nullable periodId + range columns.
 
-**Known data-quality flags (deferred — fix later by editing `generate_dataset.py`, NOT the app):**
-- `risk_score == 100` for all suppliers.
-- `single_source_risk == 0` for all suppliers, so the single-source component contributes nothing and the effective supply-risk range is ~0–70 (not 0–100).
-
-**Legacy code still present (remove in 11B):** the existing K-means `clustering()` in
-`python/compute_analyses.py` and `components/SupplierSegmentsView.tsx` remain for now;
-they'll be removed in 11B when the Kraljic Matrix page replaces Supplier Segments.
+### Critical gotchas
+- **"Strategic" = tier (now `Core`) AND Kraljic quadrant (unchanged).** Any
+  grep/replace MUST distinguish context.
+- **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).
+  Use `prisma migrate diff --from-config-datasource --to-schema ... --script` to
+  author the SQL, then `prisma migrate deploy`.
+- **The customization modal's focus-trap blocks browser automation** (eval/
+  screenshot hang while open) — not a user-facing bug. Verify report flows via
+  direct API fetch + `sessionStorage` + the preview page.
+- **Old reports (pre-3c) without `config` in `metricsJson`** default to
+  `standard` detail + all sections + `operational` tone (backward compat).
+- **Known synthetic-data note:** risk_score and single_source_risk were
+  saturated until 3a; the transformer fixed them (risk ~19–90, ~20% single-source).
 
 ## Tech stack
 - Next.js 16 (App Router) + TypeScript
