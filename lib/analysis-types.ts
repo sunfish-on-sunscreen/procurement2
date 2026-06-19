@@ -7,6 +7,16 @@ export type SpendOverviewResult = {
   avg_cycle_time: number;
   by_category: { category: string; total: number }[];
   top_suppliers: { supplier_name: string; total: number }[];
+  /**
+   * Per-category top-10 suppliers (same shape as top_suppliers), keyed by
+   * category. Powers the Overview chart's category filter. Optional: old cached
+   * spend_overview rows (pre-Batch-4) won't have it — consumers fall back to
+   * "All Categories" only when absent.
+   */
+  top_suppliers_by_category?: Record<
+    string,
+    { supplier_name: string; total: number }[]
+  >;
   monthly_trend: { month: string; total: number }[];
 };
 

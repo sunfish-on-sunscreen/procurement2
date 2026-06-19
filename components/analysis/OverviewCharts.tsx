@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { SpendOverviewResult } from "@/lib/analysis-types";
 import {
   Card,
@@ -8,9 +9,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SpendByCategoryChart } from "@/components/charts/SpendByCategoryChart";
 import { TopSuppliersChart } from "@/components/charts/TopSuppliersChart";
 import { MonthlySpendTrendChart } from "@/components/charts/MonthlySpendTrendChart";
+
+const ALL_CATEGORIES = "__all__";
 
 const usd0 = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -24,6 +34,66 @@ const usdCompact = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 });
 const num0 = new Intl.NumberFormat("en-US");
+
+/**
+ * Top suppliers chart with a visibility-only category filter. "All Categories"
+ * shows the overall top 10 (spend.top_suppliers); picking a category swaps in
+ * that category's top suppliers (up to 10, fewer if fewer exist — no padding).
+ * If the per-category field is absent (old cached rows), the filter is hidden
+ * and the card behaves exactly as before.
+ */
+function TopSuppliersCard({ spend }: { spend: SpendOverviewResult }) {
+  const byCategory = spend.top_suppliers_by_category;
+  const categories = byCategory ? Object.keys(byCategory).sort() : [];
+  const [selected, setSelected] = useState<string>(ALL_CATEGORIES);
+
+  const showFilter = categories.length > 0;
+  const isAll = selected === ALL_CATEGORIES;
+  const data = isAll
+    ? spend.top_suppliers
+    : (byCategory?.[selected] ?? []);
+
+  const items = [
+    { value: ALL_CATEGORIES, label: "All Categories" },
+    ...categories.map((c) => ({ value: c, label: c })),
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle>{isAll ? "Top 10 Suppliers" : `Top Suppliers — ${selected}`}</CardTitle>
+        {showFilter && (
+          <Select
+            items={items}
+            value={selected}
+            onValueChange={(v) => setSelected(v ?? ALL_CATEGORIES)}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_CATEGORIES}>All Categories</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </CardHeader>
+      <CardContent>
+        {data.length > 0 ? (
+          <TopSuppliersChart data={data} />
+        ) : (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No suppliers in this category for the selected period.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function KpiCard({ label, value }: { label: string; value: string }) {
   return (
@@ -57,14 +127,7 @@ export function OverviewCharts({ spend }: { spend: SpendOverviewResult }) {
             <SpendByCategoryChart data={spend.by_category} />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Top 10 Suppliers</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <TopSuppliersChart data={spend.top_suppliers} />
-          </CardContent>
-        </Card>
+        <TopSuppliersCard spend={spend} />
       </div>
 
       <Card>

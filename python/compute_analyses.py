@@ -146,6 +146,25 @@ def spend_overview(purchases, suppliers, metrics):
     )
     top_suppliers = [{"supplier_name": str(n), "total": num(t)} for (_s, n), t in sup.items()]
 
+    # Per-category top suppliers (visibility-only drill-down for the Overview
+    # chart's category filter). Same {supplier_name, total} shape as the overall
+    # top_suppliers so the frontend feeds them to the same chart. Up to 10 per
+    # category, fewer if the category has fewer suppliers (no zero-padding).
+    cat_sup = (
+        purchases.groupby(["category", "supplierExternalId", "supplierName"])[
+            "totalValueUsd"
+        ]
+        .sum()
+        .reset_index()
+    )
+    top_suppliers_by_category = {}
+    for c, grp in cat_sup.groupby("category"):
+        rows = grp.sort_values("totalValueUsd", ascending=False).head(10)
+        top_suppliers_by_category[str(c)] = [
+            {"supplier_name": str(r["supplierName"]), "total": num(r["totalValueUsd"])}
+            for _, r in rows.iterrows()
+        ]
+
     # Realized spend is bucketed by INVOICE date (spend isn't realized until an
     # invoice exists). Rows without an invoice date are excluded from the trend
     # only — they still count toward every other aggregation above.
@@ -163,6 +182,7 @@ def spend_overview(purchases, suppliers, metrics):
         "avg_cycle_time": num(purchases["totalCycleDays"].mean()),
         "by_category": by_category,
         "top_suppliers": top_suppliers,
+        "top_suppliers_by_category": top_suppliers_by_category,
         "monthly_trend": monthly_trend,
     }
 
