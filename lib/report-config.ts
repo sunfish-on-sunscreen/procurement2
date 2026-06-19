@@ -19,6 +19,7 @@ export type SectionKey =
 
 export type Tier = "Core" | "Established" | "Standard";
 export type DetailLevel = "brief" | "standard" | "detailed";
+export type ReportTone = "executive" | "operational" | "analytical";
 
 export interface ReportConfig {
   period: PeriodSelection;
@@ -37,6 +38,7 @@ export interface ReportConfig {
     topN: number;
   };
   detailLevel: DetailLevel;
+  tone: ReportTone;
   filters: {
     tiers: Tier[];
     categories: string[]; // supplier categories (e.g. "Fuel", "Tires")
@@ -113,6 +115,7 @@ export function defaultReportConfig(
     },
     recommendationFilters: { categories: [...ALL_REC_CATEGORIES], topN: 10 },
     detailLevel: "standard",
+    tone: "operational",
     filters: { tiers: [...ALL_TIERS], categories: [...allCategories] },
     filterScope: {
       tierApplies: [...DEFAULT_TIER_SCOPE],

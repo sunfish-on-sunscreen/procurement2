@@ -12,7 +12,7 @@ import type {
   RecommendationsResult,
   Recommendation,
 } from "@/lib/analysis-types";
-import type { ReportMetrics } from "@/lib/report-templates";
+import { deriveReportContext, TEMPLATES } from "@/lib/report-templates";
 import {
   type ReportConfig,
   type SectionKey,
@@ -81,13 +81,11 @@ function Section({ children }: { children: React.ReactNode }) {
 export function ReportDocument({
   meta,
   analyses,
-  metrics,
   config,
   supplierCategory,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
-  metrics: ReportMetrics;
   config: ReportConfig;
   supplierCategory: Record<string, string>;
 }) {
@@ -95,6 +93,22 @@ export function ReportDocument({
   const brief = detailLevel === "brief";
   const detailed = detailLevel === "detailed";
   const totalCategories = new Set(Object.values(supplierCategory)).size || 1;
+
+  // Tone narratives are generated at RENDER time from the analyses (default to
+  // operational for pre-3d reports that have no tone in their config).
+  const tone = config.tone ?? "operational";
+  const ctx = deriveReportContext(
+    {
+      spendOverview: analyses.spend_overview,
+      abc: analyses.abc,
+      kraljic: analyses.kraljic,
+      performanceSpend: analyses.performance_spend,
+      hypothesis: analyses.hypothesis,
+      recommendations: analyses.recommendations,
+    },
+    meta.periodLabel,
+  );
+  const T = TEMPLATES[tone];
 
   // Visibility-only row filter for a section (tier + category, per scope).
   function keep<T extends { tier?: string; supplier_id?: string }>(
@@ -168,12 +182,12 @@ export function ReportDocument({
             {meta.ephemeral ? " · not saved (range report)" : ""}
           </p>
           <p className="mt-4 text-sm leading-relaxed">
-            {metrics.narratives.cover_intro}
+            {T.cover(ctx)}
           </p>
           <div className="mt-4">
             <h3 className="text-sm font-semibold">Key findings</h3>
             <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {metrics.key_findings.map((f, i) => (
+              {T.keyFindings(ctx).map((f, i) => (
                 <li key={i}>{f}</li>
               ))}
             </ul>
@@ -202,7 +216,7 @@ export function ReportDocument({
                 <h2 className="text-xl font-semibold">Spend Overview</h2>
                 <OverviewCharts spend={analyses.spend_overview} />
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  {metrics.narratives.spend}
+                  {T.spendOverview(ctx)}
                 </p>
               </Section>
             )}
@@ -252,7 +266,7 @@ export function ReportDocument({
                         </p>
                       )}
                       <p className="text-sm leading-relaxed text-muted-foreground">
-                        {metrics.narratives.abc}
+                        {T.abc(ctx)}
                         {note ? ` ${note}` : ""}
                       </p>
                     </>
@@ -326,7 +340,7 @@ export function ReportDocument({
                         </tbody>
                       </table>
                       <p className="text-sm leading-relaxed text-muted-foreground">
-                        {metrics.narratives.kraljic}
+                        {T.kraljic(ctx)}
                         {note
                           ? ` ${note} Supplier counts reflect the filter; spend and performance aggregates reflect the full population.`
                           : ""}
@@ -412,7 +426,7 @@ export function ReportDocument({
                         </tbody>
                       </table>
                       <p className="text-sm leading-relaxed text-muted-foreground">
-                        {metrics.narratives.performance}
+                        {T.performanceSpend(ctx)}
                         {note ? ` ${note}` : ""}
                       </p>
                       {crit.length > 0 && (
@@ -472,7 +486,7 @@ export function ReportDocument({
                 </h2>
                 <CycleTimeView hypothesis={analyses.hypothesis} />
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  {metrics.narratives.cycle_time}
+                  {T.cycleTime(ctx)}
                 </p>
               </Section>
             )}
@@ -483,6 +497,9 @@ export function ReportDocument({
                 <h2 className="text-xl font-semibold">
                   Recommended Priorities
                 </h2>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {T.recommendedPriorities(ctx)}
+                </p>
                 {filterNote("actionDashboard") && (
                   <p className="text-xs text-muted-foreground">
                     {filterNote("actionDashboard")}
@@ -535,16 +552,7 @@ export function ReportDocument({
                   Methodology
                 </h2>
                 <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-                  <p>
-                    ABC uses fixed 80% / 95% thresholds (Pareto principle).
-                    Supplier segmentation uses the Kraljic Matrix — a median
-                    split of profit impact (log spend) against supply risk into
-                    four quadrants. Performance vs Spend crosses the CIPS-aligned
-                    composite score against spend. Automation impact uses the
-                    Mann-Whitney U test (α = 0.05) with a rank-biserial effect
-                    size and a bootstrap 95% confidence interval. Recommendation
-                    impact scores are normalized to 0–100 per category.
-                  </p>
+                  <p>{T.methodology(ctx)}</p>
                   <p className="text-xs">
                     Synthetic data calibrated to APQC, Hackett Group, CIPS, MOPS,
                     and AME benchmarks. References: Juran (1951); Mann &amp;

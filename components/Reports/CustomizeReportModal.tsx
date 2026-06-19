@@ -14,6 +14,7 @@ import {
   type ReportConfig,
   type SectionKey,
   type DetailLevel,
+  type ReportTone,
   type Tier,
   ALL_TIERS,
   ALL_REC_CATEGORIES,
@@ -39,6 +40,12 @@ const DETAIL_DESC: Record<DetailLevel, string> = {
   brief: "~1 page — executive summary + key findings only.",
   standard: "Full sections with narratives, tables and charts.",
   detailed: "Standard plus appendices (all suppliers, full lists).",
+};
+
+const TONE_DESC: Record<ReportTone, string> = {
+  executive: "CFO/COO — strategic and high-level.",
+  operational: "Procurement team — action-focused and specific.",
+  analytical: "Procurement analyst — data-heavy and statistical.",
 };
 
 function toggle<T>(arr: T[], v: T): T[] {
@@ -278,6 +285,32 @@ export function CustomizeReportModal({
                 </span>
               </label>
             ))}
+          </section>
+
+          {/* 4b. Tone */}
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase text-muted-foreground">
+              Report tone
+            </h4>
+            {(["executive", "operational", "analytical"] as ReportTone[]).map(
+              (tn) => (
+                <label key={tn} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="reportTone"
+                    checked={config.tone === tn}
+                    onChange={() => set({ tone: tn })}
+                    className="mt-1 h-4 w-4 accent-primary"
+                  />
+                  <span>
+                    <span className="font-medium capitalize">{tn}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {TONE_DESC[tn]}
+                    </span>
+                  </span>
+                </label>
+              ),
+            )}
           </section>
 
           {/* 5. Supplier filters */}

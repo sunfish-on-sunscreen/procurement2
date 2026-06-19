@@ -56,7 +56,6 @@ export default function ReportPreviewPage() {
     <ReportDocument
       meta={report.meta}
       analyses={report.analyses}
-      metrics={report.metrics}
       config={report.config}
       supplierCategory={report.supplierCategory}
     />

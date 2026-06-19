@@ -75,7 +75,6 @@ export default async function ReportDetailPage({
         filename: `${summary.title.replace(/[^\w-]+/g, "_")}.pdf`,
       }}
       analyses={analyses}
-      metrics={stored}
       config={config}
       supplierCategory={supplierCategory}
     />
