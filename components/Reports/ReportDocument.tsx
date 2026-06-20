@@ -84,6 +84,7 @@ export function ReportDocument({
   config,
   supplierCategory,
   legacyCycle,
+  embedded = false,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
@@ -96,6 +97,11 @@ export function ReportDocument({
    * view — old reports are preserved as historical context, not back-filled.
    */
   legacyCycle?: string | null;
+  /**
+   * When true (the live editor at /reports/preview), suppress the built-in
+   * sticky header (Back + Download) — the editor shell/sidebar owns those.
+   */
+  embedded?: boolean;
 }) {
   const { sections, detailLevel } = config;
   const brief = detailLevel === "brief";
@@ -160,18 +166,20 @@ export function ReportDocument({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="no-print sticky top-0 z-10 -mx-6 flex items-center justify-between gap-4 border-b bg-background/95 px-6 py-3 backdrop-blur">
-        <Link
-          href="/reports"
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to Reports
-        </Link>
-        <span className="hidden truncate text-sm font-medium sm:block">
-          {meta.title}
-        </span>
-        <DownloadPdfButton filename={meta.filename} />
-      </div>
+      {!embedded && (
+        <div className="no-print sticky top-0 z-10 -mx-6 flex items-center justify-between gap-4 border-b bg-background/95 px-6 py-3 backdrop-blur">
+          <Link
+            href="/reports"
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Reports
+          </Link>
+          <span className="hidden truncate text-sm font-medium sm:block">
+            {meta.title}
+          </span>
+          <DownloadPdfButton filename={meta.filename} />
+        </div>
+      )}
 
       <div
         id="report-root"
