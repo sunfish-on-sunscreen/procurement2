@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     abc: analyses.abc,
     kraljic: analyses.kraljic,
     performanceSpend: analyses.performance_spend,
-    hypothesis: analyses.hypothesis,
+    cycleTime: analyses.cycle_time,
     recommendations: analyses.recommendations,
   });
 

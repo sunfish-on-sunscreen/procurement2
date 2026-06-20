@@ -7,7 +7,7 @@ Two modes:
       into AnalysisResult (one row per analysisType per period).
   Mode B (on-the-fly):  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
       Computes over the date span and prints a single JSON object
-      {spend_overview, abc, hypothesis, performance_spend, kraljic,
+      {spend_overview, abc, cycle_time, performance_spend, kraljic,
       recommendations} to STDOUT. No DB writes.
 
 Data is filtered by Purchase invoice date — COALESCE(invoiceDate, prDate) — so a
@@ -258,82 +258,180 @@ def abc_analysis(purchases, suppliers, metrics):
 
 
 # --------------------------------------------------------------------------- #
-# c) Hypothesis test  (Mann-Whitney U on invoice_to_payment_days, pre vs post)
+# c) Cycle time — process-health monitoring + date-driven period comparison
+#    Metric = total_cycle_days. Replaces the old pre/post "automation impact"
+#    test (the automation_period label was removed in Batch 5). Emits ongoing
+#    monitoring (monthly trend + 3-mo rolling average, distribution, stage
+#    decomposition, per-Kraljic-quadrant descriptives, Z-score anomalies) plus
+#    an OPTIONAL Mann-Whitney U comparison between two date windows. The window
+#    defaults to a midpoint split of the selected period; the API passes custom
+#    bounds via the --comparison-* CLI flags.
 # --------------------------------------------------------------------------- #
-def hypothesis_test(purchases, suppliers=None, metrics=None):
-    pre = (
-        purchases.loc[purchases["automationPeriod"] == "pre", "invoiceToPaymentDays"]
-        .astype(float).dropna().values
-    )
-    post = (
-        purchases.loc[purchases["automationPeriod"] == "post", "invoiceToPaymentDays"]
-        .astype(float).dropna().values
-    )
+def _coalesced_date(purchases):
+    """Invoice date when present, else PR date — mirrors the period tag."""
+    inv = pd.to_datetime(purchases["invoiceDate"], errors="coerce")
+    pr = pd.to_datetime(purchases["prDate"], errors="coerce")
+    return inv.fillna(pr)
 
-    def stats_block(arr):
-        if len(arr) == 0:
-            return {
-                "n": 0, "mean": None, "median": None, "std": None,
-                "q1": None, "q3": None, "min": None, "max": None,
-            }
-        return {
-            "n": int(len(arr)),
-            "mean": num(np.mean(arr)),
-            "median": num(np.median(arr)),
-            "std": num(np.std(arr, ddof=1)) if len(arr) > 1 else None,
-            "q1": num(np.percentile(arr, 25)),
-            "q3": num(np.percentile(arr, 75)),
-            "min": num(np.min(arr)),
-            "max": num(np.max(arr)),
-        }
 
-    def make_histogram(a, b, nbins=12):
-        combined = np.concatenate([x for x in (a, b) if len(x)]) if (len(a) or len(b)) else np.array([])
-        if len(combined) == 0:
-            return {"bin_centers": [], "pre": [], "post": []}
-        lo, hi = float(np.min(combined)), float(np.max(combined))
-        if hi <= lo:
-            hi = lo + 1.0
-        edges = np.linspace(lo, hi, nbins + 1)
-        pre_counts = np.histogram(a, bins=edges)[0].tolist() if len(a) else [0] * nbins
-        post_counts = np.histogram(b, bins=edges)[0].tolist() if len(b) else [0] * nbins
-        centers = (edges[:-1] + edges[1:]) / 2
-        return {
-            "bin_centers": [round(float(c), 1) for c in centers],
-            "pre": [int(c) for c in pre_counts],
-            "post": [int(c) for c in post_counts],
-        }
-
-    pm = purchases.copy()
-    pm["month"] = pd.to_datetime(pm["invoiceDate"]).dt.strftime("%Y-%m")
-    mt = pm.groupby("month")["invoiceToPaymentDays"].mean().sort_index()
-    monthly_trend = [{"month": str(m), "mean_days": num(v)} for m, v in mt.items()]
-
-    # ----- 11D enrichments: stage decomposition + per-quadrant breakdowns ---- #
-    def _stage_means(df):
-        def m(col):
-            v = pd.to_numeric(df[col], errors="coerce").dropna()
-            return num(v.mean()) if len(v) else None
-        return {
-            "pr_to_po": m("prToPoDays"),
-            "po_to_delivery": m("poToDeliveryDays"),
-            "delivery_to_invoice": m("deliveryToInvoiceDays"),
-            "invoice_to_payment": m("invoiceToPaymentDays"),
-        }
-
-    pre_df = purchases[purchases["automationPeriod"] == "pre"]
-    post_df = purchases[purchases["automationPeriod"] == "post"]
-    stage_breakdown = {
-        "overall": _stage_means(purchases),
-        "pre": _stage_means(pre_df),
-        "post": _stage_means(post_df),
+def _desc_stats(values):
+    """mean/median/IQR descriptives over a numeric series (NaNs dropped)."""
+    a = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(a) == 0:
+        return {"mean": None, "median": None, "p25": None, "p75": None, "n": 0}
+    return {
+        "mean": num(a.mean()),
+        "median": num(a.median()),
+        "p25": num(a.quantile(0.25)),
+        "p75": num(a.quantile(0.75)),
+        "n": int(len(a)),
     }
 
-    # Period-accurate Kraljic quadrant per supplier (same helpers as 11C).
+
+def _effect_label(r):
+    a = abs(r)
+    if a < 0.1:
+        return "negligible"
+    if a < 0.3:
+        return "small"
+    if a < 0.5:
+        return "medium"
+    return "large"
+
+
+def _comparison_block(a_vals, b_vals, a_bounds, b_bounds):
+    """Two-sided Mann-Whitney U + rank-biserial r between two cycle-day samples.
+    a_bounds/b_bounds are (start_str, end_str). <10 in either group -> skip the
+    test (insufficient_data) but still report bounds, n, and medians."""
+    a = pd.to_numeric(pd.Series(a_vals), errors="coerce").dropna().to_numpy()
+    b = pd.to_numeric(pd.Series(b_vals), errors="coerce").dropna().to_numpy()
+    block = {
+        "period_a": {"start": a_bounds[0], "end": a_bounds[1], "n": int(len(a))},
+        "period_b": {"start": b_bounds[0], "end": b_bounds[1], "n": int(len(b))},
+        "mannwhitney_u": None,
+        "p_value": None,
+        "rank_biserial_r": None,
+        "effect_size_label": None,
+        "median_a": num(np.median(a)) if len(a) else None,
+        "median_b": num(np.median(b)) if len(b) else None,
+        "insufficient_data": len(a) < 10 or len(b) < 10,
+    }
+    if block["insufficient_data"]:
+        return block
+    u_stat, p_value = mannwhitneyu(a, b, alternative="two-sided")
+    r_rb = 1 - (2 * u_stat) / (len(a) * len(b))
+    block.update(
+        {
+            "mannwhitney_u": float(u_stat),
+            "p_value": float(p_value),
+            "rank_biserial_r": num(r_rb),
+            "effect_size_label": _effect_label(r_rb),
+        }
+    )
+    return block
+
+
+def cycle_time_analysis(
+    purchases, suppliers, metrics, range_start, range_end, comparison=None
+):
+    p = purchases.copy()
+    p["_date"] = _coalesced_date(p)
+    cycle = pd.to_numeric(p["totalCycleDays"], errors="coerce")
+    p["_cycle"] = cycle
+
+    # --- monthly trend + trailing 3-month rolling average ---------------- #
+    pm = p.dropna(subset=["_date"]).copy()
+    pm["month"] = pm["_date"].dt.strftime("%Y-%m")
+    grp = pm.groupby("month")["_cycle"]
+    monthly = grp.mean().sort_index()
+    counts = grp.size()
+    monthly_trend = [
+        {"month": str(m), "avg_cycle_days": num(v), "po_count": int(counts[m])}
+        for m, v in monthly.items()
+    ]
+    roll = monthly.rolling(window=3).mean().dropna()
+    rolling_avg_trend = [
+        {"month": str(m), "rolling_3mo": num(v)} for m, v in roll.items()
+    ]
+
+    # --- overall distribution ------------------------------------------- #
+    c = cycle.dropna()
+    if len(c):
+        q1, q3 = float(c.quantile(0.25)), float(c.quantile(0.75))
+        distribution = {
+            "median": num(c.median()),
+            "p25": num(q1),
+            "p75": num(q3),
+            "iqr": num(q3 - q1),
+            "min": num(c.min()),
+            "max": num(c.max()),
+            "mean": num(c.mean()),
+            "std": num(c.std(ddof=1)) if len(c) > 1 else None,
+            "n": int(len(c)),
+        }
+    else:
+        distribution = {
+            "median": None, "p25": None, "p75": None, "iqr": None,
+            "min": None, "max": None, "mean": None, "std": None, "n": 0,
+        }
+
+    # --- stage decomposition (single population) ------------------------ #
+    stage_breakdown = {
+        "pr_to_po": _desc_stats(p["prToPoDays"]),
+        "po_to_delivery": _desc_stats(p["poToDeliveryDays"]),
+        "delivery_to_invoice": _desc_stats(p["deliveryToInvoiceDays"]),
+        "invoice_to_payment": _desc_stats(p["invoiceToPaymentDays"]),
+    }
+
+    # --- Z-score anomalies (cycle time > 2σ above the mean) ------------- #
+    # One-sided: slow outliers are the operational concern (right-skewed data,
+    # so z < -2 effectively never occurs). Top 15 by z, descending.
+    anomalies = []
+    mean_c = float(c.mean()) if len(c) else 0.0
+    std_c = float(c.std(ddof=1)) if len(c) > 1 else 0.0
+    if std_c > 0:
+        pz = p.copy()
+        pz["_z"] = (pz["_cycle"] - mean_c) / std_c
+        flagged = pz[pz["_z"] > 2].sort_values("_z", ascending=False).head(15)
+        for _, r in flagged.iterrows():
+            d = r["_date"]
+            anomalies.append(
+                {
+                    "po_id": str(r["poId"]),
+                    "supplier_name": str(r["supplierName"]),
+                    "invoice_date": d.strftime("%Y-%m-%d") if pd.notna(d) else None,
+                    "cycle_days": int(r["_cycle"]) if pd.notna(r["_cycle"]) else None,
+                    "z_score": num(r["_z"], 2),
+                }
+            )
+
+    # --- period comparison (default midpoint split; CLI override) ------- #
+    start_ts = pd.to_datetime(range_start)
+    end_ts = pd.to_datetime(range_end)
+    if comparison:
+        a_start, a_end = pd.to_datetime(comparison["start_a"]), pd.to_datetime(comparison["end_a"])
+        b_start, b_end = pd.to_datetime(comparison["start_b"]), pd.to_datetime(comparison["end_b"])
+    else:
+        mid = (start_ts + (end_ts - start_ts) / 2).normalize()
+        a_start, a_end = start_ts.normalize(), mid
+        b_start, b_end = mid + pd.Timedelta(days=1), end_ts.normalize()
+
+    def _between(s, e):
+        return p[(p["_date"] >= s) & (p["_date"] <= e + pd.Timedelta(hours=23, minutes=59, seconds=59))]
+
+    fmt = lambda t: t.strftime("%Y-%m-%d")
+    period_comparison = _comparison_block(
+        _between(a_start, a_end)["_cycle"],
+        _between(b_start, b_end)["_cycle"],
+        (fmt(a_start), fmt(a_end)),
+        (fmt(b_start), fmt(b_end)),
+    )
+
+    # --- per-Kraljic-quadrant descriptives (single population) ---------- #
     quad_map = {}
     if suppliers is not None and metrics is not None and len(suppliers):
         risk_map, _c = compute_supply_risk(suppliers, metrics)
-        spend_raw = purchases.groupby("supplierExternalId")["totalValueUsd"].sum()
+        spend_raw = p.groupby("supplierExternalId")["totalValueUsd"].sum()
         log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
         krj_sids = [s for s in log_spend_map if s in risk_map]
         if krj_sids:
@@ -342,92 +440,41 @@ def hypothesis_test(purchases, suppliers=None, metrics=None):
                 {s: risk_map[s] for s in krj_sids},
             )
 
-    pq = purchases.copy()
+    pq = p.copy()
     pq["quadrant"] = pq["supplierExternalId"].map(quad_map)
-
     cycle_by_quadrant = {}
-    three_way_match_by_quadrant = {}
+    match_raw = {}
     for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
         sub = pq[pq["quadrant"] == q]
-        pre_v = pd.to_numeric(
-            sub.loc[sub["automationPeriod"] == "pre", "invoiceToPaymentDays"],
-            errors="coerce",
-        ).dropna()
-        post_v = pd.to_numeric(
-            sub.loc[sub["automationPeriod"] == "post", "invoiceToPaymentDays"],
-            errors="coerce",
-        ).dropna()
-        pre_mean = num(pre_v.mean()) if len(pre_v) else None
-        post_mean = num(post_v.mean()) if len(post_v) else None
-        delta = (
-            num(pre_mean - post_mean)
-            if (pre_mean is not None and post_mean is not None)
-            else None
-        )
-        cycle_by_quadrant[q] = {
-            "pre_mean": pre_mean,
-            "post_mean": post_mean,
-            "delta": delta,
-            "n_suppliers": int(sub["supplierExternalId"].nunique()),
-        }
-
+        cycle_by_quadrant[q] = _desc_stats(sub["_cycle"])
         n_pos = int(len(sub))
-        fail_rate = (
-            num((~sub["threeWayMatchPass"].astype(bool)).sum() / n_pos * 100)
-            if n_pos
-            else 0
+        pass_rate = (
+            num(sub["threeWayMatchPass"].astype(bool).mean() * 100) if n_pos else None
         )
-        three_way_match_by_quadrant[q] = {"fail_rate_pct": fail_rate, "n_pos": n_pos}
+        match_raw[q] = {"pass_rate_pct": pass_rate, "n": n_pos}
 
-    base = {
-        "test": "Mann-Whitney U",
-        "alpha": 0.05,
-        "pre_stats": stats_block(pre),
-        "post_stats": stats_block(post),
-        "histogram": make_histogram(pre, post),
+    # is_worst = the quadrant with the LOWEST pass rate among those with POs.
+    candidates = [
+        (q, m["pass_rate_pct"])
+        for q, m in match_raw.items()
+        if m["n"] > 0 and m["pass_rate_pct"] is not None
+    ]
+    worst_q = min(candidates, key=lambda x: x[1])[0] if candidates else None
+    three_way_match_by_quadrant = {
+        q: {**m, "is_worst": (q == worst_q)} for q, m in match_raw.items()
+    }
+
+    return {
+        "metric": "total_cycle_days",
         "monthly_trend": monthly_trend,
+        "rolling_avg_trend": rolling_avg_trend,
+        "distribution": distribution,
         "stage_breakdown": stage_breakdown,
+        "anomalies": anomalies,
+        "period_comparison": period_comparison,
         "cycle_by_quadrant": cycle_by_quadrant,
         "three_way_match_by_quadrant": three_way_match_by_quadrant,
     }
-
-    # Both pre and post groups are required (e.g. a single-year range has only one).
-    if len(pre) < 2 or len(post) < 2:
-        base.update(
-            {
-                "statistic": None,
-                "p_value": None,
-                "effect_size": None,
-                "ci_low": None,
-                "ci_high": None,
-                "significant": False,
-                "insufficient_data": True,
-            }
-        )
-        return base
-
-    u_stat, p_value = mannwhitneyu(pre, post, alternative="greater")
-    r_rb = 1 - (2 * u_stat) / (len(pre) * len(post))
-
-    rng = np.random.default_rng(42)
-    diffs = np.empty(1000)
-    for i in range(1000):
-        diffs[i] = np.mean(rng.choice(pre, size=len(pre), replace=True)) - np.mean(
-            rng.choice(post, size=len(post), replace=True)
-        )
-
-    base.update(
-        {
-            "statistic": float(u_stat),
-            "p_value": float(p_value),
-            "effect_size": num(r_rb),
-            "ci_low": num(np.percentile(diffs, 2.5)),
-            "ci_high": num(np.percentile(diffs, 97.5)),
-            "significant": bool(p_value < 0.05),
-            "insufficient_data": False,
-        }
-    )
-    return base
 
 
 # --------------------------------------------------------------------------- #
@@ -583,10 +630,12 @@ def performance_spend_analysis(purchases, suppliers, metrics):
     }
 
 
+# cycle_time, kraljic and recommendations are computed separately in main()
+# because they need extra arguments beyond the (purchases, suppliers, metrics)
+# signature this loop uses.
 ANALYSES = [
     ("spend_overview", spend_overview),
     ("abc", abc_analysis),
-    ("hypothesis", hypothesis_test),
     ("performance_spend", performance_spend_analysis),
 ]
 
@@ -996,25 +1045,24 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             ),
             "impact_score": num(min(100.0, wq[1])),
         })
-    post_df = purchases[purchases["automationPeriod"] == "post"]
     # Internal P2P process stages only. PO→Delivery is physical supplier lead
-    # time (not a process stage automation targets), so it is excluded from the
-    # "remaining process friction" flag to avoid a non-actionable false positive.
+    # time (not an internal process stage), so it is excluded from the process
+    # friction flag to avoid a non-actionable false positive.
     stage_cols = [
         ("prToPoDays", "PR→PO"),
         ("deliveryToInvoiceDays", "Delivery→Invoice"),
         ("invoiceToPaymentDays", "Invoice→Payment"),
     ]
     for col, label in stage_cols:
-        v = pd.to_numeric(post_df[col], errors="coerce").dropna()
+        v = pd.to_numeric(purchases[col], errors="coerce").dropna()
         if len(v) and v.mean() > 8:
             proc.append({
                 "type": "process_improvement",
                 "action": "improve",
                 "scope": f"Stage: {label}",
                 "reasoning": (
-                    f"{label} averages {v.mean():.1f} days post-automation — "
-                    f"remaining process friction."
+                    f"{label} averages {v.mean():.1f} days — a slow internal "
+                    f"process stage worth investigating."
                 ),
                 "impact_score": num(min(100.0, v.mean() / 18.0 * 100.0)),
             })
@@ -1101,6 +1149,13 @@ def main():
     parser.add_argument("--period-id", help="Mode A: compute + upsert for a period")
     parser.add_argument("--start-date", help="Mode B: range start (YYYY-MM-DD)")
     parser.add_argument("--end-date", help="Mode B: range end (YYYY-MM-DD)")
+    # Optional custom cycle-time period comparison (used by /api/analyses/
+    # cycle-compare). All four must be supplied together; otherwise cycle_time
+    # falls back to a midpoint split of the selected period.
+    parser.add_argument("--comparison-start-a")
+    parser.add_argument("--comparison-end-a")
+    parser.add_argument("--comparison-start-b")
+    parser.add_argument("--comparison-end-b")
     args = parser.parse_args()
 
     if args.period_id:
@@ -1173,7 +1228,39 @@ def main():
             traceback.print_exc(file=sys.stderr)
             results["recommendations"] = None
 
-        all_types = [n for n, _ in ANALYSES] + ["kraljic", "recommendations"]
+        # Cycle time: monitoring + date-driven period comparison. Computed
+        # separately because it needs the period bounds (for the default midpoint
+        # split) and the optional --comparison-* overrides.
+        comparison = None
+        if all(
+            [
+                args.comparison_start_a,
+                args.comparison_end_a,
+                args.comparison_start_b,
+                args.comparison_end_b,
+            ]
+        ):
+            comparison = {
+                "start_a": args.comparison_start_a,
+                "end_a": args.comparison_end_a,
+                "start_b": args.comparison_start_b,
+                "end_b": args.comparison_end_b,
+            }
+        try:
+            log("Computing cycle_time...")
+            results["cycle_time"] = cycle_time_analysis(
+                purchases, suppliers, metrics, start_ts, end_ts, comparison
+            )
+        except Exception as exc:  # noqa: BLE001
+            log(f"FAILED cycle_time: {exc}")
+            traceback.print_exc(file=sys.stderr)
+            results["cycle_time"] = None
+
+        all_types = [n for n, _ in ANALYSES] + [
+            "kraljic",
+            "recommendations",
+            "cycle_time",
+        ]
 
         if mode == "A":
             succeeded = 0

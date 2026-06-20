@@ -17,7 +17,7 @@ type View =
   | "kraljic"
   | "performance_spend"
   | "recommendations"
-  | "hypothesis";
+  | "cycle_time";
 
 type State =
   | { status: "loading" }
@@ -125,8 +125,8 @@ export function RangeCompute({
       <EmptyState />
     );
   }
-  return state.data.hypothesis ? (
-    <CycleTimeView hypothesis={state.data.hypothesis} />
+  return state.data.cycle_time ? (
+    <CycleTimeView data={state.data.cycle_time} />
   ) : (
     <EmptyState />
   );

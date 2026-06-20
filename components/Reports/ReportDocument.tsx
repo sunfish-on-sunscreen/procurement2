@@ -7,7 +7,7 @@ import type {
   AbcResult,
   KraljicResult,
   KraljicQuadrant,
-  HypothesisResult,
+  CycleTimeResult,
   PerformanceSpendResult,
   RecommendationsResult,
   Recommendation,
@@ -29,7 +29,7 @@ export type ReportAnalyses = {
   spend_overview: SpendOverviewResult | null;
   abc: AbcResult | null;
   kraljic: KraljicResult | null;
-  hypothesis: HypothesisResult | null;
+  cycle_time: CycleTimeResult | null;
   performance_spend: PerformanceSpendResult | null;
   recommendations: RecommendationsResult | null;
 };
@@ -83,11 +83,19 @@ export function ReportDocument({
   analyses,
   config,
   supplierCategory,
+  legacyCycle,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
   config: ReportConfig;
   supplierCategory: Record<string, string>;
+  /**
+   * Set only for reports persisted before Batch 5 (no `cycle_framing` marker):
+   * the stored pre/post automation cycle narrative. When present, the cycle
+   * section renders this legacy text + a note instead of the live monitoring
+   * view — old reports are preserved as historical context, not back-filled.
+   */
+  legacyCycle?: string | null;
 }) {
   const { sections, detailLevel } = config;
   const brief = detailLevel === "brief";
@@ -103,7 +111,7 @@ export function ReportDocument({
       abc: analyses.abc,
       kraljic: analyses.kraljic,
       performanceSpend: analyses.performance_spend,
-      hypothesis: analyses.hypothesis,
+      cycleTime: analyses.cycle_time,
       recommendations: analyses.recommendations,
     },
     meta.periodLabel,
@@ -479,17 +487,32 @@ export function ReportDocument({
             )}
 
             {/* Cycle Time */}
-            {sections.cycleTime && analyses.hypothesis && (
-              <Section>
-                <h2 className="text-xl font-semibold">
-                  Cycle Time &amp; Automation Impact
-                </h2>
-                <CycleTimeView hypothesis={analyses.hypothesis} />
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {T.cycleTime(ctx)}
-                </p>
-              </Section>
-            )}
+            {sections.cycleTime &&
+              (legacyCycle ? (
+                // Pre-Batch-5 report: preserve the original pre/post framing.
+                <Section>
+                  <h2 className="text-xl font-semibold">Cycle Time</h2>
+                  <p className="rounded-md border border-amber-500/40 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                    This report uses the legacy pre/post automation comparison
+                    framing. New reports use ongoing process health monitoring.
+                  </p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {legacyCycle}
+                  </p>
+                </Section>
+              ) : (
+                analyses.cycle_time && (
+                  <Section>
+                    <h2 className="text-xl font-semibold">
+                      Cycle Time — Process Health Monitoring
+                    </h2>
+                    <CycleTimeView data={analyses.cycle_time} />
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {T.cycleTime(ctx)}
+                    </p>
+                  </Section>
+                )
+              ))}
 
             {/* Action Dashboard / Recommendations */}
             {sections.actionDashboard && (

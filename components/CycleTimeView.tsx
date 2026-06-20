@@ -1,12 +1,20 @@
 "use client";
 
-import { CheckCircle2, TriangleAlert, Info } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Loader2, TriangleAlert } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 import type {
-  HypothesisResult,
-  StageBreakdown,
-  QuadrantCycleStats,
-  ThreeWayMatchStats,
+  CycleTimeResult,
+  CycleDescriptive,
   KraljicQuadrant,
+  PeriodComparison,
 } from "@/lib/analysis-types";
 import {
   Card,
@@ -24,11 +32,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
-import { CycleTimeHistogram } from "@/components/charts/CycleTimeHistogram";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ChartFrame } from "@/components/charts/ChartFrame";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
-import { StageBreakdownChart } from "@/components/charts/StageBreakdownChart";
-import { CycleByQuadrantChart } from "@/components/charts/CycleByQuadrantChart";
+import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -37,90 +45,15 @@ const QUAD_ORDER: KraljicQuadrant[] = [
   "Routine",
 ];
 
-function stageCallout(pre: StageBreakdown, post: StageBreakdown): string {
-  const stages = [
-    { key: "pr_to_po", label: "PR→PO" },
-    { key: "po_to_delivery", label: "PO→delivery" },
-    { key: "delivery_to_invoice", label: "delivery→invoice" },
-    { key: "invoice_to_payment", label: "invoice→payment" },
-  ] as const;
-  const deltas = stages.map((s) => {
-    const a = pre[s.key];
-    const b = post[s.key];
-    const d = a != null && b != null ? a - b : 0;
-    const pctv = a != null && a !== 0 ? (d / a) * 100 : 0;
-    return { label: s.label, d, pctv };
-  });
-  const top = [...deltas].sort((x, y) => y.d - x.d)[0];
-  const othersMoved = deltas.some(
-    (o) => o.label !== top.label && Math.abs(o.d) >= 1,
-  );
-  return `Automation primarily affected the ${top.label} stage, reducing time by ${top.d.toFixed(
-    1,
-  )} days (${top.pctv.toFixed(1)}%). Other stages were ${
-    othersMoved ? "also affected" : "largely unchanged"
-  }.`;
-}
+const STAGES = [
+  { key: "pr_to_po", label: "PR → PO" },
+  { key: "po_to_delivery", label: "PO → Delivery" },
+  { key: "delivery_to_invoice", label: "Delivery → Invoice" },
+  { key: "invoice_to_payment", label: "Invoice → Payment" },
+] as const;
 
-function quadrantCallout(
-  data: Record<KraljicQuadrant, QuadrantCycleStats | null>,
-): string {
-  const entries = QUAD_ORDER.map((q) => ({ q, s: data[q] })).filter(
-    (e): e is { q: KraljicQuadrant; s: QuadrantCycleStats } =>
-      e.s != null && e.s.delta != null,
-  );
-  if (!entries.length)
-    return "Insufficient pre/post data to compare automation impact by quadrant.";
-  const sorted = [...entries].sort((a, b) => b.s.delta! - a.s.delta!);
-  const top = sorted[0];
-  const deltas = entries.map((e) => e.s.delta!);
-  const concentrated = Math.max(...deltas) - Math.min(...deltas) > 2;
-  // Only warn about remaining friction if the slowest quadrant is genuinely
-  // slow post-automation (>8 days; pre-automation averaged ~18 days).
-  const withPost = entries.filter((e) => e.s.post_mean != null);
-  const slowest = withPost.length
-    ? [...withPost].sort((a, b) => b.s.post_mean! - a.s.post_mean!)[0]
-    : null;
-  const frictionNote =
-    slowest && slowest.s.post_mean! > 8
-      ? ` The ${slowest.q} quadrant still averages ${slowest.s.post_mean!.toFixed(
-          1,
-        )} days post-automation, suggesting remaining process friction.`
-      : "";
-  return `Automation benefits were ${
-    concentrated
-      ? `concentrated in the ${top.q} quadrant (${top.s.delta!.toFixed(1)}-day reduction)`
-      : "fairly evenly distributed across quadrants"
-  }.${frictionNote}`;
-}
-
-function complianceCallout(
-  data: Record<KraljicQuadrant, ThreeWayMatchStats>,
-): string {
-  const entries = QUAD_ORDER.map((q) => ({ q, ...data[q] })).filter(
-    (e) => e.n_pos > 0,
-  );
-  if (!entries.length) return "";
-  const top = [...entries].sort((a, b) => b.fail_rate_pct - a.fail_rate_pct)[0];
-  return `Process compliance issues concentrate in the ${top.q} quadrant (${top.fail_rate_pct.toFixed(
-    1,
-  )}% 3-way match failure). Worth investigating workflow.`;
-}
-
-function formatP(p: number | null): string {
-  if (p == null) return "—";
-  if (p < 0.001) return p.toExponential(2);
-  return p.toFixed(4);
-}
-
-function effectLabel(r: number | null): string {
-  if (r == null) return "—";
-  const a = Math.abs(r);
-  if (a < 0.1) return "negligible";
-  if (a < 0.3) return "small";
-  if (a < 0.5) return "medium";
-  return "large";
-}
+const d0 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(0));
+const d1 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
 
 function StatCard({
   label,
@@ -144,247 +77,441 @@ function StatCard({
   );
 }
 
-export function CycleTimeView({ hypothesis }: { hypothesis: HypothesisResult }) {
-  const { pre_stats, post_stats } = hypothesis;
+function DescRow({ label, s }: { label: string; s: CycleDescriptive }) {
+  return (
+    <TableRow>
+      <TableCell className="font-medium">{label}</TableCell>
+      <TableCell className="text-right text-muted-foreground">{s.n}</TableCell>
+      <TableCell className="text-right">{d1(s.mean)}</TableCell>
+      <TableCell className="text-right">{d0(s.median)}</TableCell>
+      <TableCell className="text-right">{d0(s.p25)}</TableCell>
+      <TableCell className="text-right">{d0(s.p75)}</TableCell>
+    </TableRow>
+  );
+}
 
-  if (hypothesis.insufficient_data) {
-    const present = pre_stats.n > 0 ? pre_stats : post_stats;
-    const era = pre_stats.n > 0 ? "pre-automation (2024)" : "post-automation (2025)";
+function formatP(p: number | null): string {
+  if (p == null) return "—";
+  if (p < 0.001) return p.toExponential(2);
+  return p.toFixed(4);
+}
+
+// ---- Period-vs-period comparison (collapsible, on-demand) ------------------ #
+function ComparisonResult({ c }: { c: PeriodComparison }) {
+  if (c.insufficient_data) {
     return (
-      <>
-        <Alert>
-          <Info />
-          <AlertTitle>Comparison needs both automation eras</AlertTitle>
-          <AlertDescription>
-            This period contains data from only one automation era. The pre/post
-            automation comparison requires both 2024 (pre) and 2025 (post) data.
-            Try selecting a range that spans both years.
-          </AlertDescription>
-        </Alert>
-        <Card>
-          <CardHeader>
-            <CardTitle>Invoice-to-payment ({era})</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <StatCard label="Records" value={String(present.n)} />
-            <StatCard
-              label="Mean"
-              value={present.mean != null ? `${present.mean.toFixed(1)} d` : "—"}
-            />
-            <StatCard
-              label="Median"
-              value={present.median != null ? `${present.median.toFixed(1)} d` : "—"}
-            />
-          </CardContent>
-        </Card>
-      </>
+      <Alert>
+        <TriangleAlert />
+        <AlertTitle>Not enough data to compare</AlertTitle>
+        <AlertDescription>
+          One window has fewer than 10 POs (A: {c.period_a.n}, B: {c.period_b.n}).
+          The Mann-Whitney U test needs at least 10 in each group. Widen the
+          windows or pick a denser period.
+        </AlertDescription>
+      </Alert>
     );
   }
+  const significant = c.p_value != null && c.p_value < 0.05;
+  const barData = [
+    { group: "Window A", median: c.median_a ?? 0 },
+    { group: "Window B", median: c.median_b ?? 0 },
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard
+          label="Mann-Whitney U"
+          value={c.mannwhitney_u != null ? c.mannwhitney_u.toFixed(0) : "—"}
+          sub={`n = ${c.period_a.n} vs ${c.period_b.n}`}
+        />
+        <StatCard label="p-value" value={formatP(c.p_value)} sub="α = 0.05" />
+        <StatCard
+          label="Rank-biserial r"
+          value={c.rank_biserial_r != null ? c.rank_biserial_r.toFixed(3) : "—"}
+          sub={c.effect_size_label ?? "—"}
+        />
+        <StatCard
+          label="Median A → B"
+          value={`${d0(c.median_a)} → ${d0(c.median_b)} d`}
+        />
+      </div>
+      <ChartFrame height={200}>
+        <BarChart data={barData} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="group" tick={{ fontSize: 12 }} />
+          <YAxis
+            width={48}
+            tick={{ fontSize: 11 }}
+            label={{
+              value: "median days",
+              angle: -90,
+              position: "insideLeft",
+              fontSize: 10,
+            }}
+          />
+          <Tooltip formatter={(v) => [`${Number(v).toFixed(1)} days`, "Median"]} />
+          <Bar dataKey="median" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ChartFrame>
+      <Alert variant={significant ? "default" : "destructive"}>
+        <AlertTitle>
+          {significant
+            ? "Statistically significant difference"
+            : "No significant difference"}
+        </AlertTitle>
+        <AlertDescription>
+          {significant
+            ? `Cycle-time distributions differ between the two windows (p = ${formatP(
+                c.p_value,
+              )}, ${c.effect_size_label} effect).`
+            : `The two windows are not significantly different at α = 0.05 (p = ${formatP(
+                c.p_value,
+              )}).`}
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
 
-  const preMean = pre_stats.mean ?? 0;
-  const postMean = post_stats.mean ?? 0;
-  const deltaDays = preMean - postMean; // positive = reduction
-  const deltaPct = preMean ? (deltaDays / preMean) * 100 : 0;
-  const significant = hypothesis.significant;
+function PeriodComparisonSection({ initial }: { initial: PeriodComparison }) {
+  const [open, setOpen] = useState(false);
+  const [startA, setStartA] = useState(initial.period_a.start);
+  const [endA, setEndA] = useState(initial.period_a.end);
+  const [startB, setStartB] = useState(initial.period_b.start);
+  const [endB, setEndB] = useState(initial.period_b.end);
+  const [result, setResult] = useState<PeriodComparison>(initial);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function compare() {
+    setLoading(true);
+    setError(null);
+    setWarning(null);
+    try {
+      const res = await fetch("/api/analyses/cycle-compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          comparison_start_a: startA,
+          comparison_end_a: endA,
+          comparison_start_b: startB,
+          comparison_end_b: endB,
+        }),
+      });
+      const json = (await res.json()) as {
+        period_comparison?: PeriodComparison;
+        warning?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.period_comparison) {
+        throw new Error(json.error || "Comparison failed");
+      }
+      setResult(json.period_comparison);
+      setWarning(json.warning ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Methodology</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Mann-Whitney U test (non-parametric, two-sample). Tests whether
-          automation reduced invoice-to-payment time. Significance threshold: α =
-          0.05.
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <StatCard
-          label="Pre-automation (2024)"
-          value={`${preMean.toFixed(1)} days`}
-          sub={`n = ${pre_stats.n}`}
-        />
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Post-automation (2025)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold">{postMean.toFixed(1)} days</div>
-            <div
-              className={`text-sm ${deltaDays > 0 ? "text-green-600 dark:text-green-500" : "text-destructive"}`}
-            >
-              {deltaDays > 0 ? "▼" : "▲"} {Math.abs(deltaDays).toFixed(1)} days (
-              {Math.abs(deltaPct).toFixed(1)}%) vs pre &middot; n = {post_stats.n}
+    <Card>
+      <CardHeader>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-2 text-left"
+        >
+          {open ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+          <CardTitle>Period-vs-Period Comparison</CardTitle>
+          <span className="ml-2 text-sm font-normal text-muted-foreground">
+            (compare two date ranges)
+          </span>
+        </button>
+      </CardHeader>
+      {open && (
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Window A</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={startA}
+                  onChange={(e) => setStartA(e.target.value)}
+                  className="w-[150px]"
+                />
+                <span className="text-muted-foreground">to</span>
+                <Input
+                  type="date"
+                  value={endA}
+                  onChange={(e) => setEndA(e.target.value)}
+                  className="w-[150px]"
+                />
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard label="p-value" value={formatP(hypothesis.p_value)} sub="α = 0.05" />
-        <StatCard
-          label="Effect size (rank-biserial)"
-          value={hypothesis.effect_size != null ? hypothesis.effect_size.toFixed(3) : "—"}
-          sub={effectLabel(hypothesis.effect_size)}
-        />
-        <StatCard
-          label="95% CI (mean difference)"
-          value={
-            hypothesis.ci_low != null && hypothesis.ci_high != null
-              ? `(${hypothesis.ci_low.toFixed(1)}, ${hypothesis.ci_high.toFixed(1)}) d`
-              : "—"
-          }
-        />
-      </div>
-
-      {significant ? (
-        <Alert className="border-green-600/40 text-green-700 dark:text-green-500 [&>svg]:text-green-600">
-          <CheckCircle2 />
-          <AlertTitle>Statistically significant reduction in cycle time</AlertTitle>
-          <AlertDescription>
-            Invoice-to-payment time fell by {deltaDays.toFixed(1)} days (p ={" "}
-            {formatP(hypothesis.p_value)}).
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <Alert variant="destructive">
-          <TriangleAlert />
-          <AlertTitle>No significant difference detected</AlertTitle>
-          <AlertDescription>
-            The pre/post difference is not statistically significant at α = 0.05 (p
-            = {formatP(hypothesis.p_value)}).
-          </AlertDescription>
-        </Alert>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Window B</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={startB}
+                  onChange={(e) => setStartB(e.target.value)}
+                  className="w-[150px]"
+                />
+                <span className="text-muted-foreground">to</span>
+                <Input
+                  type="date"
+                  value={endB}
+                  onChange={(e) => setEndB(e.target.value)}
+                  className="w-[150px]"
+                />
+              </div>
+            </div>
+          </div>
+          <div>
+            <Button onClick={compare} disabled={loading}>
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Compare
+            </Button>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          {warning && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">{warning}</p>
+          )}
+          <ComparisonResult c={result} />
+        </CardContent>
       )}
+    </Card>
+  );
+}
 
-      {hypothesis.stage_breakdown && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Where Is Time Spent?</CardTitle>
-            <CardDescription>
-              Mean days per procure-to-pay stage, pre vs post automation.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <StageBreakdownChart
-              pre={hypothesis.stage_breakdown.pre}
-              post={hypothesis.stage_breakdown.post}
-            />
-            <p className="mt-3 text-sm text-muted-foreground">
-              {stageCallout(
-                hypothesis.stage_breakdown.pre,
-                hypothesis.stage_breakdown.post,
-              )}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {hypothesis.cycle_by_quadrant && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Automation Impact by Supplier Type</CardTitle>
-            <CardDescription>
-              Mean invoice-to-payment time per Kraljic quadrant, pre vs post.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CycleByQuadrantChart data={hypothesis.cycle_by_quadrant} />
-            <p className="mt-3 text-sm text-muted-foreground">
-              {quadrantCallout(hypothesis.cycle_by_quadrant)}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {hypothesis.three_way_match_by_quadrant && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Process Compliance by Supplier Type</CardTitle>
-            <CardDescription>
-              Share of POs that failed the 3-way match, by Kraljic quadrant.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+// ---- Anomalies table (top 10 + show all) ---------------------------------- #
+function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
+  const [showAll, setShowAll] = useState(false);
+  const rows = showAll ? data : data.slice(0, 10);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Anomalies</CardTitle>
+        <CardDescription>
+          POs with cycle time more than 2 standard deviations above the mean
+          (Z-score &gt; 2), worth investigating.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {data.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No POs exceeded the 2σ anomaly threshold this period.
+          </p>
+        ) : (
+          <>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Quadrant</TableHead>
-                  <TableHead className="text-right">Fail Rate</TableHead>
-                  <TableHead className="text-right">POs</TableHead>
+                  <TableHead>PO ID</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Invoice Date</TableHead>
+                  <TableHead className="text-right">Cycle Days</TableHead>
+                  <TableHead className="text-right">Z-Score</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {QUAD_ORDER.map((q) => ({
-                  q,
-                  ...hypothesis.three_way_match_by_quadrant![q],
-                }))
-                  .sort((a, b) => b.fail_rate_pct - a.fail_rate_pct)
-                  .map((row, i) => {
-                    // Relative highlight: only the worst quadrant (sorted first).
-                    const high = i === 0;
-                    return (
-                      <TableRow key={row.q}>
-                        <TableCell className="font-medium">{row.q}</TableCell>
-                        <TableCell
-                          className={`text-right ${high ? "font-semibold text-destructive" : ""}`}
-                        >
-                          {row.fail_rate_pct.toFixed(1)}%
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {row.n_pos}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                {rows.map((a) => (
+                  <TableRow key={a.po_id}>
+                    <TableCell className="font-medium">{a.po_id}</TableCell>
+                    <TableCell>{a.supplier_name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {a.invoice_date ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right">{a.cycle_days ?? "—"}</TableCell>
+                    <TableCell className="text-right font-medium text-destructive">
+                      {a.z_score.toFixed(2)}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
-            <p className="text-sm text-muted-foreground">
-              {complianceCallout(hypothesis.three_way_match_by_quadrant)}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+            {data.length > 10 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                onClick={() => setShowAll((s) => !s)}
+              >
+                {showAll ? "Show top 10" : `View all ${data.length}`}
+              </Button>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function CycleTimeView({ data }: { data: CycleTimeResult }) {
+  const d = data.distribution;
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          label="Median cycle time"
+          value={`${d0(d.median)} days`}
+          sub={`n = ${d.n} POs`}
+        />
+        <StatCard
+          label="IQR (P25–P75)"
+          value={`${d0(d.p25)}–${d0(d.p75)} d`}
+          sub={`spread ${d0(d.iqr)} d`}
+        />
+        <StatCard
+          label="Mean"
+          value={`${d1(d.mean)} d`}
+          sub={d.std != null ? `σ = ${d1(d.std)}` : undefined}
+        />
+        <StatCard label="Range" value={`${d0(d.min)}–${d0(d.max)} d`} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Monthly Cycle Time Trend</CardTitle>
+          <CardDescription>
+            Mean total procure-to-pay days by month, with a trailing 3-month
+            rolling average.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MonthlyCycleTrendChart
+            trend={data.monthly_trend}
+            rolling={data.rolling_avg_trend}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cycle Time Distribution</CardTitle>
+          <CardDescription>
+            Median, interquartile range, and outliers across all POs.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CycleTimeBoxPlot distribution={d} anomalies={data.anomalies} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Stage Decomposition</CardTitle>
+          <CardDescription>
+            Where time is spent across the four procure-to-pay sub-processes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Stage</TableHead>
+                <TableHead className="text-right">N</TableHead>
+                <TableHead className="text-right">Mean</TableHead>
+                <TableHead className="text-right">Median</TableHead>
+                <TableHead className="text-right">P25</TableHead>
+                <TableHead className="text-right">P75</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {STAGES.map((s) => (
+                <DescRow
+                  key={s.key}
+                  label={s.label}
+                  s={data.stage_breakdown[s.key]}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Distribution (box plot)</CardTitle>
+            <CardTitle>Cycle Time by Supplier Type</CardTitle>
+            <CardDescription>
+              Total cycle days per Kraljic quadrant.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <CycleTimeBoxPlot data={hypothesis} />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Quadrant</TableHead>
+                  <TableHead className="text-right">N</TableHead>
+                  <TableHead className="text-right">Mean</TableHead>
+                  <TableHead className="text-right">Median</TableHead>
+                  <TableHead className="text-right">P25</TableHead>
+                  <TableHead className="text-right">P75</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {QUAD_ORDER.map((q) => (
+                  <DescRow key={q} label={q} s={data.cycle_by_quadrant[q]} />
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader>
-            <CardTitle>Distribution (histogram)</CardTitle>
+            <CardTitle>3-Way Match by Supplier Type</CardTitle>
+            <CardDescription>
+              Share of POs passing the 3-way match, by Kraljic quadrant.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <CycleTimeHistogram data={hypothesis} />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Quadrant</TableHead>
+                  <TableHead className="text-right">N</TableHead>
+                  <TableHead className="text-right">Pass Rate</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {QUAD_ORDER.map((q) => {
+                  const m = data.three_way_match_by_quadrant[q];
+                  return (
+                    <TableRow key={q}>
+                      <TableCell className="font-medium">{q}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {m.n}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right ${m.is_worst ? "font-semibold text-destructive" : ""}`}
+                      >
+                        {m.pass_rate_pct != null
+                          ? `${m.pass_rate_pct.toFixed(1)}%`
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Monthly invoice-to-payment trend</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <MonthlyCycleTrendChart data={hypothesis.monthly_trend} />
-        </CardContent>
-      </Card>
+      <AnomaliesTable data={data.anomalies} />
 
-      <p className="text-sm text-muted-foreground">
-        Automation reduced average invoice-to-payment time from{" "}
-        {preMean.toFixed(1)} days to {postMean.toFixed(1)} days — a{" "}
-        {deltaDays.toFixed(1)}-day ({deltaPct.toFixed(1)}%) improvement. The
-        Mann-Whitney U test{" "}
-        {significant ? "confirms this is" : "does not find this"} statistically
-        significant (p = {formatP(hypothesis.p_value)}, rank-biserial ={" "}
-        {hypothesis.effect_size != null ? hypothesis.effect_size.toFixed(3) : "—"}).
-      </p>
+      <PeriodComparisonSection initial={data.period_comparison} />
     </>
   );
 }

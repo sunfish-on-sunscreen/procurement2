@@ -1,4 +1,4 @@
-"""One-off dataset transformer for Phase 11F Batch 3a.
+"""One-off dataset transformer for Phase 11F (Batches 3a + 5).
 
 The original synthetic-data GENERATOR is not in this repository — only its
 output (data/raw/procurement_data.xlsx). Rather than reconstruct the generator,
@@ -16,8 +16,15 @@ Transformations (deterministic — fixed seed):
   4. composite_score: recomputed from the (changed) risk_score.
   5. calculated_tier / tier_mismatch: recomputed from the new composite_score,
                    using the new tier names.
+  6. (Batch 5) Drop the Purchases.automation_period column. It was a hardcoded
+                   pre/post label for a one-time 2024->2025 automation event;
+                   the Cycle Time page no longer uses it (reframed to date-driven
+                   process-health monitoring). Idempotent: a no-op if absent.
 
-Supplier identities, spend, dates and the Purchases sheet are left untouched.
+Steps 1-5 are idempotent on already-transformed input (risk/single-source are
+recomputed from unchanged inputs under the fixed seed, so re-running reproduces
+identical Suppliers/SupplierMetrics). Supplier identities, spend, and all
+Purchases dates are left untouched.
 
 Usage:  python scripts/transform_dataset.py
 """
@@ -77,6 +84,7 @@ def main():
     sheets = pd.read_excel(XLSX, sheet_name=None)  # ordered dict of all sheets
     suppliers = sheets["Suppliers"]
     metrics = sheets["SupplierMetrics"]
+    purchases = sheets["Purchases"]
 
     print(f"Loaded {len(suppliers)} suppliers, {len(metrics)} metric rows.")
     print("BEFORE:")
@@ -131,6 +139,13 @@ def main():
     metrics["calculated_tier"] = metrics["composite_score"].map(tier_of)
     metrics["tier_mismatch"] = metrics["tier"] != metrics["calculated_tier"]
 
+    # --- 6. (Batch 5) Drop Purchases.automation_period -------------------- #
+    if "automation_period" in purchases.columns:
+        purchases = purchases.drop(columns=["automation_period"])
+        print("  dropped Purchases.automation_period")
+    else:
+        print("  Purchases.automation_period already absent (no-op)")
+
     print("AFTER:")
     print("  tier:", suppliers["tier"].value_counts().to_dict())
     summarize("risk_score", metrics["risk_score"])
@@ -143,9 +158,10 @@ def main():
     print("  calculated_tier:", metrics["calculated_tier"].value_counts().to_dict())
     print("  tier_mismatch:", metrics["tier_mismatch"].value_counts().to_dict())
 
-    # --- Write back (preserve sheet order; Purchases untouched) ----------- #
+    # --- Write back (preserve sheet order) -------------------------------- #
     sheets["Suppliers"] = suppliers
     sheets["SupplierMetrics"] = metrics
+    sheets["Purchases"] = purchases
     with pd.ExcelWriter(XLSX, engine="openpyxl") as writer:
         for name, df in sheets.items():
             df.to_excel(writer, sheet_name=name, index=False)

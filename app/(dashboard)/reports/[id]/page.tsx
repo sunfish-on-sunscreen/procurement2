@@ -6,7 +6,7 @@ import {
   type SpendOverviewResult,
   type AbcResult,
   type KraljicResult,
-  type HypothesisResult,
+  type CycleTimeResult,
   type PerformanceSpendResult,
   type RecommendationsResult,
 } from "@/lib/analysis-types";
@@ -37,16 +37,24 @@ export default async function ReportDetailPage({
   };
   const periodId = summary.periodId!;
 
-  const [spend, abc, kraljic, hypothesis, performance, recommendations, supplierCategory] =
+  const [spend, abc, kraljic, cycleTime, performance, recommendations, supplierCategory] =
     await Promise.all([
       getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
       getAnalysisResult<AbcResult>(periodId, "abc"),
       getAnalysisResult<KraljicResult>(periodId, "kraljic"),
-      getAnalysisResult<HypothesisResult>(periodId, "hypothesis"),
+      getAnalysisResult<CycleTimeResult>(periodId, "cycle_time"),
       getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
       getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
       getSupplierCategoryMap(),
     ]);
+
+  // Reports persisted before Batch 5 lack the `cycle_framing` marker. Render
+  // their stored pre/post cycle narrative as historical context rather than
+  // back-filling them with the new monitoring view.
+  const legacyCycle =
+    stored.cycle_framing !== "monitoring"
+      ? (stored.narratives?.cycle_time ?? null)
+      : null;
 
   // Old reports (pre-3c) have no config: default to standard / all sections.
   const config: ReportConfig =
@@ -60,7 +68,7 @@ export default async function ReportDetailPage({
     spend_overview: spend,
     abc,
     kraljic,
-    hypothesis,
+    cycle_time: cycleTime,
     performance_spend: performance,
     recommendations,
   };
@@ -77,6 +85,7 @@ export default async function ReportDetailPage({
       analyses={analyses}
       config={config}
       supplierCategory={supplierCategory}
+      legacyCycle={legacyCycle}
     />
   );
 }

@@ -7,7 +7,7 @@ import type { RangeAnalyses } from "@/lib/analysis-types";
 export const RANGE_TYPES = [
   "spend_overview",
   "abc",
-  "hypothesis",
+  "cycle_time",
   "performance_spend",
   "kraljic",
   "recommendations",

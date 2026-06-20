@@ -44,7 +44,6 @@ const PurchasesRow = z.object({
   total_cycle_days: z.number().int(),
   on_time_delivery: z.boolean(),
   three_way_match_pass: z.boolean(),
-  automation_period: z.string(),
 });
 
 // The SupplierMetrics sheet also carries country + product_description columns
@@ -244,7 +243,6 @@ export async function POST(request: Request) {
         totalCycleDays: r.total_cycle_days,
         onTimeDelivery: r.on_time_delivery,
         threeWayMatchPass: r.three_way_match_pass,
-        automationPeriod: r.automation_period,
         // Tag each purchase to the period for the YEAR it was invoiced (when
         // spend is realized), falling back to its pr_date year if no invoice.
         periodId: yearToPeriodId.get(

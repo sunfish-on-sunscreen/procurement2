@@ -43,64 +43,93 @@ export type AbcResult = {
   abc_vs_tier?: Record<"A" | "B" | "C", Record<string, number>>; // class -> tier -> count
 };
 
-export type HypothesisStats = {
-  n: number;
+// --- Cycle Time (process-health monitoring + date-driven comparison) ------- #
+// Renamed from "hypothesis" in Batch 5. Metric = total_cycle_days. The old
+// pre/post automation shape lives on as LegacyHypothesisResult for the
+// report backward-compat path (see ReportDocument).
+
+/** mean/median/IQR descriptives over a cycle-day population. */
+export type CycleDescriptive = {
   mean: number | null;
   median: number | null;
-  std: number | null;
-  q1: number | null;
-  q3: number | null;
+  p25: number | null;
+  p75: number | null;
+  n: number;
+};
+
+export type CycleDistribution = {
+  median: number | null;
+  p25: number | null;
+  p75: number | null;
+  iqr: number | null;
   min: number | null;
   max: number | null;
+  mean: number | null;
+  std: number | null;
+  n: number;
 };
 
-export type HypothesisHistogram = {
-  bin_centers: number[];
-  pre: number[];
-  post: number[];
+export type CycleStageBreakdown = {
+  pr_to_po: CycleDescriptive;
+  po_to_delivery: CycleDescriptive;
+  delivery_to_invoice: CycleDescriptive;
+  invoice_to_payment: CycleDescriptive;
 };
 
-export interface StageBreakdown {
-  pr_to_po: number | null;
-  po_to_delivery: number | null;
-  delivery_to_invoice: number | null;
-  invoice_to_payment: number | null;
-}
+export type CycleAnomaly = {
+  po_id: string;
+  supplier_name: string;
+  invoice_date: string | null;
+  cycle_days: number | null;
+  z_score: number;
+};
 
-export interface QuadrantCycleStats {
-  pre_mean: number | null;
-  post_mean: number | null;
-  delta: number | null;
-  n_suppliers: number;
-}
+export type EffectSizeLabel = "negligible" | "small" | "medium" | "large";
 
-export interface ThreeWayMatchStats {
-  fail_rate_pct: number;
-  n_pos: number;
-}
-
-export type HypothesisResult = {
-  test: string;
-  alpha: number;
-  pre_stats: HypothesisStats;
-  post_stats: HypothesisStats;
-  histogram: HypothesisHistogram;
-  statistic: number | null;
+export type PeriodComparison = {
+  period_a: { start: string; end: string; n: number };
+  period_b: { start: string; end: string; n: number };
+  mannwhitney_u: number | null;
   p_value: number | null;
-  effect_size: number | null;
-  ci_low: number | null;
-  ci_high: number | null;
-  significant: boolean;
-  insufficient_data?: boolean;
-  monthly_trend: { month: string; mean_days: number }[];
-  // 11D enrichments (optional for backward compatibility with old results).
-  stage_breakdown?: {
-    overall: StageBreakdown;
-    pre: StageBreakdown;
-    post: StageBreakdown;
-  };
-  cycle_by_quadrant?: Record<KraljicQuadrant, QuadrantCycleStats | null>;
-  three_way_match_by_quadrant?: Record<KraljicQuadrant, ThreeWayMatchStats>;
+  rank_biserial_r: number | null;
+  effect_size_label: EffectSizeLabel | null;
+  median_a: number | null;
+  median_b: number | null;
+  insufficient_data: boolean;
+};
+
+export type ThreeWayMatchQuadrant = {
+  pass_rate_pct: number | null;
+  n: number;
+  is_worst: boolean;
+};
+
+export type CycleTimeResult = {
+  metric: string;
+  monthly_trend: { month: string; avg_cycle_days: number; po_count: number }[];
+  rolling_avg_trend: { month: string; rolling_3mo: number }[];
+  distribution: CycleDistribution;
+  stage_breakdown: CycleStageBreakdown;
+  anomalies: CycleAnomaly[];
+  period_comparison: PeriodComparison;
+  cycle_by_quadrant: Record<KraljicQuadrant, CycleDescriptive>;
+  three_way_match_by_quadrant: Record<KraljicQuadrant, ThreeWayMatchQuadrant>;
+};
+
+/**
+ * Legacy pre/post "automation impact" shape. Only consumed by the report
+ * backward-compat path for reports persisted before Batch 5. Detected by the
+ * presence of `pre_stats`/`statistic` and the ABSENCE of `period_comparison`.
+ * Do NOT use for new code.
+ */
+export type LegacyHypothesisResult = {
+  test?: string;
+  pre_stats?: { n: number; mean: number | null; median: number | null };
+  post_stats?: { n: number; mean: number | null; median: number | null };
+  statistic?: number | null;
+  p_value?: number | null;
+  effect_size?: number | null;
+  significant?: boolean;
 };
 
 export type KraljicQuadrant = "Strategic" | "Leverage" | "Bottleneck" | "Routine";
@@ -226,7 +255,7 @@ export interface RecommendationsResult {
 export type RangeAnalyses = {
   spend_overview: SpendOverviewResult;
   abc: AbcResult;
-  hypothesis: HypothesisResult;
+  cycle_time: CycleTimeResult;
   performance_spend: PerformanceSpendResult;
   kraljic: KraljicResult;
   recommendations: RecommendationsResult;

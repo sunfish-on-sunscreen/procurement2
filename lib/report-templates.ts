@@ -4,7 +4,7 @@ import type {
   KraljicResult,
   KraljicQuadrant,
   QuadrantProfile,
-  HypothesisResult,
+  CycleTimeResult,
   PerformanceSpendResult,
   RecommendationsResult,
   Recommendation,
@@ -33,6 +33,10 @@ export type ReportMetrics = {
   action_items: string[]; // NEW: action-oriented one-liners (top recs)
   priorities: Recommendation[]; // NEW: structured top recommendations
   narratives: ReportNarratives;
+  // Marks reports generated with the Batch 5 process-health-monitoring cycle
+  // framing. Reports persisted before Batch 5 lack it; the report detail page
+  // uses its absence to render the legacy pre/post cycle narrative + a note.
+  cycle_framing?: "monitoring";
 };
 
 export type ReportInput = {
@@ -41,7 +45,7 @@ export type ReportInput = {
   abc: AbcResult;
   kraljic: KraljicResult;
   performanceSpend: PerformanceSpendResult;
-  hypothesis: HypothesisResult;
+  cycleTime: CycleTimeResult;
   recommendations: RecommendationsResult;
 };
 
@@ -143,19 +147,34 @@ export type ReportContext = {
   criticalNames: string[];
   gemNames: string[];
   perfMedian: number;
-  // cycle
-  cycleInsufficient: boolean;
-  pre: number;
-  post: number;
-  delta: number;
-  dpct: number;
-  pValue: number | null;
-  pStr: string;
-  effect: string;
-  effectSize: number | null;
-  significant: boolean;
-  nPre: number;
-  nPost: number;
+  // cycle — process-health monitoring
+  cycleN: number;
+  cycleMedian: number;
+  cycleMean: number;
+  cycleP25: number;
+  cycleP75: number;
+  cycleIqr: number;
+  slowestStage: string;
+  slowestStageMean: number;
+  anomalyCount: number;
+  topAnomaly: { po_id: string; supplier_name: string; cycle_days: number } | null;
+  worstMatchQuadrant: string | null;
+  worstMatchRate: number | null;
+  // cycle — optional period-vs-period comparison
+  cmpInsufficient: boolean;
+  cmpMedianA: number;
+  cmpMedianB: number;
+  cmpDelta: number; // median_a - median_b (positive = faster/improved in B)
+  cmpDpct: number;
+  cmpPValue: number | null;
+  cmpPStr: string;
+  cmpEffect: string;
+  cmpEffectSize: number | null;
+  cmpSignificant: boolean;
+  cmpNA: number;
+  cmpNB: number;
+  cmpLabelA: string;
+  cmpLabelB: string;
   // recommendations
   recTotal: number;
   recByCategory: Record<string, number>;
@@ -167,8 +186,15 @@ type Analyses = {
   abc: AbcResult | null;
   kraljic: KraljicResult | null;
   performanceSpend: PerformanceSpendResult | null;
-  hypothesis: HypothesisResult | null;
+  cycleTime: CycleTimeResult | null;
   recommendations: RecommendationsResult | null;
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  pr_to_po: "PR→PO",
+  po_to_delivery: "PO→Delivery",
+  delivery_to_invoice: "Delivery→Invoice",
+  invoice_to_payment: "Invoice→Payment",
 };
 
 export function deriveReportContext(a: Analyses, period: string): ReportContext {
@@ -215,15 +241,33 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
   const critical = zone("Critical Issues");
   const gems = zone("Hidden Gems");
 
-  const h = a.hypothesis;
-  const pre = h?.pre_stats.mean ?? 0;
-  const post = h?.post_stats.mean ?? 0;
-  const delta = pre - post;
-  const pValue = h?.p_value ?? null;
-  const pStr =
-    pValue != null && pValue < 0.001
+  const ct = a.cycleTime;
+  const dist = ct?.distribution;
+  const stages = ct?.stage_breakdown;
+  const slowest =
+    stages != null
+      ? (Object.entries(stages) as [string, { mean: number | null }][])
+          .map(([k, v]) => ({ key: k, mean: v.mean ?? 0 }))
+          .sort((x, y) => y.mean - x.mean)[0]
+      : null;
+  const anomalies = ct?.anomalies ?? [];
+  const worstMatch = ct
+    ? (Object.entries(ct.three_way_match_by_quadrant).find(
+        ([, v]) => v.is_worst,
+      ) ?? null)
+    : null;
+
+  const cmp = ct?.period_comparison;
+  const cmpMedianA = cmp?.median_a ?? 0;
+  const cmpMedianB = cmp?.median_b ?? 0;
+  const cmpDelta = cmpMedianA - cmpMedianB; // positive => faster in window B
+  const cmpPValue = cmp?.p_value ?? null;
+  const cmpPStr =
+    cmpPValue != null && cmpPValue < 0.001
       ? "< 0.001"
-      : `= ${pValue != null ? pValue.toFixed(4) : "—"}`;
+      : `= ${cmpPValue != null ? cmpPValue.toFixed(4) : "—"}`;
+  const cmpSignificant =
+    !(cmp?.insufficient_data ?? true) && cmpPValue != null && cmpPValue < 0.05;
 
   const recs = a.recommendations;
 
@@ -266,18 +310,38 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
       .map((x) => x.supplier_name),
     gemNames: (ps?.top_hidden_gems ?? []).slice(0, 2).map((x) => x.supplier_name),
     perfMedian: ps?.axis_thresholds.performance_median ?? 0,
-    cycleInsufficient: h?.insufficient_data ?? true,
-    pre,
-    post,
-    delta,
-    dpct: pre ? (delta / pre) * 100 : 0,
-    pValue,
-    pStr,
-    effect: effectWord(h?.effect_size ?? null),
-    effectSize: h?.effect_size ?? null,
-    significant: h?.significant ?? false,
-    nPre: h?.pre_stats.n ?? 0,
-    nPost: h?.post_stats.n ?? 0,
+    cycleN: dist?.n ?? 0,
+    cycleMedian: dist?.median ?? 0,
+    cycleMean: dist?.mean ?? 0,
+    cycleP25: dist?.p25 ?? 0,
+    cycleP75: dist?.p75 ?? 0,
+    cycleIqr: dist?.iqr ?? 0,
+    slowestStage: slowest ? STAGE_LABELS[slowest.key] ?? slowest.key : "—",
+    slowestStageMean: slowest?.mean ?? 0,
+    anomalyCount: anomalies.length,
+    topAnomaly: anomalies[0]
+      ? {
+          po_id: anomalies[0].po_id,
+          supplier_name: anomalies[0].supplier_name,
+          cycle_days: anomalies[0].cycle_days ?? 0,
+        }
+      : null,
+    worstMatchQuadrant: worstMatch ? worstMatch[0] : null,
+    worstMatchRate: worstMatch ? worstMatch[1].pass_rate_pct : null,
+    cmpInsufficient: cmp?.insufficient_data ?? true,
+    cmpMedianA,
+    cmpMedianB,
+    cmpDelta,
+    cmpDpct: cmpMedianA ? (cmpDelta / cmpMedianA) * 100 : 0,
+    cmpPValue,
+    cmpPStr,
+    cmpEffect: cmp?.effect_size_label ?? effectWord(cmp?.rank_biserial_r ?? null),
+    cmpEffectSize: cmp?.rank_biserial_r ?? null,
+    cmpSignificant,
+    cmpNA: cmp?.period_a.n ?? 0,
+    cmpNB: cmp?.period_b.n ?? 0,
+    cmpLabelA: cmp ? `${cmp.period_a.start} – ${cmp.period_a.end}` : "—",
+    cmpLabelB: cmp ? `${cmp.period_b.start} – ${cmp.period_b.end}` : "—",
     recTotal: recs?.summary_stats.total_recommendations ?? 0,
     recByCategory: recs?.summary_stats.by_category ?? {},
     topRec: recs?.summary_stats.highest_impact ?? null,
@@ -331,25 +395,35 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       `Crossing spend against delivered performance flags ${c.criticalN} high-value supplier(s) — ${pct(
         c.criticalPct,
       )} of spend — that are underperforming relative to what we pay them. These represent the clearest value-at-risk in the portfolio and the first call on management attention.`,
-    cycleTime: (c) =>
-      c.cycleInsufficient
-        ? `Process efficiency could not be assessed over a single automation era; a multi-year view is needed to quantify the impact of payment automation.`
-        : `Payment automation cut the invoice-to-pay cycle by ${c.delta.toFixed(
-            0,
-          )} days (${pct(
-            c.dpct,
-          )}), a ${c.significant ? "material" : "modest"} improvement in working-capital efficiency that ${
-            c.significant ? "supports" : "does not yet justify"
-          } extending automation to the remaining process stages.`,
+    cycleTime: (c) => {
+      const head = `Procure-to-pay cycle time runs at a median of ${c.cycleMedian.toFixed(
+        0,
+      )} days (middle-half spread ${c.cycleP25.toFixed(0)}–${c.cycleP75.toFixed(
+        0,
+      )} days).`;
+      if (c.cmpInsufficient) {
+        return `${head} There is not yet enough data in the selected period to compare two windows, so the trend is reported as monitoring only.`;
+      }
+      const dir = c.cmpDelta > 0 ? "improved" : "deteriorated";
+      return `${head} Comparing the two halves of the period, performance has ${
+        c.cmpSignificant ? `${dir} materially` : "held broadly steady"
+      } — the median moved from ${c.cmpMedianA.toFixed(
+        0,
+      )} to ${c.cmpMedianB.toFixed(0)} days${
+        c.cmpSignificant ? "" : " (not a statistically meaningful shift)"
+      }. Sustained monitoring keeps working-capital efficiency on track.`;
+    },
     keyFindings: (c) => [
       `Value is concentrated: the top ten suppliers carry ${pct(c.top10Pct)} of spend.`,
       `${c.stratN} business-critical suppliers hold ${pct(c.stratPct)} of spend and need protected relationships.`,
       `${c.criticalN} high-value supplier(s) are underperforming — the portfolio's main value-at-risk.`,
-      ...(c.cycleInsufficient
-        ? []
-        : [
-            `Payment automation freed ~${c.delta.toFixed(0)} days of working capital per invoice cycle.`,
-          ]),
+      `Procure-to-pay cycle time holds at a median of ${c.cycleMedian.toFixed(
+        0,
+      )} days${
+        c.cmpSignificant
+          ? `, ${c.cmpDelta > 0 ? "improving" : "deteriorating"} across the period`
+          : ""
+      }.`,
     ],
     recommendedPriorities: (c) =>
       `The actions below are ranked by impact on value at stake. Read top-down: the highest-ranked items concern the suppliers and processes where exposure — in spend, risk, or working capital — is greatest. We recommend owning the top ${Math.min(
@@ -357,7 +431,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         Math.max(3, c.recTotal),
       )} at the executive level and delegating the remainder to category leads.`,
     methodology: () =>
-      `Findings combine four standard lenses — spend concentration, a value-versus-risk supplier portfolio, a performance-versus-spend screen, and a before/after test of process automation — into a single ranked action list. The approach is deliberately fixed and repeatable so results are comparable period over period and decision-grade rather than exploratory.`,
+      `Findings combine four standard lenses — spend concentration, a value-versus-risk supplier portfolio, a performance-versus-spend screen, and ongoing process-health monitoring of cycle time — into a single ranked action list. The approach is deliberately fixed and repeatable so results are comparable period over period and decision-grade rather than exploratory.`,
   },
 
   // ---- OPERATIONAL: procurement team. Action-focused, named suppliers, tactical.
@@ -403,18 +477,28 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )} of spend)${
         c.criticalNames.length ? `, led by ${c.criticalNames.join(" and ")}` : ""
       }. A further ${c.gemsN} Hidden Gems perform well on small spend and are promotion candidates.`,
-    cycleTime: (c) =>
-      c.cycleInsufficient
-        ? `Automation impact could not be tested for this period — it contains data from only one automation era. A reliable pre/post comparison of invoice-to-payment time requires a range spanning both 2024 (pre) and 2025 (post).`
-        : `Automation introduced 2025-01-01 reduced invoice-to-payment cycle time from ${c.pre.toFixed(
-            1,
-          )} days to ${c.post.toFixed(1)} days, a ${c.delta.toFixed(
-            1,
-          )}-day (${pct(c.dpct)}) improvement (p ${c.pStr}, ${c.effect} effect size). The improvement is ${
-            c.significant
-              ? "statistically and practically significant"
-              : "not statistically significant"
-          }.`,
+    cycleTime: (c) => {
+      const bottleneck = `The slowest process stage is ${c.slowestStage}, averaging ${c.slowestStageMean.toFixed(
+        1,
+      )} days — the first place to look for cycle-time savings.`;
+      const outlier = c.topAnomaly
+        ? ` Investigate outliers such as ${c.topAnomaly.po_id} (${c.topAnomaly.supplier_name}, ${c.topAnomaly.cycle_days} days); ${c.anomalyCount} PO(s) exceeded the 2σ anomaly threshold.`
+        : ` No POs exceeded the 2σ anomaly threshold this period.`;
+      const cmp = c.cmpInsufficient
+        ? ` A period-vs-period comparison needs more data than the current selection provides.`
+        : c.cmpSignificant
+          ? ` Cycle time ${
+              c.cmpDelta > 0 ? "improved" : "worsened"
+            } significantly between ${c.cmpLabelA} and ${c.cmpLabelB} (median ${c.cmpMedianA.toFixed(
+              0,
+            )}→${c.cmpMedianB.toFixed(0)} days, p ${c.cmpPStr}, ${c.cmpEffect} effect) — ${
+              c.cmpDelta > 0
+                ? "lock in the contributing changes"
+                : "trace the regression to its process stage"
+            }.`
+          : ` The two halves of the period show no statistically significant cycle-time difference.`;
+      return `${bottleneck}${outlier}${cmp}`;
+    },
     keyFindings: (c) => [
       `${usdM(c.totalSpend)} total spend across ${intl.format(c.totalPos)} purchase orders.`,
       `${c.aN} Class A suppliers drive ${pct(c.aPct)} of spend.`,
@@ -439,7 +523,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           : ""
       }`,
     methodology: () =>
-      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned composite score against spend. Automation impact uses the Mann-Whitney U test (α = 0.05). Recommendation impact scores are normalized to 0–100 per category. Use the named actions directly; each maps to a specific supplier or process stage.`,
+      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned composite score against spend. Cycle time is monitored on total procure-to-pay days, with Z-score outlier detection and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendation impact scores are normalized to 0–100 per category. Use the named actions directly; each maps to a specific supplier or process stage.`,
   },
 
   // ---- ANALYTICAL: analyst. Data-heavy, statistical framing, caveats, methodology.
@@ -449,7 +533,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.totalSpend,
       )} across ${intl.format(
         c.activeSuppliers,
-      )} suppliers for ${c.period}. Four fixed analyses are applied — Pareto/ABC classification, a Kraljic median-split segmentation, a performance-vs-spend median cross, and a Mann-Whitney U test of automation impact. Spend is right-skewed and highly concentrated (top-decile share ≈ ${pct(
+      )} suppliers for ${c.period}. Four fixed analyses are applied — Pareto/ABC classification, a Kraljic median-split segmentation, a performance-vs-spend median cross, and cycle-time process-health monitoring with an optional period-vs-period Mann-Whitney U comparison. Spend is right-skewed and highly concentrated (top-decile share ≈ ${pct(
         c.top10Pct,
       )}), which shapes the interpretation of every downstream cut.`,
     spendOverview: (c) =>
@@ -490,20 +574,36 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )}). The result is ${c.starsN} Stars, ${c.criticalN} Critical Issues (${pct(
         c.criticalPct,
       )} of spend), and ${c.gemsN} Hidden Gems. The Critical-Issues mass is the actionable signal — high spend coincident with sub-median performance — but note the zone boundaries are population medians, so membership is relative, not absolute.`,
-    cycleTime: (c) =>
-      c.cycleInsufficient
-        ? `The Mann-Whitney U test is not computable here: the period contains a single automation era (n_pre = ${c.nPre}, n_post = ${c.nPost}), so no two-sample comparison exists. A range spanning the 2025-01-01 automation boundary is required.`
-        : `A two-sample Mann-Whitney U test compares invoice-to-payment time pre- vs post-automation (n_pre = ${intl.format(
-            c.nPre,
-          )}, n_post = ${intl.format(c.nPost)}). Means move from ${c.pre.toFixed(
+    cycleTime: (c) => {
+      const shape = `Total cycle time (n = ${intl.format(
+        c.cycleN,
+      )}) has median ${c.cycleMedian.toFixed(1)} d, IQR ${c.cycleIqr.toFixed(
+        1,
+      )} d (P25 ${c.cycleP25.toFixed(1)}, P75 ${c.cycleP75.toFixed(
+        1,
+      )}); the mean of ${c.cycleMean.toFixed(
+        1,
+      )} d exceeding the median indicates the expected right skew. The slowest sub-process is ${c.slowestStage} (mean ${c.slowestStageMean.toFixed(
+        1,
+      )} d).`;
+      const anom = ` Z-score screening flags ${c.anomalyCount} PO(s) with cycle time > 2σ above the mean as outliers.`;
+      const test = c.cmpInsufficient
+        ? ` The optional period comparison is not computable for the current selection (one window has < 10 POs: n_a = ${intl.format(
+            c.cmpNA,
+          )}, n_b = ${intl.format(c.cmpNB)}).`
+        : ` A two-sided Mann-Whitney U test compares two date windows (n_a = ${intl.format(
+            c.cmpNA,
+          )}, n_b = ${intl.format(
+            c.cmpNB,
+          )}): medians ${c.cmpMedianA.toFixed(1)} → ${c.cmpMedianB.toFixed(
             1,
-          )} to ${c.post.toFixed(1)} days (Δ ${c.delta.toFixed(1)} d, ${pct(
-            c.dpct,
-          )}); p ${c.pStr}, rank-biserial r = ${
-            c.effectSize != null ? c.effectSize.toFixed(3) : "—"
-          } (${c.effect} effect). The non-parametric test is used because cycle-time distributions are right-skewed; the result is ${
-            c.significant ? "significant at α = 0.05" : "not significant at α = 0.05"
-          }.`,
+          )} d, p ${c.cmpPStr}, rank-biserial r = ${
+            c.cmpEffectSize != null ? c.cmpEffectSize.toFixed(3) : "—"
+          } (${c.cmpEffect} effect); ${
+            c.cmpSignificant ? "significant" : "not significant"
+          } at α = 0.05. The non-parametric test is used because cycle-time distributions are right-skewed and violate normality.`;
+      return `${shape}${anom}${test}`;
+    },
     keyFindings: (c) => [
       `Spend is heavy-tailed: top-decile share ≈ ${pct(c.top10Pct)}; Class A share ${pct(
         c.aPct,
@@ -512,11 +612,17 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       `Performance × spend cross isolates ${c.criticalN} Critical-Issue suppliers (${pct(
         c.criticalPct,
       )} of spend).`,
-      ...(c.cycleInsufficient
-        ? [`Automation effect untestable in-period (single era).`]
+      ...(c.cmpInsufficient
+        ? [
+            `Cycle time: median ${c.cycleMedian.toFixed(1)} d, IQR ${c.cycleIqr.toFixed(
+              1,
+            )} d; period comparison not computable (window < 10 POs).`,
+          ]
         : [
-            `Automation effect: Δ ${c.delta.toFixed(1)} d, p ${c.pStr}, ${c.effect} effect (${
-              c.significant ? "significant" : "n.s."
+            `Cycle comparison: median ${c.cmpMedianA.toFixed(1)}→${c.cmpMedianB.toFixed(
+              1,
+            )} d, p ${c.cmpPStr}, ${c.cmpEffect} effect (${
+              c.cmpSignificant ? "significant" : "n.s."
             }).`,
           ]),
       `Caveat: filter/threshold boundaries are sample-relative; recompute on a filtered population for population-specific inference.`,
@@ -531,11 +637,11 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           : ""
       } Treat the ranking as a triage aid; the underlying reasoning strings carry the supporting evidence.`,
     methodology: (c) =>
-      `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (single-source, category competition, country distance, switching cost); performance-vs-spend via a median × median cross of spend against the composite score; automation impact via a two-sample Mann-Whitney U (α = 0.05) with a rank-biserial effect size and a 1,000-iteration bootstrap CI. Limitations: thresholds and zone boundaries are sample-relative; aggregates reported under a supplier filter still reflect full-population medians (n_pre = ${intl.format(
-        c.nPre,
-      )}, n_post = ${intl.format(
-        c.nPost,
-      )}); data are synthetic, calibrated to APQC/Hackett/CIPS benchmarks.`,
+      `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (single-source, category competition, country distance, switching cost); performance-vs-spend via a median × median cross of spend against the composite score; cycle-time process-health monitoring on total procure-to-pay days (median/IQR distribution, trailing 3-month rolling trend, Z-score outliers at > 2σ) with an optional two-sided Mann-Whitney U comparison (α = 0.05) and rank-biserial effect size between two date windows (current comparison n_a = ${intl.format(
+        c.cmpNA,
+      )}, n_b = ${intl.format(
+        c.cmpNB,
+      )}). Limitations: thresholds and zone boundaries are sample-relative; aggregates reported under a supplier filter still reflect full-population medians; data are synthetic, calibrated to APQC/Hackett/CIPS benchmarks.`,
   },
 };
 
@@ -549,7 +655,7 @@ export function generateExecutiveSummary(input: ReportInput): {
     abc,
     kraljic,
     performanceSpend: ps,
-    hypothesis: h,
+    cycleTime: ct,
     recommendations: recs,
   } = input;
 
@@ -561,7 +667,7 @@ export function generateExecutiveSummary(input: ReportInput): {
       abc,
       kraljic,
       performanceSpend: ps,
-      hypothesis: h,
+      cycleTime: ct,
       recommendations: recs,
     },
     period.name,
@@ -591,9 +697,25 @@ export function generateExecutiveSummary(input: ReportInput): {
       `Review ${ctx.underTiered} Standard-tier supplier(s) sitting in the Strategic or Leverage quadrant — their spend impact suggests they are promotion candidates.`,
     );
   }
-  if (!ctx.cycleInsufficient && ctx.significant) {
+  if (ctx.cmpSignificant) {
     recommendations.push(
-      `Extend the payment-automation pilot to the remaining process stages, building on the demonstrated cycle-time reduction.`,
+      ctx.cmpDelta > 0
+        ? `Cycle time improved significantly across the period (median ${ctx.cmpMedianA.toFixed(
+            0,
+          )}→${ctx.cmpMedianB.toFixed(
+            0,
+          )} days); document and sustain the contributing process changes.`
+        : `Cycle time deteriorated significantly across the period (median ${ctx.cmpMedianA.toFixed(
+            0,
+          )}→${ctx.cmpMedianB.toFixed(
+            0,
+          )} days); trace the regression to the ${ctx.slowestStage} stage.`,
+    );
+  } else if (ctx.slowestStageMean > 8) {
+    recommendations.push(
+      `Target the ${ctx.slowestStage} stage (averaging ${ctx.slowestStageMean.toFixed(
+        1,
+      )} days) to reduce overall procure-to-pay cycle time.`,
     );
   }
   recommendations.push(
@@ -626,6 +748,7 @@ export function generateExecutiveSummary(input: ReportInput): {
     action_items: actionItems,
     priorities,
     narratives,
+    cycle_framing: "monitoring",
   };
 
   const narrative = [

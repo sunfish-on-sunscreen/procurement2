@@ -232,43 +232,54 @@ export default async function MethodologyPage() {
 
           <section className="space-y-2">
             <h3 className="text-base font-semibold text-foreground">
-              3.4 Mann-Whitney U Hypothesis Test
+              3.4 Cycle Time — Process Health Monitoring + Period Comparison
             </h3>
             <p>
-              A non-parametric, two-sample test of whether automation (introduced
-              on <strong>2025-01-01</strong>) significantly reduced the
-              invoice-to-payment cycle time. It compares the pre-automation (2024)
-              and post-automation (2025) groups.
+              The Cycle Time page monitors total procure-to-pay duration as an
+              ongoing process-health signal rather than a one-time before/after
+              event. It applies six statistical methods:
             </p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>
+                <strong>Time-series descriptive statistics</strong>: monthly
+                average cycle time with a 3-month rolling average for trend
+                smoothing.
+              </li>
+              <li>
+                <strong>Distribution analysis</strong>: median, interquartile
+                range (IQR), and percentile summary of the cycle-time
+                distribution.
+              </li>
+              <li>
+                <strong>Stage-level descriptive statistics</strong>: PR→PO,
+                PO→delivery, delivery→invoice, and invoice→payment subprocess
+                durations.
+              </li>
+              <li>
+                <strong>Z-score anomaly detection</strong>: POs with cycle time
+                more than 2 standard deviations above the mean are flagged as
+                outliers warranting investigation.
+              </li>
+              <li>
+                <strong>Mann-Whitney U non-parametric hypothesis test</strong>:
+                an optional period-vs-period comparison via a two-sample
+                non-parametric test. Chosen over Student&apos;s t-test because
+                cycle times are right-skewed and violate normality assumptions.
+              </li>
+              <li>
+                <strong>Rank-biserial correlation effect size</strong>:
+                complementary to the U statistic; interpreted via Cohen&apos;s
+                conventions (small ≈ 0.1, medium ≈ 0.3, large ≈ 0.5).
+              </li>
+            </ol>
             <p>
-              A non-parametric test is used because cycle-time distributions are
-              right-skewed rather than normal, which violates the assumptions of a
-              t-test. The test uses a fixed significance level of{" "}
-              <strong>α = 0.05</strong>. Effect size is reported as the{" "}
-              <strong>rank-biserial correlation</strong>, and a{" "}
-              <strong>95% confidence interval</strong> on the mean difference is
-              estimated via bootstrap resampling (1000 iterations).
+              Period comparison defaults to a midpoint split of the currently
+              selected period. Custom date ranges can be specified to compare
+              arbitrary windows. The analysis also reports cycle-time
+              descriptives and 3-way match pass rates per Kraljic quadrant.
             </p>
-            <p>
-              In addition to the overall test, the analysis now includes:
-            </p>
-            <ul className="list-disc space-y-1 pl-5">
-              <li>
-                <strong>Stage decomposition</strong>: per-stage mean times
-                (PR→PO, PO→delivery, delivery→invoice, invoice→payment) showing
-                where automation impact landed.
-              </li>
-              <li>
-                <strong>Quadrant breakdown</strong>: pre/post invoice-to-payment
-                comparison for each Kraljic quadrant.
-              </li>
-              <li>
-                <strong>3-way match compliance</strong> by quadrant, surfacing
-                process-control gaps among the most important suppliers.
-              </li>
-            </ul>
             <p className="text-xs">
-              Reference: Mann &amp; Whitney (1947).
+              Reference: Mann &amp; Whitney (1947); Cohen (1988).
             </p>
           </section>
         </CardContent>
@@ -343,8 +354,8 @@ export default async function MethodologyPage() {
               <li>
                 <strong>Process Improvement</strong> — 3-way-match issues use{" "}
                 <code>fail_rate_pct</code>; stage-time issues use{" "}
-                <code>mean_days ÷ 18 × 100</code>, calibrated against the
-                pre-automation baseline (~18 days).
+                <code>mean_days ÷ 18 × 100</code>, normalized against a ~18-day
+                reference for a slow internal process stage.
               </li>
             </ul>
           </section>

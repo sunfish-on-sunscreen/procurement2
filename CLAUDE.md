@@ -5,12 +5,37 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 ## Current Work
 
-Phase 11 (Kraljic rebuild) and Phase 11F (UX refinements) are complete through
-**Batch 3d**. **Phase 11F Batch 4 is next** (Top 10 category filter on Overview
-page). Phase 10 polish follows. Latest commit: **3b2b0c2 (Batch 3d)**.
+Phase 11F (UX refinements, Batches 1–4) is fully shipped. **Batch 5 (Cycle Time
+reframe) shipped on top of it.** **Next: Phase 10 polish** (loading states,
+error boundaries, mobile responsive, README, smoke test) → **v1.0 tag**.
 
 6 analytical pages live: Overview, ABC, Supplier Quadrant (Kraljic), Performance
-vs Spend, Cycle Time, Action Dashboard (+ Reports, Methodology).
+vs Spend, Cycle Time (process-health monitoring), Action Dashboard (+ Reports,
+Methodology).
+
+### Cycle Time reframe (Batch 5)
+- **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
+  `transform_dataset.py`, Prisma schema, DB (migration
+  `remove_automation_period`), upload route, and Python. The synthetic data's
+  one-time pre/post automation label was analytically brittle over time.
+- **Cycle Time is ONE analysis type, renamed `hypothesis` → `cycle_time`.** It
+  emits process-health monitoring (monthly trend + trailing 3-mo rolling avg,
+  median/IQR distribution, stage decomposition, Z-score anomalies at **> 2σ above
+  the mean**, per-quadrant cycle descriptives, 3-way-match pass rates) **plus** a
+  default midpoint-split `period_comparison` (two-sided Mann-Whitney U +
+  rank-biserial r). Metric = **`total_cycle_days`** (was invoice-to-payment).
+- **`/api/analyses/cycle-compare`** computes custom date-range comparisons
+  on-demand (Mode B + `--comparison-*` flags via `runCycleCompare`); **not
+  cached**, returns only the `period_comparison` block.
+- **`cycle_by_quadrant` + `three_way_match_by_quadrant` are single-population
+  descriptives** (pre/post split dropped). 3-way match now reports
+  `pass_rate_pct` + `is_worst` (was `fail_rate_pct`).
+- **6 statistical methods**: time-series descriptives, distribution/IQR, stage
+  descriptives, Z-score anomalies, Mann-Whitney U, rank-biserial r.
+- Box plot is **hand-composed SVG** (`CycleTimeBoxPlot`, single-population +
+  outlier dots) — Recharts has no native box plot, matching the codebase's
+  existing approach. Deleted dead charts: `CycleTimeHistogram`,
+  `StageBreakdownChart`, `CycleByQuadrantChart`.
 
 ### Architecture facts (current as of 11F)
 - **Tier names are `Core` / `Established` / `Standard`** (renamed in 3a from
@@ -73,6 +98,12 @@ vs Spend, Cycle Time, Action Dashboard (+ Reports, Methodology).
   direct API fetch + `sessionStorage` + the preview page.
 - **Old reports (pre-3c) without `config` in `metricsJson`** default to
   `standard` detail + all sections + `operational` tone (backward compat).
+- **Old reports (pre-Batch-5) lack `cycle_framing: "monitoring"` in
+  `metricsJson`.** Reports re-render from LIVE analyses, so the report detail
+  page (`reports/[id]`) detects the missing marker and passes the stored
+  `narratives.cycle_time` (legacy pre/post prose) as `legacyCycle` to
+  `ReportDocument`, which renders it + a "legacy framing" note instead of the
+  live monitoring view. Old reports are preserved as history, not back-filled.
 - **Known synthetic-data note:** risk_score and single_source_risk were
   saturated until 3a; the transformer fixed them (risk ~19–90, ~20% single-source).
 
@@ -148,7 +179,7 @@ vs Spend, Cycle Time, Action Dashboard (+ Reports, Methodology).
 ## Excel file schema
 Single .xlsx with 3 sheets:
 - Sheet "Suppliers": supplier_id, supplier_name, country, category, product_description, tier
-- Sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass, automation_period
+- Sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
 - Sheet "SupplierMetrics": supplier_id, supplier_name, category, tier, total_spend_usd, num_pos, avg_po_value_usd, avg_lead_time_days, avg_cycle_time_days, on_time_delivery_pct, three_way_match_pct, defect_rate_pct, complaint_count_annual, rfx_response_rate_pct, avg_response_time_days, single_source_risk, quality_score, delivery_score, service_score, process_score, risk_score, composite_score, calculated_tier, tier_mismatch
 
 Sample data file: `data/raw/procurement_data.xlsx` (use for testing)

@@ -1,6 +1,6 @@
 import { requireAuth } from "@/lib/auth";
 import { getCurrentPeriodSelection, resolveAnalysisSource } from "@/lib/period";
-import { getAnalysisResult, type HypothesisResult } from "@/lib/analysis-types";
+import { getAnalysisResult, type CycleTimeResult } from "@/lib/analysis-types";
 import { EmptyState } from "@/components/EmptyState";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { RangeCompute } from "@/components/analysis/RangeCompute";
@@ -17,21 +17,17 @@ export default async function CycleTimePage() {
     body = <EmptyState />;
   } else if (source.kind === "cached") {
     label = source.periodLabel;
-    const hypothesis = await getAnalysisResult<HypothesisResult>(
+    const cycleTime = await getAnalysisResult<CycleTimeResult>(
       source.periodId,
-      "hypothesis",
+      "cycle_time",
     );
-    body = hypothesis ? (
-      <CycleTimeView hypothesis={hypothesis} />
-    ) : (
-      <EmptyState />
-    );
+    body = cycleTime ? <CycleTimeView data={cycleTime} /> : <EmptyState />;
   } else {
     label = source.periodLabel;
     body = (
       <RangeCompute
         key={`${source.startDate}_${source.endDate}`}
-        kind="hypothesis"
+        kind="cycle_time"
         startDate={source.startDate}
         endDate={source.endDate}
       />
@@ -41,7 +37,7 @@ export default async function CycleTimePage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">
-        Cycle Time &amp; Automation Impact{label ? ` — ${label}` : ""}
+        Cycle Time — Process Health Monitoring{label ? ` — ${label}` : ""}
       </h1>
       {body}
     </div>

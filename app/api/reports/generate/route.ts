@@ -6,7 +6,7 @@ import {
   type SpendOverviewResult,
   type AbcResult,
   type KraljicResult,
-  type HypothesisResult,
+  type CycleTimeResult,
   type PerformanceSpendResult,
   type RecommendationsResult,
 } from "@/lib/analysis-types";
@@ -48,13 +48,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Reporting period not found" }, { status: 400 });
   }
 
-  const [spendOverview, abc, kraljic, performanceSpend, hypothesis, recommendations] =
+  const [spendOverview, abc, kraljic, performanceSpend, cycleTime, recommendations] =
     await Promise.all([
       getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
       getAnalysisResult<AbcResult>(periodId, "abc"),
       getAnalysisResult<KraljicResult>(periodId, "kraljic"),
       getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
-      getAnalysisResult<HypothesisResult>(periodId, "hypothesis"),
+      getAnalysisResult<CycleTimeResult>(periodId, "cycle_time"),
       getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
     ]);
 
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     !abc ||
     !kraljic ||
     !performanceSpend ||
-    !hypothesis ||
+    !cycleTime ||
     !recommendations
   ) {
     return NextResponse.json(
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     abc,
     kraljic,
     performanceSpend,
-    hypothesis,
+    cycleTime,
     recommendations,
   });
 

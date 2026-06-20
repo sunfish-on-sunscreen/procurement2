@@ -97,14 +97,12 @@ model Purchase {
   totalCycleDays        Int
   onTimeDelivery        Boolean
   threeWayMatchPass     Boolean
-  automationPeriod      String // "pre" or "post"
   periodId              String
   period                ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
   @@unique([poId, periodId])
   @@index([periodId])
   @@index([supplierExternalId, periodId])
-  @@index([automationPeriod])
 }
 
 model SupplierMetric {
