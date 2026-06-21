@@ -124,6 +124,37 @@ export function defaultReportConfig(
   };
 }
 
+/**
+ * Reset all FILTER-related config to defaults (Batch 6c) while preserving the
+ * user's deliberate choices: period, tone, and detail level. Resets tier +
+ * category filters, section visibility, recommendation filters, and the
+ * per-section filter scope.
+ */
+export function resetReportFilters(
+  config: ReportConfig,
+  allCategories: string[],
+): ReportConfig {
+  return {
+    ...config,
+    sections: {
+      executiveSummary: true,
+      spendOverview: true,
+      abc: true,
+      kraljic: true,
+      performanceSpend: true,
+      cycleTime: true,
+      actionDashboard: true,
+      methodology: true,
+    },
+    recommendationFilters: { categories: [...ALL_REC_CATEGORIES], topN: 10 },
+    filters: { tiers: [...ALL_TIERS], categories: [...allCategories] },
+    filterScope: {
+      tierApplies: [...DEFAULT_TIER_SCOPE],
+      categoryApplies: [...DEFAULT_CATEGORY_SCOPE],
+    },
+  };
+}
+
 /** True when the tier filter should hide rows for this section. */
 export function tierFilterActive(config: ReportConfig, section: SectionKey) {
   return (

@@ -25,7 +25,9 @@ export type SpendOverviewResult = {
    * "All Categories" only when absent.
    */
   top_suppliers_by_category?: Record<string, TopSupplier[]>;
-  monthly_trend: { month: string; total: number }[];
+  // `po_count` added in Batch 6c (per-month PO count for KPI sparklines);
+  // optional for pre-6c cached rows.
+  monthly_trend: { month: string; total: number; po_count?: number }[];
 };
 
 export type AbcClassification = {
@@ -116,7 +118,14 @@ export type ThreeWayMatchQuadrant = {
 
 export type CycleTimeResult = {
   metric: string;
-  monthly_trend: { month: string; avg_cycle_days: number; po_count: number }[];
+  // `median_cycle_days` added in Batch 6c (monthly median for KPI sparklines);
+  // optional for pre-6c cached rows.
+  monthly_trend: {
+    month: string;
+    avg_cycle_days: number;
+    median_cycle_days?: number;
+    po_count: number;
+  }[];
   rolling_avg_trend: { month: string; rolling_3mo: number }[];
   distribution: CycleDistribution;
   stage_breakdown: CycleStageBreakdown;

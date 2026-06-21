@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Settings, X, ChevronDown, ChevronRight, Loader2, Save } from "lucide-react";
+import {
+  Settings,
+  X,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Save,
+  RotateCcw,
+} from "lucide-react";
 import {
   type ReportConfig,
   type SectionKey,
@@ -12,6 +20,8 @@ import {
   ALL_REC_CATEGORIES,
   REC_CATEGORY_LABELS,
   SECTION_LABELS,
+  FILTERABLE_SECTIONS,
+  resetReportFilters,
 } from "@/lib/report-config";
 import type { RecommendationCategory } from "@/lib/analysis-types";
 import { Button } from "@/components/ui/button";
@@ -81,6 +91,8 @@ export function ReportEditorSidebar({
   saving,
   onSave,
   pdfFilename,
+  open,
+  onOpenChange,
 }: {
   config: ReportConfig;
   onConfigChange: (c: ReportConfig) => void;
@@ -90,9 +102,12 @@ export function ReportEditorSidebar({
   saving: boolean;
   onSave: () => void;
   pdfFilename: string;
+  // Controlled by ReportEditor (Batch 6c) so a section's tier chip can open it.
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [catsOpen, setCatsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const set = (patch: Partial<ReportConfig>) =>
     onConfigChange({ ...config, ...patch });
@@ -101,30 +116,32 @@ export function ReportEditorSidebar({
   const selectCls =
     "rounded-md border bg-background px-2 py-1 text-sm w-full";
 
+  // Single root whose WIDTH animates (Batch 6c) — the collapsed rail and the
+  // open panel must be the same element for the CSS transition to run.
   if (!open) {
     return (
-      <div className="sticky top-0 flex h-[calc(100vh-2rem)] w-11 shrink-0 flex-col items-center border-r pt-2">
+      <aside className="sticky top-0 flex h-[calc(100vh-2rem)] w-11 shrink-0 flex-col items-center overflow-hidden border-r pt-2 transition-[width] duration-150 ease-out">
         <Button
           variant="ghost"
           size="icon"
           aria-label="Open report settings"
-          onClick={() => setOpen(true)}
+          onClick={() => onOpenChange(true)}
         >
           <Settings className="h-5 w-5" />
         </Button>
-      </div>
+      </aside>
     );
   }
 
   return (
-    <aside className="sticky top-0 flex h-[calc(100vh-2rem)] w-[230px] shrink-0 flex-col overflow-y-auto border-r">
+    <aside className="sticky top-0 flex h-[calc(100vh-2rem)] w-[230px] shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r transition-[width] duration-150 ease-out">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-sm font-semibold">Report settings</span>
         <Button
           variant="ghost"
           size="icon"
           aria-label="Close report settings"
-          onClick={() => setOpen(false)}
+          onClick={() => onOpenChange(false)}
         >
           <X className="h-4 w-4" />
         </Button>
@@ -294,7 +311,7 @@ export function ReportEditorSidebar({
         )}
 
         {/* Tier filter */}
-        <section className="space-y-2">
+        <section id="sidebar-tier-filter" className="scroll-mt-2 space-y-2">
           <GroupLabel>Tier filter</GroupLabel>
           {ALL_TIERS.map((t) => (
             <Check
@@ -349,6 +366,87 @@ export function ReportEditorSidebar({
             </div>
           )}
         </section>
+
+        {/* Advanced: per-section filter scope (Batch 3c logic, 6c UI) */}
+        <section className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="flex w-full items-center gap-1 text-left"
+          >
+            {advancedOpen ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            <GroupLabel>Customize filters per section</GroupLabel>
+          </button>
+          {advancedOpen && (
+            <div className="space-y-2 rounded-md border p-2">
+              <p className="text-[11px] text-muted-foreground">
+                Which sections the tier / category filters apply to.
+              </p>
+              {FILTERABLE_SECTIONS.map((s) => (
+                <div
+                  key={s}
+                  className="flex items-center justify-between gap-2 text-xs"
+                >
+                  <span className="truncate">{SECTION_LABELS[s]}</span>
+                  <div className="flex shrink-0 gap-2">
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-primary"
+                        checked={config.filterScope.tierApplies.includes(s)}
+                        onChange={() =>
+                          set({
+                            filterScope: {
+                              ...config.filterScope,
+                              tierApplies: toggle(
+                                config.filterScope.tierApplies,
+                                s,
+                              ),
+                            },
+                          })
+                        }
+                      />
+                      Tier
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-primary"
+                        checked={config.filterScope.categoryApplies.includes(s)}
+                        onChange={() =>
+                          set({
+                            filterScope: {
+                              ...config.filterScope,
+                              categoryApplies: toggle(
+                                config.filterScope.categoryApplies,
+                                s,
+                              ),
+                            },
+                          })
+                        }
+                      />
+                      Cat
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Reset filters (keeps period / tone / detail) */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => onConfigChange(resetReportFilters(config, allCategories))}
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> Reset filters
+        </Button>
       </div>
 
       {/* Actions */}

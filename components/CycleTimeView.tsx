@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
 import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
+import { Sparkline } from "@/components/charts/Sparkline";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -59,10 +60,13 @@ function StatCard({
   label,
   value,
   sub,
+  spark,
 }: {
   label: string;
   value: string;
   sub?: string;
+  // Batch 6c: editor-only sparkline (omit to render a plain card).
+  spark?: Array<number | null | undefined>;
 }) {
   return (
     <Card>
@@ -70,7 +74,14 @@ function StatCard({
         <CardDescription>{label}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
+        <div className="flex items-end justify-between gap-2">
+          <div className="text-2xl font-semibold">{value}</div>
+          {spark && (
+            <div className="text-primary">
+              <Sparkline data={spark} />
+            </div>
+          )}
+        </div>
         {sub && <div className="text-sm text-muted-foreground">{sub}</div>}
       </CardContent>
     </Card>
@@ -355,7 +366,13 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
   );
 }
 
-export function CycleTimeView({ data }: { data: CycleTimeResult }) {
+export function CycleTimeView({
+  data,
+  embedded = false,
+}: {
+  data: CycleTimeResult;
+  embedded?: boolean;
+}) {
   const d = data.distribution;
 
   return (
@@ -365,6 +382,11 @@ export function CycleTimeView({ data }: { data: CycleTimeResult }) {
           label="Median cycle time"
           value={`${d0(d.median)} days`}
           sub={`n = ${d.n} POs`}
+          spark={
+            embedded
+              ? data.monthly_trend.map((m) => m.median_cycle_days)
+              : undefined
+          }
         />
         <StatCard
           label="IQR (P25–P75)"

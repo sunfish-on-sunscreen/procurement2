@@ -180,7 +180,11 @@ def spend_overview(purchases, suppliers, metrics):
     pm = pm.dropna(subset=["_invoice"])
     pm["month"] = pm["_invoice"].dt.strftime("%Y-%m")
     mt = pm.groupby("month")["totalValueUsd"].sum().sort_index()
-    monthly_trend = [{"month": str(m), "total": num(t)} for m, t in mt.items()]
+    mc = pm.groupby("month").size()
+    monthly_trend = [
+        {"month": str(m), "total": num(t), "po_count": int(mc[m])}
+        for m, t in mt.items()
+    ]
 
     return {
         "total_spend": num(total_spend),
@@ -351,9 +355,15 @@ def cycle_time_analysis(
     pm["month"] = pm["_date"].dt.strftime("%Y-%m")
     grp = pm.groupby("month")["_cycle"]
     monthly = grp.mean().sort_index()
+    medians = grp.median()
     counts = grp.size()
     monthly_trend = [
-        {"month": str(m), "avg_cycle_days": num(v), "po_count": int(counts[m])}
+        {
+            "month": str(m),
+            "avg_cycle_days": num(v),
+            "median_cycle_days": num(medians[m]),
+            "po_count": int(counts[m]),
+        }
         for m, v in monthly.items()
     ]
     roll = monthly.rolling(window=3).mean().dropna()

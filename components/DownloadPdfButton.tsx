@@ -25,6 +25,13 @@ export function DownloadPdfButton({ filename }: { filename: string }) {
     }
 
     setBusy(true);
+    // Batch 6c: reveal collapsed sections + inactive Spend-Overview tabs for the
+    // capture (they're hidden via the `hidden` attribute, kept in the DOM). Wait
+    // two frames so the layout reflows before html2canvas reads it.
+    root.classList.add("report-exporting");
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
     try {
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageW = pdf.internal.pageSize.getWidth();
@@ -103,6 +110,7 @@ export function DownloadPdfButton({ filename }: { filename: string }) {
       console.error("PDF generation failed:", err);
       toast.error("PDF generation failed");
     } finally {
+      root.classList.remove("report-exporting");
       setBusy(false);
     }
   }

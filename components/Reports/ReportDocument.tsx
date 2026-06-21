@@ -1,7 +1,8 @@
 "use client";
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight } from "lucide-react";
 import type {
   SpendOverviewResult,
   AbcResult,
@@ -16,11 +17,15 @@ import { deriveReportContext, TEMPLATES } from "@/lib/report-templates";
 import {
   type ReportConfig,
   type SectionKey,
+  type Tier,
+  ALL_TIERS,
+  FILTERABLE_SECTIONS,
   tierFilterActive,
   categoryFilterActive,
 } from "@/lib/report-config";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import { usePin } from "@/components/Reports/PinContext";
+import { ReportTOC } from "@/components/Reports/ReportTOC";
 import { buttonVariants } from "@/components/ui/button";
 import { OverviewCharts } from "@/components/analysis/OverviewCharts";
 import { CycleTimeView } from "@/components/CycleTimeView";
@@ -73,9 +78,98 @@ const usd = (n: number) =>
     maximumFractionDigits: 1,
   }).format(n);
 
-function Section({ children }: { children: React.ReactNode }) {
+/**
+ * Read-only per-section tier-filter indicator (Batch 6c). Shows the global tier
+ * selection; clicking opens the sidebar's tier filter (no per-chip toggle).
+ * Editor-only (`no-print`).
+ */
+function TierChips({
+  tiers,
+  onOpen,
+}: {
+  tiers: Tier[];
+  onOpen?: () => void;
+}) {
   return (
-    <section className="pdf-page-break flex flex-col gap-4">{children}</section>
+    <button
+      type="button"
+      onClick={onOpen}
+      title="Open tier filter in settings"
+      className="no-print ml-auto flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] hover:bg-muted"
+    >
+      {ALL_TIERS.map((t) => (
+        <span
+          key={t}
+          className={
+            tiers.includes(t)
+              ? "text-foreground"
+              : "text-muted-foreground/40 line-through"
+          }
+        >
+          {t}
+        </span>
+      ))}
+    </button>
+  );
+}
+
+/**
+ * A report section (Batch 6c). In the editor (`embedded`) the header is sticky,
+ * carries a collapse chevron + optional tier chips, and the body collapses via
+ * the `hidden` attribute (kept in the DOM so PDF export can reveal it). On the
+ * static persisted view it renders as a plain section, unchanged.
+ */
+function ReportSection({
+  id,
+  title,
+  embedded,
+  collapsed,
+  onToggle,
+  headerExtra,
+  children,
+}: {
+  id: SectionKey;
+  title: string;
+  embedded: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+  headerExtra?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={`section-${id}`}
+      className="pdf-page-break flex scroll-mt-24 flex-col gap-4"
+    >
+      <div
+        className={
+          embedded
+            ? "sticky top-9 z-20 -mx-1 flex items-center gap-2 border-b bg-background/95 px-1 py-1.5 backdrop-blur"
+            : "flex items-center gap-2"
+        }
+      >
+        {embedded && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={collapsed ? "Expand section" : "Collapse section"}
+            aria-expanded={!collapsed}
+            className="no-print shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </button>
+        )}
+        <h2 className="text-xl font-semibold">{title}</h2>
+        {embedded && headerExtra}
+      </div>
+      <div className="export-reveal flex flex-col gap-4" hidden={embedded && collapsed}>
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -86,6 +180,7 @@ export function ReportDocument({
   supplierCategory,
   legacyCycle,
   embedded = false,
+  onOpenTierFilter,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
@@ -100,9 +195,12 @@ export function ReportDocument({
   legacyCycle?: string | null;
   /**
    * When true (the live editor at /reports/preview), suppress the built-in
-   * sticky header (Back + Download) — the editor shell/sidebar owns those.
+   * sticky header (Back + Download) — the editor shell/sidebar owns those — and
+   * enable the Batch 6c chrome (TOC, sticky headers, collapse, tier chips).
    */
   embedded?: boolean;
+  /** Editor-only: open the sidebar's tier filter (from a section's tier chips). */
+  onOpenTierFilter?: () => void;
 }) {
   const { pinnedSupplierId, pin } = usePin();
   const { sections, detailLevel } = config;
@@ -166,6 +264,82 @@ export function ReportDocument({
   const recCap = brief ? 3 : detailed ? recsScoped.length : config.recommendationFilters.topN;
   const recsToShow = recsScoped.slice(0, recCap);
 
+  // ---- Section chrome (Batch 6c, editor only) -------------------------------
+  // Collapse + scroll-spy are per-session local state. ReportEditor remounts
+  // this component on period change (key={spanKey}), so they reset there — no
+  // effect needed. Tier chips render only on sections the tier filter can affect.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const toggleCollapse = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const visibleSections = useMemo(() => {
+    const list: { id: string; label: string }[] = [
+      { id: "cover", label: "Executive Summary" },
+    ];
+    if (brief) return list;
+    const add = (cond: unknown, id: string, label: string) => {
+      if (cond) list.push({ id, label });
+    };
+    add(sections.spendOverview && analyses.spend_overview, "spendOverview", "Spend Overview");
+    add(sections.abc && analyses.abc, "abc", "ABC Analysis");
+    add(sections.kraljic && analyses.kraljic, "kraljic", "Supplier Quadrant");
+    add(sections.performanceSpend && analyses.performance_spend, "performanceSpend", "Performance vs Spend");
+    add(sections.cycleTime && (legacyCycle || analyses.cycle_time), "cycleTime", "Cycle Time");
+    add(sections.actionDashboard, "actionDashboard", "Action Dashboard");
+    add(sections.methodology, "methodology", "Methodology");
+    return list;
+  }, [brief, sections, analyses, legacyCycle]);
+
+  const visibleKey = visibleSections.map((s) => s.id).join(",");
+
+  // Scroll-spy: highlight the section nearest the top of the viewport.
+  useEffect(() => {
+    if (!embedded) return;
+    const els = visibleSections
+      .map((s) => document.getElementById(`section-${s.id}`))
+      .filter((e): e is HTMLElement => e != null);
+    if (els.length === 0) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length === 0) return;
+        visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        setActiveId(visible[0].target.id.replace(/^section-/, ""));
+      },
+      { rootMargin: "-76px 0px -55% 0px", threshold: 0 },
+    );
+    els.forEach((e) => obs.observe(e));
+    return () => obs.disconnect();
+    // visibleKey captures the observed set; re-run when it changes.
+  }, [embedded, visibleKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onSectionClick = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`section-${id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const tierChips = (section: SectionKey) =>
+    FILTERABLE_SECTIONS.includes(section) ? (
+      <TierChips tiers={config.filters.tiers} onOpen={onOpenTierFilter} />
+    ) : undefined;
+
   return (
     <div className="flex flex-col gap-4">
       {!embedded && (
@@ -187,8 +361,19 @@ export function ReportDocument({
         id="report-root"
         className="mx-auto flex w-full max-w-[820px] flex-col gap-8"
       >
+        {embedded && (
+          <ReportTOC
+            sections={visibleSections}
+            activeId={activeId}
+            onSectionClick={onSectionClick}
+          />
+        )}
+
         {/* Cover — always */}
-        <section className="pdf-page-break flex flex-col gap-3 rounded-lg border bg-card p-8">
+        <section
+          id="section-cover"
+          className="pdf-page-break flex scroll-mt-24 flex-col gap-3 rounded-lg border bg-card p-8"
+        >
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
             Adaro &middot; Procurement Analytics
           </p>
@@ -230,19 +415,31 @@ export function ReportDocument({
           <>
             {/* Spend Overview */}
             {sections.spendOverview && analyses.spend_overview && (
-              <Section>
-                <h2 className="text-xl font-semibold">Spend Overview</h2>
-                <OverviewCharts spend={analyses.spend_overview} />
+              <ReportSection
+                id="spendOverview"
+                title="Spend Overview"
+                embedded={embedded}
+                collapsed={collapsed.has("spendOverview")}
+                onToggle={() => toggleCollapse("spendOverview")}
+                headerExtra={tierChips("spendOverview")}
+              >
+                <OverviewCharts spend={analyses.spend_overview} embedded={embedded} />
                 <p className="text-sm leading-relaxed text-muted-foreground">
                   {T.spendOverview(ctx)}
                 </p>
-              </Section>
+              </ReportSection>
             )}
 
             {/* ABC Analysis */}
             {sections.abc && analyses.abc && (
-              <Section>
-                <h2 className="text-xl font-semibold">ABC Analysis</h2>
+              <ReportSection
+                id="abc"
+                title="ABC Analysis"
+                embedded={embedded}
+                collapsed={collapsed.has("abc")}
+                onToggle={() => toggleCollapse("abc")}
+                headerExtra={tierChips("abc")}
+              >
                 {(() => {
                   const rows = keep(analyses.abc!.classifications, "abc");
                   const shown = detailed ? rows : rows.slice(0, 20);
@@ -298,15 +495,19 @@ export function ReportDocument({
                     </>
                   );
                 })()}
-              </Section>
+              </ReportSection>
             )}
 
             {/* Supplier Quadrant (Kraljic) */}
             {sections.kraljic && analyses.kraljic && (
-              <Section>
-                <h2 className="text-xl font-semibold">
-                  Supplier Quadrant (Kraljic Matrix)
-                </h2>
+              <ReportSection
+                id="kraljic"
+                title="Supplier Quadrant (Kraljic Matrix)"
+                embedded={embedded}
+                collapsed={collapsed.has("kraljic")}
+                onToggle={() => toggleCollapse("kraljic")}
+                headerExtra={tierChips("kraljic")}
+              >
                 {(() => {
                   const assigns = keep(
                     analyses.kraljic!.quadrant_assignments,
@@ -400,13 +601,19 @@ export function ReportDocument({
                     </>
                   );
                 })()}
-              </Section>
+              </ReportSection>
             )}
 
             {/* Performance vs Spend */}
             {sections.performanceSpend && analyses.performance_spend && (
-              <Section>
-                <h2 className="text-xl font-semibold">Performance vs Spend</h2>
+              <ReportSection
+                id="performanceSpend"
+                title="Performance vs Spend"
+                embedded={embedded}
+                collapsed={collapsed.has("performanceSpend")}
+                onToggle={() => toggleCollapse("performanceSpend")}
+                headerExtra={tierChips("performanceSpend")}
+              >
                 {(() => {
                   const ps = analyses.performance_spend!;
                   const note = filterNote("performanceSpend");
@@ -501,15 +708,21 @@ export function ReportDocument({
                     </>
                   );
                 })()}
-              </Section>
+              </ReportSection>
             )}
 
             {/* Cycle Time */}
             {sections.cycleTime &&
               (legacyCycle ? (
                 // Pre-Batch-5 report: preserve the original pre/post framing.
-                <Section>
-                  <h2 className="text-xl font-semibold">Cycle Time</h2>
+                <ReportSection
+                  id="cycleTime"
+                  title="Cycle Time"
+                  embedded={embedded}
+                  collapsed={collapsed.has("cycleTime")}
+                  onToggle={() => toggleCollapse("cycleTime")}
+                  headerExtra={tierChips("cycleTime")}
+                >
                   <p className="rounded-md border border-amber-500/40 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                     This report uses the legacy pre/post automation comparison
                     framing. New reports use ongoing process health monitoring.
@@ -517,27 +730,35 @@ export function ReportDocument({
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     {legacyCycle}
                   </p>
-                </Section>
+                </ReportSection>
               ) : (
                 analyses.cycle_time && (
-                  <Section>
-                    <h2 className="text-xl font-semibold">
-                      Cycle Time — Process Health Monitoring
-                    </h2>
-                    <CycleTimeView data={analyses.cycle_time} />
+                  <ReportSection
+                    id="cycleTime"
+                    title="Cycle Time — Process Health Monitoring"
+                    embedded={embedded}
+                    collapsed={collapsed.has("cycleTime")}
+                    onToggle={() => toggleCollapse("cycleTime")}
+                    headerExtra={tierChips("cycleTime")}
+                  >
+                    <CycleTimeView data={analyses.cycle_time} embedded={embedded} />
                     <p className="text-sm leading-relaxed text-muted-foreground">
                       {T.cycleTime(ctx)}
                     </p>
-                  </Section>
+                  </ReportSection>
                 )
               ))}
 
             {/* Action Dashboard / Recommendations */}
             {sections.actionDashboard && (
-              <Section>
-                <h2 className="text-xl font-semibold">
-                  Recommended Priorities
-                </h2>
+              <ReportSection
+                id="actionDashboard"
+                title="Recommended Priorities"
+                embedded={embedded}
+                collapsed={collapsed.has("actionDashboard")}
+                onToggle={() => toggleCollapse("actionDashboard")}
+                headerExtra={tierChips("actionDashboard")}
+              >
                 <p className="text-sm leading-relaxed text-muted-foreground">
                   {T.recommendedPriorities(ctx)}
                 </p>
@@ -591,15 +812,18 @@ export function ReportDocument({
                     })}
                   </div>
                 )}
-              </Section>
+              </ReportSection>
             )}
 
             {/* Methodology */}
             {sections.methodology && (
-              <Section>
-                <h2 className="text-xl font-semibold text-foreground">
-                  Methodology
-                </h2>
+              <ReportSection
+                id="methodology"
+                title="Methodology"
+                embedded={embedded}
+                collapsed={collapsed.has("methodology")}
+                onToggle={() => toggleCollapse("methodology")}
+              >
                 <div className="flex flex-col gap-2 text-sm text-muted-foreground">
                   <p>{T.methodology(ctx)}</p>
                   <p className="text-xs">
@@ -608,7 +832,7 @@ export function ReportDocument({
                     Whitney (1947); Kraljic (1983).
                   </p>
                 </div>
-              </Section>
+              </ReportSection>
             )}
           </>
         )}
