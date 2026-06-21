@@ -6,8 +6,10 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 ## Current Work
 
 Phase 11F (UX refinements, Batches 1–4) is fully shipped. **Batch 5 (Cycle Time
-reframe) shipped on top of it.** **Next: Phase 10 polish** (loading states,
-error boundaries, mobile responsive, README, smoke test) → **v1.0 tag**.
+reframe) + Batch 6a (report editor sidebar) + Batch 6b (chart interactions)
+shipped on top of it.** **Next: Batch 6c** (navigation/section polish, animated
+transitions) → then Phase 10 polish (loading states, error boundaries, mobile
+responsive, README, smoke test) → **v1.0 tag**.
 
 6 analytical pages live: Overview, ABC, Supplier Quadrant (Kraljic), Performance
 vs Spend, Cycle Time (process-health monitoring), Action Dashboard (+ Reports,
@@ -36,6 +38,45 @@ Methodology).
   outlier dots) — Recharts has no native box plot, matching the codebase's
   existing approach. Deleted dead charts: `CycleTimeHistogram`,
   `StageBreakdownChart`, `CycleByQuadrantChart`.
+
+### Chart interactions (Batch 6b)
+- **`supplier_id` is the stable cross-chart identity key.** Python now emits it
+  in `cycle_time.anomalies`, `spend_overview.top_suppliers`, **and**
+  `spend_overview.top_suppliers_by_category` (`CycleAnomaly.supplier_id` +
+  `TopSupplier` types, both required). ⚠️ **Any emitter output-shape change
+  requires the full Python-first workflow**: recompute Mode A for every period
+  THEN `DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL` (clear the range
+  cache) — otherwise the editor serves stale cached rows without the new field
+  and interactions break silently.
+- **Single cross-chart pin** lifted into `ReportEditor` (`pinnedSupplierId`),
+  shared via an **OPTIONAL** React context `components/Reports/PinContext.tsx`
+  (no-op defaults). Only `ReportEditor` mounts the `PinProvider`; charts read it
+  via `usePin()`/`useIsPinned()`, so the standalone dashboard pages (which mount
+  no provider) render exactly as before. Pin clears on period change (render-time
+  `spanKey` compare, NOT an effect — the eslint config bans both
+  set-state-in-effect AND ref-access-during-render).
+- **Tooltip = HYBRID, by design.** Recharts charts keep their **native** Recharts
+  `<Tooltip>` (HTML overlay, not SVG-clipped); only the hand-composed SVG box
+  plot uses a cursor-following body-portal tooltip
+  (`components/charts/PortalTooltip.tsx`). A single unified global tooltip was
+  rejected because the chart components are shared with provider-less dashboard
+  pages — routing tooltips through a context `showTooltip` would make them vanish
+  there. Native tooltips satisfy the no-SVG-clipping intent everywhere.
+- **Detail panel** = `SupplierDetailPanel` right-side slideout (~320px) over the
+  report area only (left settings sidebar stays usable). Content assembled by the
+  pure `lib/supplier-detail.ts` `buildSupplierDetail()` from loaded analyses +
+  `supplierCategory` + `getSupplierDirectory()` (country + numPos snapshot).
+  Anomaly-dot click reuses this panel (no separate modal).
+- **Cross-chart highlight is REPORT-SCOPED.** It works across the charts/tables
+  actually present in the report document: Top Suppliers bars, cycle box-plot
+  anomaly dots, ABC table rows, Action Dashboard recommendation cards. ⚠️ The
+  **Kraljic scatter, Performance scatter, and Pareto charts are NOT in the
+  report** (it renders TABLES for those analyses) — those chart components are
+  wired for pinning but **DORMANT** (they live only on standalone dashboard
+  pages). Making "pin in Kraljic → ring in Performance" real is a future-batch
+  task (embed those charts in `ReportDocument`, or add a provider to the
+  dashboard pages). `/reports/[id]` (persisted reports) has no provider → no
+  interactivity, unchanged (backward compat).
 
 ### Architecture facts (current as of 11F)
 - **Tier names are `Core` / `Established` / `Standard`** (renamed in 3a from
