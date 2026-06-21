@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Settings,
   X,
@@ -9,6 +10,8 @@ import {
   Loader2,
   Save,
   RotateCcw,
+  Trash2,
+  Plus,
 } from "lucide-react";
 import {
   type ReportConfig,
@@ -16,6 +19,7 @@ import {
   type DetailLevel,
   type ReportTone,
   type Tier,
+  type SavedPreset,
   ALL_TIERS,
   ALL_REC_CATEGORIES,
   REC_CATEGORY_LABELS,
@@ -23,8 +27,14 @@ import {
   FILTERABLE_SECTIONS,
   resetReportFilters,
 } from "@/lib/report-config";
+import {
+  REPORT_PILLS,
+  activePill,
+  applyPill,
+} from "@/lib/report-pills";
 import type { RecommendationCategory } from "@/lib/analysis-types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { DownloadPdfButton } from "@/components/DownloadPdfButton";
 
 type PeriodOption = { id: string; name: string };
@@ -109,9 +119,71 @@ export function ReportEditorSidebar({
   const [catsOpen, setCatsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
+  // Saved presets (Batch 6d): fetched once on mount; mutated optimistically.
+  const [presets, setPresets] = useState<SavedPreset[]>([]);
+  const [presetsLoading, setPresetsLoading] = useState(true);
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [savingPreset, setSavingPreset] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/report-presets")
+      .then((r) => (r.ok ? r.json() : { presets: [] }))
+      .then((d: { presets?: SavedPreset[] }) => {
+        if (!cancelled) setPresets(d.presets ?? []);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPresetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function savePreset() {
+    const name = presetName.trim();
+    if (!name) return;
+    setSavingPreset(true);
+    try {
+      const res = await fetch("/api/report-presets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, config }),
+      });
+      const d = (await res.json().catch(() => ({}))) as {
+        preset?: SavedPreset;
+        error?: string;
+      };
+      if (!res.ok || !d.preset) {
+        toast.error(d.error || "Could not save preset");
+        return;
+      }
+      setPresets((p) => [d.preset!, ...p]);
+      setPresetName("");
+      setShowSaveForm(false);
+      toast.success("Preset saved");
+    } finally {
+      setSavingPreset(false);
+    }
+  }
+
+  async function deletePreset(p: SavedPreset) {
+    if (!window.confirm(`Delete preset "${p.name}"?`)) return;
+    const prev = presets;
+    setPresets((list) => list.filter((x) => x.id !== p.id)); // optimistic
+    const res = await fetch(`/api/report-presets/${p.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setPresets(prev); // rollback
+      toast.error("Could not delete preset");
+    }
+  }
+
   const set = (patch: Partial<ReportConfig>) =>
     onConfigChange({ ...config, ...patch });
 
+  const currentPill = activePill(config);
   const isRange = config.period.mode === "range";
   const selectCls =
     "rounded-md border bg-background px-2 py-1 text-sm w-full";
@@ -148,6 +220,32 @@ export function ReportEditorSidebar({
       </div>
 
       <div className="flex flex-col gap-5 p-3">
+        {/* Quick views (pills) — sections + tone + detail shapes */}
+        <section className="space-y-2">
+          <GroupLabel>Quick views</GroupLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {REPORT_PILLS.map((pill) => {
+              const active = currentPill?.id === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  type="button"
+                  title={pill.description}
+                  aria-pressed={active}
+                  onClick={() => onConfigChange(applyPill(config, pill))}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                    active
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "hover:bg-muted"
+                  }`}
+                >
+                  {pill.label}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         {/* Period */}
         <section className="space-y-2">
           <GroupLabel>Period</GroupLabel>
@@ -447,6 +545,92 @@ export function ReportEditorSidebar({
         >
           <RotateCcw className="h-3.5 w-3.5" /> Reset filters
         </Button>
+
+        {/* Saved views (presets) — full-config snapshots */}
+        <section className="space-y-2">
+          <GroupLabel>Saved views</GroupLabel>
+          {presetsLoading ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : presets.length === 0 && !showSaveForm ? (
+            <p className="text-xs text-muted-foreground">
+              No saved views yet. Save the current config to start.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {presets.map((p) => (
+                <div key={p.id} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onConfigChange(p.config)}
+                    title={`Apply "${p.name}"`}
+                    className="flex-1 truncate rounded px-2 py-1 text-left text-sm hover:bg-muted"
+                  >
+                    {p.name}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    aria-label={`Delete preset ${p.name}`}
+                    onClick={() => deletePreset(p)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showSaveForm ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                savePreset();
+              }}
+              className="flex flex-col gap-1.5"
+            >
+              <Input
+                autoFocus
+                value={presetName}
+                maxLength={50}
+                placeholder="Preset name"
+                onChange={(e) => setPresetName(e.target.value)}
+                className="h-8 text-sm"
+              />
+              <div className="flex gap-1.5">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="flex-1"
+                  disabled={!presetName.trim() || savingPreset}
+                >
+                  {savingPreset && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowSaveForm(false);
+                    setPresetName("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setShowSaveForm(true)}
+            >
+              <Plus className="h-3.5 w-3.5" /> Save current
+            </Button>
+          )}
+        </section>
       </div>
 
       {/* Actions */}

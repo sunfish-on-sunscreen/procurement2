@@ -49,6 +49,14 @@ export interface ReportConfig {
   };
 }
 
+/** A user-saved preset (Batch 6d): a named full-config snapshot from the DB. */
+export type SavedPreset = {
+  id: string;
+  name: string;
+  config: ReportConfig;
+  updatedAt: string;
+};
+
 export const ALL_TIERS: Tier[] = ["Core", "Established", "Standard"];
 
 export const ALL_REC_CATEGORIES: RecommendationCategory[] = [

@@ -210,3 +210,20 @@ model ExecutiveSummary {
 
   @@index([periodId])
 }
+
+// ============= REPORT PRESETS (Batch 6d) =============
+
+// User-saved snapshot of a full ReportConfig (period + filters + sections +
+// tone + detail). `createdBy` is a plain nullable User id (no FK relation) so a
+// preset survives if its author is removed; per-user scoping is enforced in the
+// API via a `where: { createdBy }` clause.
+model ReportPreset {
+  id        String   @id @default(cuid())
+  name      String
+  config    Json
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdBy])
+}
