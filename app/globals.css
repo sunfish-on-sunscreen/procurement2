@@ -137,14 +137,3 @@
     page-break-after: always;
   }
 }
-
-/*
- * Batch 6c — PDF export reveal. The PDF is built with html2canvas (not the
- * print stylesheet), so collapsed sections and inactive Spend-Overview tabs —
- * hidden via the `hidden` attribute on `.export-reveal` wrappers — must be
- * force-shown while the snapshot runs. DownloadPdfButton adds `.report-exporting`
- * to #report-root, waits a frame for reflow, captures, then removes it.
- */
-.report-exporting .export-reveal[hidden] {
-  display: block !important;
-}

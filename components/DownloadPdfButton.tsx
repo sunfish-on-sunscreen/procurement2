@@ -26,9 +26,13 @@ export function DownloadPdfButton({ filename }: { filename: string }) {
 
     setBusy(true);
     // Batch 6c: reveal collapsed sections + inactive Spend-Overview tabs for the
-    // capture (they're hidden via the `hidden` attribute, kept in the DOM). Wait
-    // two frames so the layout reflows before html2canvas reads it.
-    root.classList.add("report-exporting");
+    // capture. They're kept in the DOM via the `hidden` attribute (so the PDF is
+    // the complete artifact); strip it for the snapshot, then restore. Wait two
+    // frames so the layout reflows before html2canvas reads it.
+    const revealed = Array.from(
+      root.querySelectorAll<HTMLElement>(".export-reveal[hidden]"),
+    );
+    revealed.forEach((el) => el.removeAttribute("hidden"));
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
@@ -110,7 +114,7 @@ export function DownloadPdfButton({ filename }: { filename: string }) {
       console.error("PDF generation failed:", err);
       toast.error("PDF generation failed");
     } finally {
-      root.classList.remove("report-exporting");
+      revealed.forEach((el) => el.setAttribute("hidden", ""));
       setBusy(false);
     }
   }
