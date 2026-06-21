@@ -15,6 +15,7 @@ import {
 import { ChartFrame } from "./ChartFrame";
 import { ABC_COLORS } from "@/lib/chart-colors";
 import type { AbcClassification } from "@/lib/analysis-types";
+import { usePin } from "@/components/Reports/PinContext";
 
 // Minimal shape of the props Recharts injects into a custom tooltip (the
 // exported TooltipProps type changed in Recharts 3).
@@ -46,6 +47,7 @@ function ParetoTooltip({ active, payload }: ParetoTooltipProps) {
 }
 
 export function ParetoChart({ data }: { data: AbcClassification[] }) {
+  const { pinnedSupplierId, pin } = usePin();
   return (
     <ChartFrame height={400}>
       <ComposedChart data={data} margin={{ left: 12, right: 16, top: 12, bottom: 12 }}>
@@ -70,10 +72,28 @@ export function ParetoChart({ data }: { data: AbcClassification[] }) {
         />
         <Tooltip content={<ParetoTooltip />} />
         <Legend />
-        <Bar yAxisId="left" dataKey="total" name="Spend">
-          {data.map((d, i) => (
-            <Cell key={i} fill={ABC_COLORS[d.abc_class]} />
-          ))}
+        <Bar
+          yAxisId="left"
+          dataKey="total"
+          name="Spend"
+          isAnimationActive={false}
+          onClick={(_d, index) => {
+            const id = data[index]?.supplier_id;
+            if (id) pin(id);
+          }}
+          className="cursor-pointer"
+        >
+          {data.map((d, i) => {
+            const pinned = d.supplier_id === pinnedSupplierId;
+            return (
+              <Cell
+                key={i}
+                fill={ABC_COLORS[d.abc_class]}
+                stroke={pinned ? "currentColor" : undefined}
+                strokeWidth={pinned ? 2 : undefined}
+              />
+            );
+          })}
         </Bar>
         <Line
           yAxisId="right"

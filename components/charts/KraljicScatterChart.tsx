@@ -13,6 +13,7 @@ import {
 import { ChartFrame } from "./ChartFrame";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import type { QuadrantAssignment, KraljicQuadrant } from "@/lib/analysis-types";
+import { PinnableDot } from "./PinnableDot";
 
 // Stable legend order: high-priority quadrants first.
 const QUADRANT_ORDER: KraljicQuadrant[] = [
@@ -110,6 +111,8 @@ export function KraljicScatterChart({
             data={assignments.filter((a) => a.quadrant === q)}
             fill={QUADRANT_COLORS[q]}
             fillOpacity={0.8}
+            shape={<PinnableDot />}
+            isAnimationActive={false}
           />
         ))}
       </ScatterChart>

@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { ChartFrame } from "./ChartFrame";
+import { PinnableDot } from "./PinnableDot";
 import { QUADRANT_COLORS, ZONE_COLORS } from "@/lib/chart-colors";
 import type {
   PerformanceSpendSupplier,
@@ -143,6 +144,8 @@ export function PerformanceSpendScatter({
             data={s.data}
             fill={s.color}
             fillOpacity={0.8}
+            shape={<PinnableDot />}
+            isAnimationActive={false}
           />
         ))}
       </ScatterChart>

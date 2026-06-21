@@ -12,6 +12,37 @@ import {
 import { ChartFrame } from "./ChartFrame";
 import { CHART_COLORS } from "@/lib/chart-colors";
 
+type TrendPoint = {
+  month: string;
+  avg_cycle_days: number;
+  rolling_3mo: number | null;
+  po_count: number;
+};
+
+type TrendTooltipProps = {
+  active?: boolean;
+  payload?: Array<{ payload: TrendPoint }>;
+};
+
+function TrendTooltip({ active, payload }: TrendTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
+      <div className="font-medium">{d.month}</div>
+      <div className="text-muted-foreground">
+        Monthly mean {d.avg_cycle_days.toFixed(1)} d
+      </div>
+      {d.rolling_3mo != null && (
+        <div className="text-muted-foreground">
+          3-mo rolling {d.rolling_3mo.toFixed(1)} d
+        </div>
+      )}
+      <div className="text-muted-foreground">{d.po_count} POs</div>
+    </div>
+  );
+}
+
 /**
  * Monthly mean total-cycle-time with a trailing 3-month rolling average
  * overlay (dashed). No SLA target or benchmark line — actual data only.
@@ -41,13 +72,7 @@ export function MonthlyCycleTrendChart({
           tick={{ fontSize: 11 }}
           label={{ value: "days", angle: -90, position: "insideLeft", fontSize: 11 }}
         />
-        <Tooltip
-          formatter={(value, name) =>
-            value == null
-              ? ["—", name as string]
-              : [`${Number(value).toFixed(1)} days`, name as string]
-          }
-        />
+        <Tooltip content={<TrendTooltip />} />
         <Legend />
         <Line
           type="monotone"

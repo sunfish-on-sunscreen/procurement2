@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -11,6 +11,10 @@ import {
 } from "@/lib/report-config";
 import type { PeriodSelection } from "@/lib/period-constants";
 import type { RangeAnalyses } from "@/lib/analysis-types";
+import {
+  buildSupplierDetail,
+  type SupplierDirectory,
+} from "@/lib/supplier-detail";
 import { buttonVariants } from "@/components/ui/button";
 import {
   ReportDocument,
@@ -18,6 +22,8 @@ import {
 } from "@/components/Reports/ReportDocument";
 import { ReportEditorSidebar } from "@/components/Reports/ReportEditorSidebar";
 import { FilterStatusStrip } from "@/components/Reports/FilterStatusStrip";
+import { PinProvider } from "@/components/Reports/PinContext";
+import { SupplierDetailPanel } from "@/components/Reports/SupplierDetailPanel";
 
 type PeriodOption = { id: string; name: string };
 
@@ -51,12 +57,14 @@ export function ReportEditor({
   periods,
   allCategories,
   supplierCategory,
+  supplierDirectory,
   generatedBy,
 }: {
   defaultPeriod: PeriodSelection;
   periods: PeriodOption[];
   allCategories: string[];
   supplierCategory: Record<string, string>;
+  supplierDirectory: SupplierDirectory;
   generatedBy: string;
 }) {
   const router = useRouter();
@@ -78,6 +86,9 @@ export function ReportEditor({
     null,
   );
   const [saving, setSaving] = useState(false);
+  // Single cross-chart pin (Batch 6b). Lifted here so every chart + the detail
+  // panel read from one source. Clears on period change (different data).
+  const [pinnedSupplierId, setPinnedSupplierId] = useState<string | null>(null);
 
   const span = periodSpan(config.period, yearById);
   const startDate = span?.startDate ?? "";
@@ -88,6 +99,50 @@ export function ReportEditor({
   const analyses = loaded?.key === spanKey ? loaded.analyses : null;
   const error = errored?.key === spanKey ? errored.msg : null;
   const loading = !!startDate && !analyses && !error;
+
+  // Clear the pin whenever the selected period changes — the pinned supplier may
+  // not exist (or carry different data) in the new period. Tracking the previous
+  // key in state and adjusting during render is React's endorsed alternative to a
+  // setState effect (https://react.dev/reference/react/useState#storing-information-from-previous-renders).
+  const [prevSpanKey, setPrevSpanKey] = useState(spanKey);
+  if (prevSpanKey !== spanKey) {
+    setPrevSpanKey(spanKey);
+    if (pinnedSupplierId !== null) setPinnedSupplierId(null);
+  }
+
+  const pin = useCallback((id: string) => setPinnedSupplierId(id), []);
+  const clearPin = useCallback(() => setPinnedSupplierId(null), []);
+  const pinValue = useMemo(
+    () => ({ pinnedSupplierId, pin, clear: clearPin }),
+    [pinnedSupplierId, pin, clearPin],
+  );
+
+  // Assemble the pinned supplier's cross-analysis profile from loaded analyses.
+  const pinnedDetail = useMemo(() => {
+    if (!pinnedSupplierId || !analyses) return null;
+    return buildSupplierDetail(
+      pinnedSupplierId,
+      {
+        abc: analyses.abc,
+        kraljic: analyses.kraljic,
+        performance_spend: analyses.performance_spend,
+        cycle_time: analyses.cycle_time,
+        recommendations: analyses.recommendations,
+      },
+      supplierCategory,
+      supplierDirectory,
+    );
+  }, [pinnedSupplierId, analyses, supplierCategory, supplierDirectory]);
+
+  // Escape closes the panel.
+  useEffect(() => {
+    if (!pinnedSupplierId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPinnedSupplierId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pinnedSupplierId]);
 
   // Fetch analyses on PERIOD CHANGE only — startDate/endDate are the deps, so
   // tone/detail/section/filter edits re-render without refetching.
@@ -174,7 +229,7 @@ export function ReportEditor({
         pdfFilename={meta.filename}
       />
 
-      <div className="min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1">
         <div className="no-print flex items-center justify-between gap-4 border-b bg-background/95 px-3 py-2">
           <Link
             href="/reports"
@@ -187,26 +242,30 @@ export function ReportEditor({
 
         <FilterStatusStrip config={config} totalCategories={allCategories.length} />
 
-        <div className="px-3 py-4">
-          {loading ? (
-            <div className="flex items-center gap-2 py-16 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Computing analyses for {label}…
-            </div>
-          ) : error ? (
-            <p className="py-16 text-center text-sm text-destructive">
-              Failed to compute analyses: {error}
-            </p>
-          ) : analyses ? (
-            <ReportDocument
-              meta={meta}
-              analyses={analyses}
-              config={config}
-              supplierCategory={supplierCategory}
-              embedded
-            />
-          ) : null}
-        </div>
+        <PinProvider value={pinValue}>
+          <div className="px-3 py-4">
+            {loading ? (
+              <div className="flex items-center gap-2 py-16 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Computing analyses for {label}…
+              </div>
+            ) : error ? (
+              <p className="py-16 text-center text-sm text-destructive">
+                Failed to compute analyses: {error}
+              </p>
+            ) : analyses ? (
+              <ReportDocument
+                meta={meta}
+                analyses={analyses}
+                config={config}
+                supplierCategory={supplierCategory}
+                embedded
+              />
+            ) : null}
+          </div>
+
+          <SupplierDetailPanel detail={pinnedDetail} onClose={clearPin} />
+        </PinProvider>
       </div>
     </div>
   );

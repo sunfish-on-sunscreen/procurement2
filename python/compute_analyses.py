@@ -144,7 +144,10 @@ def spend_overview(purchases, suppliers, metrics):
         purchases.groupby(["supplierExternalId", "supplierName"])["totalValueUsd"]
         .sum().sort_values(ascending=False).head(10)
     )
-    top_suppliers = [{"supplier_name": str(n), "total": num(t)} for (_s, n), t in sup.items()]
+    top_suppliers = [
+        {"supplier_id": str(s), "supplier_name": str(n), "total": num(t)}
+        for (s, n), t in sup.items()
+    ]
 
     # Per-category top suppliers (visibility-only drill-down for the Overview
     # chart's category filter). Same {supplier_name, total} shape as the overall
@@ -161,7 +164,11 @@ def spend_overview(purchases, suppliers, metrics):
     for c, grp in cat_sup.groupby("category"):
         rows = grp.sort_values("totalValueUsd", ascending=False).head(10)
         top_suppliers_by_category[str(c)] = [
-            {"supplier_name": str(r["supplierName"]), "total": num(r["totalValueUsd"])}
+            {
+                "supplier_id": str(r["supplierExternalId"]),
+                "supplier_name": str(r["supplierName"]),
+                "total": num(r["totalValueUsd"]),
+            }
             for _, r in rows.iterrows()
         ]
 
@@ -398,6 +405,7 @@ def cycle_time_analysis(
             anomalies.append(
                 {
                     "po_id": str(r["poId"]),
+                    "supplier_id": str(r["supplierExternalId"]),
                     "supplier_name": str(r["supplierName"]),
                     "invoice_date": d.strftime("%Y-%m-%d") if pd.notna(d) else None,
                     "cycle_days": int(r["_cycle"]) if pd.notna(r["_cycle"]) else None,

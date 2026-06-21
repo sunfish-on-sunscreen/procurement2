@@ -20,6 +20,7 @@ import {
   categoryFilterActive,
 } from "@/lib/report-config";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
+import { usePin } from "@/components/Reports/PinContext";
 import { buttonVariants } from "@/components/ui/button";
 import { OverviewCharts } from "@/components/analysis/OverviewCharts";
 import { CycleTimeView } from "@/components/CycleTimeView";
@@ -103,6 +104,7 @@ export function ReportDocument({
    */
   embedded?: boolean;
 }) {
+  const { pinnedSupplierId, pin } = usePin();
   const { sections, detailLevel } = config;
   const brief = detailLevel === "brief";
   const detailed = detailLevel === "detailed";
@@ -260,7 +262,15 @@ export function ReportDocument({
                         </thead>
                         <tbody>
                           {shown.map((c) => (
-                            <tr key={c.supplier_id} className="border-b">
+                            <tr
+                              key={c.supplier_id}
+                              onClick={() => pin(c.supplier_id)}
+                              className={`cursor-pointer border-b ${
+                                c.supplier_id === pinnedSupplierId
+                                  ? "bg-foreground/5 ring-1 ring-inset ring-foreground/30"
+                                  : "hover:bg-muted/50"
+                              }`}
+                            >
                               <td className="py-1 text-right">{c.rank}</td>
                               <td className="py-1 font-medium">
                                 {c.supplier_name}
@@ -542,10 +552,17 @@ export function ReportDocument({
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3">
-                    {recsToShow.map((p, i) => (
+                    {recsToShow.map((p, i) => {
+                      const pinned =
+                        p.supplier_id != null &&
+                        p.supplier_id === pinnedSupplierId;
+                      return (
                       <div
                         key={i}
-                        className="rounded-md border p-3"
+                        onClick={() => p.supplier_id && pin(p.supplier_id)}
+                        className={`rounded-md border p-3 ${
+                          p.supplier_id ? "cursor-pointer" : ""
+                        } ${pinned ? "ring-1 ring-inset ring-foreground/30" : ""}`}
                         style={{
                           borderLeft: `4px solid ${ACTION_COLORS[p.action] ?? "#64748b"}`,
                         }}
@@ -570,7 +587,8 @@ export function ReportDocument({
                           {p.reasoning}
                         </p>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </Section>

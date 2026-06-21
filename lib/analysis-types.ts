@@ -1,22 +1,30 @@
 import { prisma } from "@/lib/prisma";
 
+/**
+ * A top-spend supplier bar. `supplier_id` (Batch 6b) is the stable cross-chart
+ * identity key emitted by the Python `spend_overview`. Chart highlight/pin still
+ * guards on its presence for resilience against any legacy cached payload.
+ */
+export type TopSupplier = {
+  supplier_id: string;
+  supplier_name: string;
+  total: number;
+};
+
 export type SpendOverviewResult = {
   total_spend: number;
   total_pos: number;
   active_suppliers: number;
   avg_cycle_time: number;
   by_category: { category: string; total: number }[];
-  top_suppliers: { supplier_name: string; total: number }[];
+  top_suppliers: TopSupplier[];
   /**
    * Per-category top-10 suppliers (same shape as top_suppliers), keyed by
    * category. Powers the Overview chart's category filter. Optional: old cached
    * spend_overview rows (pre-Batch-4) won't have it — consumers fall back to
    * "All Categories" only when absent.
    */
-  top_suppliers_by_category?: Record<
-    string,
-    { supplier_name: string; total: number }[]
-  >;
+  top_suppliers_by_category?: Record<string, TopSupplier[]>;
   monthly_trend: { month: string; total: number }[];
 };
 
@@ -78,6 +86,8 @@ export type CycleStageBreakdown = {
 
 export type CycleAnomaly = {
   po_id: string;
+  // Stable cross-chart identity key (Batch 6b), emitted by Python cycle_time.
+  supplier_id: string;
   supplier_name: string;
   invoice_date: string | null;
   cycle_days: number | null;
