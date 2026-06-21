@@ -6,10 +6,10 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 ## Current Work
 
 Phase 11F (UX refinements, Batches 1–4) is fully shipped. **Batch 5 (Cycle Time
-reframe) + Batch 6a (report editor sidebar) + Batch 6b (chart interactions)
-shipped on top of it.** **Next: Batch 6c** (navigation/section polish, animated
-transitions) → then Phase 10 polish (loading states, error boundaries, mobile
-responsive, README, smoke test) → **v1.0 tag**.
+reframe) + Batch 6a (report editor sidebar) + Batch 6b (chart interactions) +
+Batch 6c (navigation/section polish) shipped on top of it.** **Next: Batch 6d**
+(quick filter pills, save filter presets) → then Phase 10 polish (loading
+states, error boundaries, mobile responsive, README, smoke test) → **v1.0 tag**.
 
 6 analytical pages live: Overview, ABC, Supplier Quadrant (Kraljic), Performance
 vs Spend, Cycle Time (process-health monitoring), Action Dashboard (+ Reports,
@@ -77,6 +77,36 @@ Methodology).
   task (embed those charts in `ReportDocument`, or add a provider to the
   dashboard pages). `/reports/[id]` (persisted reports) has no provider → no
   interactivity, unchanged (backward compat).
+
+### Navigation polish (Batch 6c)
+- **Sparkline data comes from the monthly_trend emitters.** Python now emits
+  `po_count` in `spend_overview.monthly_trend` and `median_cycle_days` in
+  `cycle_time.monthly_trend` (both **optional** types for pre-6c cached rows).
+  ⚠️ Adding these required the full Python-first workflow (recompute Mode A for
+  every period THEN clear the range cache — see [[batch6b-supplier-id-emitters]]).
+- **PDF tab/collapse reveal is JS, NOT CSS.** A `.report-exporting` CSS-class
+  approach was tried and **abandoned** — under Tailwind v4's cascade the rule
+  never won over the `hidden` attribute's `display:none` (verified in-browser).
+  Instead `DownloadPdfButton` strips the `hidden` attribute from every
+  `.export-reveal` element, waits a double `requestAnimationFrame`, runs the
+  html2canvas capture, then restores `hidden`. This also preserves each
+  element's natural `flex`/`block` display (better than forcing `block`).
+- **`.export-reveal` marks hideable content** — inactive Spend-Overview tab
+  panels + collapsible section bodies. It is only a JS selector hook (no CSS).
+- **`ReportDocument` is keyed by `spanKey` in `ReportEditor`** so it remounts on
+  period change, resetting all per-session local UI state (section collapse,
+  active Spend-Overview tab, TOC active section). No reset effect needed.
+- **All 6c chrome is gated on the `embedded` prop** (TOC, sticky headers,
+  collapse chevrons, KPI sparklines, tab switcher, tier chips). `/reports/[id]`
+  renders `ReportDocument` without `embedded` → static immutable view, unchanged.
+- **Sticky stack:** `ReportTOC` is `sticky top-0`; section headers are
+  `sticky top-9` (below the TOC). TOC active section uses an IntersectionObserver
+  scroll-spy. Sidebar width animates via `transition-[width] duration-150`.
+- ⚠️ **Environment artifact (testing note):** CSS transitions and
+  IntersectionObserver are throttled in hidden/headless preview tabs
+  (`document.visibilityState === "hidden"`). Frame-dependent behavior (sidebar
+  slide, TOC scroll-spy highlight) is correct but only observable in a VISIBLE
+  browser — don't mistake the throttling for a bug.
 
 ### Architecture facts (current as of 11F)
 - **Tier names are `Core` / `Established` / `Standard`** (renamed in 3a from
