@@ -5,15 +5,63 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 ## Current Work
 
-Phase 11F (UX refinements, Batches 1–4) is fully shipped. **Batch 5 (Cycle Time
-reframe) + Batch 6a (report editor sidebar) + Batch 6b (chart interactions) +
-Batch 6c (navigation/section polish) shipped on top of it.** **Next: Batch 6d**
-(quick filter pills, save filter presets) → then Phase 10 polish (loading
-states, error boundaries, mobile responsive, README, smoke test) → **v1.0 tag**.
+Phase 11F + Batch 6 (6a–6d: report editor sidebar, chart interactions,
+navigation/section polish, pills + presets) are fully shipped. **On top of that:
+Spend Overview redesign + polish + Supplier Evolution, and ABC merged into Spend
+Overview.** **Next: Phase 10 polish** (loading states, error boundaries, mobile
+responsive, README, smoke test) → **v1.0 tag**.
 
-6 analytical pages live: Overview, ABC, Supplier Quadrant (Kraljic), Performance
-vs Spend, Cycle Time (process-health monitoring), Action Dashboard (+ Reports,
-Methodology).
+5 analytical pages live (ABC merged into Spend Overview): Spend Overview,
+Supplier Quadrant (Kraljic), Performance vs Spend, Cycle Time (process-health
+monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview`;
+`/abc-analysis` → `/spend-overview` (both redirects).
+
+### Spend Overview redesign + polish + Supplier Evolution + ABC merge
+- **`/` and `/abc-analysis` both redirect to `/spend-overview`** (renamed from
+  "Overview"; ABC Analysis page deleted and merged in). Nav lost both "Overview"
+  (renamed) and "ABC Analysis" entries.
+- **The page is client-fetched in BOTH cached + range modes.** Server
+  `spend-overview/page.tsx` resolves the period/range to a date span and renders
+  `SpendOverviewClient`, which POSTs `/api/spend-overview {startDate,endDate}` →
+  `{ spend_overview, abc, ranking }` (charts + ABC card + 54-row ranking). No
+  server-cached fast path; brief loading spinner (same pattern as the editor).
+- **Ranking data is a server-side `Purchase` aggregate** (spend / invoice count /
+  avg over the span) merged with ABC class + Kraljic quadrant from the analyses +
+  category/tier — period/range-accurate. ⚠️ NOT from `spend_overview.top_suppliers`
+  (which is top-10 only and lacks counts).
+- **KPIs are dashboard-only** (Total spend, Total invoices, Active suppliers, Avg
+  invoice value — no "Total POs", no "Avg cycle time"). They live in
+  `SpendOverviewClient`, NOT in the shared `OverviewCharts` (which the report
+  editor still uses unchanged; only `TopSuppliersCard` was exported from it).
+- **`formatCompactCurrency()` in `lib/utils.ts`** ("$25.6M"/"$1.2K"/"$487") —
+  used in the ranking table; KPIs already compact (not double-shortened); exact
+  values live in tooltips + the panel.
+- **Invoice-based labels** ("Invoices", "Avg invoice") everywhere in Spend
+  Overview; numbers equal PO counts (invoiceDate is 1:1 non-null). `PO ID`
+  columns/identifiers are NOT renamed.
+- **ABC content = `AbcParetoCard`** (between Top 10 and the ranking table):
+  Class A/B/C summary blocks + the reused `ParetoChart` (bars by class colour +
+  cumulative-% line + 80/95 reference lines) + methodology footer. ⚠️ `AbcView`
+  and `ParetoChart` are RETAINED — still imported by the shared `RangeCompute`
+  (its `kind="abc"` branch is now unreachable but harmless).
+- **Spend decomposition panel** (`SpendDecompositionPanel`, right slideout) is
+  CHART-DRIVEN: Tab 1 "Spend by item" = horizontal bar chart (top 15 + Others);
+  Tab 2 "All POs" = time-series bar chart; both have a "View as table" toggle
+  (chart default). Tabs 1+2 are **period-scoped** via
+  `/api/suppliers/[id]/spend-detail?start&end` (optional params; omit = all-time,
+  backward compat) — panel totals reconcile with the clicked ranking row.
+- **Evolution tab** (`/api/suppliers/[id]/evolution`, NOT period-scoped — all
+  years): classification chips (ABC/Kraljic per year) + spend line + performance
+  line + product-mix stacked bars + auto insights. Gap years (supplier inactive)
+  render as zero/null gracefully.
+- ⚠️ **Performance trajectory is flat by design** — `performance_score` is
+  `SupplierMetric.compositeScore`, a per-supplier snapshot that doesn't vary by
+  period (e.g. 76.0 in both 2024 and 2025). The chart is ready for varying data.
+- **Panel header badges (ABC class, Kraljic quadrant) are LATEST-period** — a
+  stable strategic descriptor, intentionally NOT period-scoped; the Evolution tab
+  shows the full per-year trajectory.
+- **Report editor unchanged**: it keeps its own ABC section and `OverviewCharts`;
+  dashboard→report propagation is deferred (`dashboard_report_propagation.md`).
 
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
