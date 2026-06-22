@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import { ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
+import { formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -12,17 +13,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-const usd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-const usd0 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
 const num0 = new Intl.NumberFormat("en-US");
 
 type SortKey =
@@ -42,8 +32,8 @@ const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
   { key: "category", label: "Category", align: "left" },
   { key: "tier", label: "Tier", align: "left" },
   { key: "total_spend", label: "Total spend", align: "right" },
-  { key: "po_count", label: "POs", align: "right" },
-  { key: "avg_po_value", label: "Avg PO", align: "right" },
+  { key: "po_count", label: "Invoices", align: "right" },
+  { key: "avg_po_value", label: "Avg invoice", align: "right" },
   { key: "abc_class", label: "ABC", align: "left" },
   { key: "kraljic_quadrant", label: "Kraljic", align: "left" },
 ];
@@ -135,9 +125,9 @@ export function SupplierRankingTable({
                   <td className="py-1.5 font-medium">{r.supplier_name}</td>
                   <td className="py-1.5 text-muted-foreground">{r.category ?? "—"}</td>
                   <td className="py-1.5">{r.tier ?? "—"}</td>
-                  <td className="py-1.5 text-right">{usd0.format(r.total_spend)}</td>
+                  <td className="py-1.5 text-right">{formatCompactCurrency(r.total_spend)}</td>
                   <td className="py-1.5 text-right">{num0.format(r.po_count)}</td>
-                  <td className="py-1.5 text-right">{usd.format(r.avg_po_value)}</td>
+                  <td className="py-1.5 text-right">{formatCompactCurrency(r.avg_po_value)}</td>
                   <td className="py-1.5">
                     {r.abc_class ? (
                       <span style={{ color: ABC_COLORS[r.abc_class] }}>{r.abc_class}</span>

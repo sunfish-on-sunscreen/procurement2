@@ -17,8 +17,10 @@ const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
  * stats + spend-by-item + every PO. ABC/Kraljic badges reflect the latest
  * period's classification. Login required (read-only); any role.
  */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await getSession();
@@ -27,8 +29,38 @@ export async function GET(
   }
   const { id } = await params;
 
+  // Optional period scope (Batch: polish). Both must be valid YYYY-MM-DD with
+  // end >= start; omit either for all-time (backward compat). invoiceDate is
+  // non-null in this schema, so filtering it matches the COALESCE(invoiceDate,
+  // prDate) period tag used by the ranking aggregate.
+  const sp = new URL(request.url).searchParams;
+  const start = sp.get("start");
+  const end = sp.get("end");
+  let dateFilter: { gte: Date; lte: Date } | undefined;
+  if (start || end) {
+    if (!start || !end || !DATE_RE.test(start) || !DATE_RE.test(end)) {
+      return NextResponse.json(
+        { error: "start and end must both be YYYY-MM-DD" },
+        { status: 400 },
+      );
+    }
+    if (end < start) {
+      return NextResponse.json(
+        { error: "end must be on or after start" },
+        { status: 400 },
+      );
+    }
+    dateFilter = {
+      gte: new Date(`${start}T00:00:00`),
+      lte: new Date(`${end}T23:59:59`),
+    };
+  }
+
   const purchases = await prisma.purchase.findMany({
-    where: { supplierExternalId: id },
+    where: {
+      supplierExternalId: id,
+      ...(dateFilter ? { invoiceDate: dateFilter } : {}),
+    },
     select: {
       poId: true,
       supplierName: true,

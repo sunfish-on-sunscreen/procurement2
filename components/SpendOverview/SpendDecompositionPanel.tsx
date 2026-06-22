@@ -1,241 +1,448 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { X, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
-import type { SpendDetail } from "@/lib/spend-overview-types";
-import { ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
+import { useEffect, useState } from "react";
+import { X, Loader2, BarChart3, Table as TableIcon } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
+import type { SpendDetail, SupplierEvolution } from "@/lib/spend-overview-types";
+import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
+import { formatCompactCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ChartFrame } from "@/components/charts/ChartFrame";
 
-const usd0 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-const usd2 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2,
-});
-const num = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-type Tab = "byItem" | "pos";
+type Tab = "byItem" | "pos" | "evolution";
+type View = "chart" | "table";
+
+const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+function ViewToggle({ view, setView }: { view: View; setView: (v: View) => void }) {
+  return (
+    <div className="mb-2 flex justify-end">
+      <button
+        type="button"
+        onClick={() => setView(view === "chart" ? "table" : "chart")}
+        className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+      >
+        {view === "chart" ? <TableIcon className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
+        {view === "chart" ? "View as table" : "View as chart"}
+      </button>
+    </div>
+  );
+}
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="truncate text-sm font-semibold">{value}</div>
     </div>
   );
 }
 
-function SortHeader({
-  label,
-  active,
-  dir,
-  onClick,
-  align = "left",
-}: {
-  label: string;
-  active: boolean;
-  dir: "asc" | "desc";
-  onClick: () => void;
-  align?: "left" | "right";
-}) {
+// ---- Tab 1: spend by item (horizontal bars) ------------------------------- #
+type ItemDatum = { name: string; full: string; value: number; count: number; avg: number; pct: number };
+
+function ItemTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ItemDatum }> }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
   return (
-    <th className={`py-1.5 font-medium ${align === "right" ? "text-right" : "text-left"}`}>
-      <button
-        type="button"
-        onClick={onClick}
-        className={`inline-flex items-center gap-1 hover:text-foreground ${align === "right" ? "flex-row-reverse" : ""}`}
-      >
-        {label}
-        {active && (dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-      </button>
-    </th>
+    <div className="max-w-[220px] rounded-md border bg-background p-2 text-xs shadow-sm">
+      <div className="font-medium">{d.full}</div>
+      <div className="mt-1 text-muted-foreground">{usd0.format(d.value)} · {d.pct.toFixed(1)}% of total</div>
+      <div className="text-muted-foreground">{d.count} invoice(s) · {usd0.format(d.avg)} avg</div>
+    </div>
   );
 }
 
+function SpendByItemChart({ detail }: { detail: SpendDetail }) {
+  const total = detail.stats.totalSpend || 1;
+  const top = detail.byItem.slice(0, 15);
+  const rest = detail.byItem.slice(15);
+  const data: ItemDatum[] = top.map((it) => ({
+    name: truncate(it.itemDescription, 22),
+    full: it.itemDescription,
+    value: it.totalSpend,
+    count: it.poCount,
+    avg: it.poCount > 0 ? it.totalSpend / it.poCount : 0,
+    pct: (it.totalSpend / total) * 100,
+  }));
+  if (rest.length) {
+    const spend = rest.reduce((s, r) => s + r.totalSpend, 0);
+    const count = rest.reduce((s, r) => s + r.poCount, 0);
+    data.push({ name: `Others (${rest.length})`, full: `${rest.length} more items`, value: spend, count, avg: count ? spend / count : 0, pct: (spend / total) * 100 });
+  }
+  const cum = detail.byItem.slice(0, 5).reduce((s, r) => s + r.totalSpend, 0);
+  const top5pct = Math.round((cum / total) * 100);
+
+  return (
+    <div>
+      <ChartFrame height={Math.max(220, data.length * 30 + 24)}>
+        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+          <XAxis type="number" tickFormatter={(v) => formatCompactCurrency(Number(v))} tick={{ fontSize: 10 }} />
+          <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 10 }} interval={0} />
+          <Tooltip content={<ItemTooltip />} cursor={{ fillOpacity: 0.06 }} />
+          <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[0, 3, 3, 0]} isAnimationActive={false} />
+        </BarChart>
+      </ChartFrame>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Top 5 items account for {top5pct}% of spend · {detail.byItem.length} item(s) total.
+      </p>
+    </div>
+  );
+}
+
+// ---- Tab 2: POs over time (bars) ------------------------------------------ #
+type PoDatum = { date: string; value: number; poId: string; item: string };
+
+function PoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: PoDatum }> }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="max-w-[220px] rounded-md border bg-background p-2 text-xs shadow-sm">
+      <div className="font-medium">{d.poId}</div>
+      <div className="text-muted-foreground">{d.item}</div>
+      <div className="mt-1 text-muted-foreground">{usd0.format(d.value)} · {d.date}</div>
+    </div>
+  );
+}
+
+function PosTimeChart({ detail }: { detail: SpendDetail }) {
+  const data: PoDatum[] = [...detail.pos]
+    .map((p) => ({ date: p.invoiceDate ?? p.prDate ?? "—", value: p.totalValueUsd, poId: p.poId, item: p.itemDescription }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const dateRange =
+    data.length > 0 ? `${data[0].date} to ${data[data.length - 1].date}` : "—";
+
+  return (
+    <div>
+      <ChartFrame height={260}>
+        <BarChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 24 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 9 }} angle={-35} textAnchor="end" height={48} interval="preserveStartEnd" />
+          <YAxis tickFormatter={(v) => formatCompactCurrency(Number(v))} tick={{ fontSize: 10 }} width={48} />
+          <Tooltip content={<PoTooltip />} cursor={{ fillOpacity: 0.06 }} />
+          <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[2, 2, 0, 0]} isAnimationActive={false} />
+        </BarChart>
+      </ChartFrame>
+      <p className="mt-2 text-xs text-muted-foreground">{detail.pos.length} invoice(s) · {dateRange}.</p>
+    </div>
+  );
+}
+
+// ---- Tab 1/2 table fallbacks ---------------------------------------------- #
+function ItemTable({ detail }: { detail: SpendDetail }) {
+  return (
+    <table className="w-full border-collapse text-sm">
+      <thead>
+        <tr className="border-b text-left text-muted-foreground">
+          <th className="py-1.5 text-right font-medium">Invoices</th>
+          <th className="py-1.5 font-medium">Item</th>
+          <th className="py-1.5 text-right font-medium">Total spend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {detail.byItem.map((it) => (
+          <tr key={it.itemDescription} className="border-b">
+            <td className="py-1.5 text-right text-muted-foreground">{it.poCount}</td>
+            <td className="py-1.5">{it.itemDescription}</td>
+            <td className="py-1.5 text-right">{usd0.format(it.totalSpend)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function PosTable({ detail }: { detail: SpendDetail }) {
+  const rows = [...detail.pos].sort((a, b) =>
+    (b.invoiceDate ?? b.prDate ?? "").localeCompare(a.invoiceDate ?? a.prDate ?? ""),
+  );
+  return (
+    <table className="w-full border-collapse text-xs">
+      <thead>
+        <tr className="border-b text-left text-muted-foreground">
+          <th className="py-1.5 font-medium">PO ID</th>
+          <th className="py-1.5 font-medium">Item</th>
+          <th className="py-1.5 font-medium">Date</th>
+          <th className="py-1.5 text-right font-medium">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((p) => (
+          <tr key={p.poId} className="border-b">
+            <td className="py-1.5 font-medium">{p.poId}</td>
+            <td className="py-1.5">{p.itemDescription}</td>
+            <td className="py-1.5 text-muted-foreground">{p.invoiceDate ?? p.prDate ?? "—"}</td>
+            <td className="py-1.5 text-right">{usd0.format(p.totalValueUsd)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ---- Tab 3: evolution ----------------------------------------------------- #
+function EvolutionTab({ data }: { data: SupplierEvolution }) {
+  const active = data.periods.filter((p) => p.spend > 0 || p.invoiceCount > 0);
+  const hasPerf = data.periods.some((p) => p.performanceScore != null);
+
+  // Product mix: top-5 items across years + Others residual per year.
+  const totalByItem = new Map<string, number>();
+  for (const p of data.periods)
+    for (const it of p.topItems)
+      totalByItem.set(it.itemDescription, (totalByItem.get(it.itemDescription) ?? 0) + it.spend);
+  const topItemNames = [...totalByItem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n]) => n);
+  const mix = data.periods.map((p) => {
+    const row: Record<string, number | string> = { year: p.year };
+    let shown = 0;
+    for (const name of topItemNames) {
+      const v = p.topItems.find((it) => it.itemDescription === name)?.spend ?? 0;
+      row[name] = v;
+      shown += v;
+    }
+    const others = Math.max(0, p.spend - shown);
+    if (others > 0) row.Others = others;
+    return row;
+  });
+  const mixKeys = [...topItemNames, ...(mix.some((r) => "Others" in r) ? ["Others"] : [])];
+
+  return (
+    <div className="flex flex-col gap-5">
+      {active.length <= 1 && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          Limited evolution data — supplier active{" "}
+          {active.length === 1 ? `only in ${active[0].year}` : "in no periods"}.
+        </p>
+      )}
+
+      {/* A: classification trajectory */}
+      <section>
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Classification</h4>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {data.periods.map((p, i) => (
+            <div key={p.year} className="flex items-center gap-1.5">
+              {i > 0 && <span className="text-muted-foreground">→</span>}
+              <span className="rounded-md border px-2 py-1 text-xs">
+                <span className="text-muted-foreground">{p.year}: </span>
+                <span style={{ color: p.abcClass ? ABC_COLORS[p.abcClass] : undefined }}>{p.abcClass ?? "—"}</span>
+                {" / "}
+                <span style={{ color: p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : undefined }}>
+                  {p.kraljicQuadrant ?? "—"}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* B: spend trajectory */}
+      <section>
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Annual spend</h4>
+        <ChartFrame height={180}>
+          <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={(v) => formatCompactCurrency(Number(v))} tick={{ fontSize: 10 }} width={48} />
+            <Tooltip formatter={(v) => [usd0.format(Number(v)), "Spend"]} />
+            <Line type="monotone" dataKey="spend" stroke={CHART_COLORS[0]} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+          </LineChart>
+        </ChartFrame>
+      </section>
+
+      {/* C: performance trajectory (only if any data) */}
+      {hasPerf && (
+        <section>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Performance score</h4>
+          <ChartFrame height={180}>
+            <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={32} />
+              <Tooltip formatter={(v) => [v == null ? "—" : Number(v).toFixed(1), "Performance"]} />
+              <Line type="monotone" dataKey="performanceScore" stroke={CHART_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
+            </LineChart>
+          </ChartFrame>
+        </section>
+      )}
+
+      {/* D: product mix over time */}
+      {mixKeys.length > 0 && (
+        <section>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product mix over time</h4>
+          <ChartFrame height={200}>
+            <BarChart data={mix} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={(v) => formatCompactCurrency(Number(v))} tick={{ fontSize: 10 }} width={48} />
+              <Tooltip formatter={(v, n) => [usd0.format(Number(v)), truncate(String(n), 24)]} />
+              {mixKeys.map((k, i) => (
+                <Bar key={k} dataKey={k} stackId="mix" fill={CHART_COLORS[i % CHART_COLORS.length]} isAnimationActive={false} />
+              ))}
+            </BarChart>
+          </ChartFrame>
+        </section>
+      )}
+
+      {/* E: insights */}
+      {data.insights.length > 0 && (
+        <section>
+          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Insights</h4>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
+            {data.insights.map((t, i) => (
+              <li key={i}>{t}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ---- Panel ---------------------------------------------------------------- #
 export function SpendDecompositionPanel({
   supplierId,
+  startDate,
+  endDate,
   onClose,
 }: {
   supplierId: string | null;
+  startDate: string;
+  endDate: string;
   onClose: () => void;
 }) {
-  // Loaded/errored detail tagged with the supplier id, so loading is derived
-  // (no synchronous setState in the effect).
-  const [loaded, setLoaded] = useState<{ id: string; detail: SpendDetail } | null>(null);
-  const [errored, setErrored] = useState<{ id: string; msg: string } | null>(null);
+  const detailKey = supplierId ? `${supplierId}_${startDate}_${endDate}` : "";
+  const [detailState, setDetailState] = useState<{ key: string; detail?: SpendDetail; err?: string } | null>(null);
+  const [evo, setEvo] = useState<{ id: string; data?: SupplierEvolution; err?: string } | null>(null);
   const [tab, setTab] = useState<Tab>("byItem");
-  const [itemSort, setItemSort] = useState<{ key: "poCount" | "itemDescription" | "totalSpend"; dir: "asc" | "desc" }>({ key: "totalSpend", dir: "desc" });
-  const [poSort, setPoSort] = useState<{ key: "poId" | "itemDescription" | "date" | "quantity" | "unitPriceUsd" | "totalValueUsd"; dir: "asc" | "desc" }>({ key: "date", dir: "desc" });
+  const [itemView, setItemView] = useState<View>("chart");
+  const [posView, setPosView] = useState<View>("chart");
 
-  const detail = supplierId && loaded?.id === supplierId ? loaded.detail : null;
-  const error = supplierId && errored?.id === supplierId ? errored.msg : null;
-  const loading = !!supplierId && !detail && !error;
+  const detail = detailState?.key === detailKey ? detailState.detail : undefined;
+  const detailErr = detailState?.key === detailKey ? detailState.err : undefined;
+  const detailLoading = !!supplierId && !detail && !detailErr;
 
-  // Reset transient UI (tab + sorts) to defaults whenever the supplier changes.
+  // Reset transient UI when the supplier changes.
   const [prevId, setPrevId] = useState(supplierId);
   if (prevId !== supplierId) {
     setPrevId(supplierId);
     setTab("byItem");
-    setItemSort({ key: "totalSpend", dir: "desc" });
-    setPoSort({ key: "date", dir: "desc" });
+    setItemView("chart");
+    setPosView("chart");
   }
 
-  // Fetch on supplier change.
+  // Period-scoped spend detail (refetch on supplier OR span change).
   useEffect(() => {
     if (!supplierId) return;
-    const id = supplierId;
+    const key = `${supplierId}_${startDate}_${endDate}`;
     let cancelled = false;
-    fetch(`/api/suppliers/${id}/spend-detail`)
+    const qs = startDate && endDate ? `?start=${startDate}&end=${endDate}` : "";
+    fetch(`/api/suppliers/${supplierId}/spend-detail${qs}`)
       .then(async (res) => {
-        if (!res.ok) {
-          const e = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(e.error || "Failed to load");
-        }
+        if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error || "Failed to load");
         return res.json() as Promise<SpendDetail>;
       })
-      .then((d) => {
-        if (!cancelled) setLoaded({ id, detail: d });
+      .then((d) => { if (!cancelled) setDetailState({ key, detail: d }); })
+      .catch((e: unknown) => { if (!cancelled) setDetailState({ key, err: e instanceof Error ? e.message : String(e) }); });
+    return () => { cancelled = true; };
+  }, [supplierId, startDate, endDate]);
+
+  // All-years evolution (refetch on supplier change only).
+  useEffect(() => {
+    if (!supplierId) return;
+    const sid = supplierId;
+    let cancelled = false;
+    fetch(`/api/suppliers/${sid}/evolution`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load evolution");
+        return res.json() as Promise<SupplierEvolution>;
       })
-      .catch((e: unknown) => {
-        if (!cancelled)
-          setErrored({ id, msg: e instanceof Error ? e.message : String(e) });
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then((d) => { if (!cancelled) setEvo({ id: sid, data: d }); })
+      .catch((e: unknown) => { if (!cancelled) setEvo({ id: sid, err: e instanceof Error ? e.message : String(e) }); });
+    return () => { cancelled = true; };
   }, [supplierId]);
 
   // ESC closes.
   useEffect(() => {
     if (!supplierId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [supplierId, onClose]);
 
-  const sortedItems = useMemo(() => {
-    if (!detail) return [];
-    return [...detail.byItem].sort((a, b) => {
-      const av = a[itemSort.key];
-      const bv = b[itemSort.key];
-      const c =
-        typeof av === "number" && typeof bv === "number"
-          ? av - bv
-          : String(av).localeCompare(String(bv));
-      return itemSort.dir === "asc" ? c : -c;
-    });
-  }, [detail, itemSort]);
-
-  const sortedPos = useMemo(() => {
-    if (!detail) return [];
-    const dateOf = (p: SpendDetail["pos"][number]) => p.invoiceDate ?? p.prDate ?? "";
-    return [...detail.pos].sort((a, b) => {
-      let c: number;
-      if (poSort.key === "date") c = dateOf(a).localeCompare(dateOf(b));
-      else {
-        const av = a[poSort.key];
-        const bv = b[poSort.key];
-        c =
-          typeof av === "number" && typeof bv === "number"
-            ? av - bv
-            : String(av).localeCompare(String(bv));
-      }
-      return poSort.dir === "asc" ? c : -c;
-    });
-  }, [detail, poSort]);
-
-  if (!supplierId) return null;
+  const evoData = evo?.id === supplierId ? evo.data : undefined;
 
   const s = detail?.supplier;
   const st = detail?.stats;
 
+  if (!supplierId) return null;
+
   return (
     <div className="fixed inset-0 z-40">
-      <button
-        type="button"
-        aria-label="Close spend decomposition"
-        onClick={onClose}
-        className="absolute inset-0 cursor-default bg-foreground/10"
-      />
-      <aside
-        role="dialog"
-        aria-label="Spend decomposition"
-        className="absolute inset-y-0 right-0 flex w-[420px] max-w-[92vw] flex-col border-l bg-background shadow-xl"
-      >
+      <button type="button" aria-label="Close spend decomposition" onClick={onClose} className="absolute inset-0 cursor-default bg-foreground/10" />
+      <aside role="dialog" aria-label="Spend decomposition" className="absolute inset-y-0 right-0 flex w-[440px] max-w-[94vw] flex-col border-l bg-background shadow-xl">
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold">
-              {s?.name ?? "Loading…"}
-            </h3>
+            <h3 className="truncate text-base font-semibold">{s?.name ?? "Loading…"}</h3>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
                 {[s.category, s.tier, s.country].filter(Boolean).join(" · ") || s.id}
               </p>
             )}
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Showing {startDate} to {endDate}
+            </p>
           </div>
           <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label="Close" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </header>
 
-        {loading && (
+        {detailLoading && (
           <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading spend detail…
           </div>
         )}
-        {error && <p className="p-4 text-sm text-destructive">{error}</p>}
+        {detailErr && <p className="p-4 text-sm text-destructive">{detailErr}</p>}
 
         {detail && st && s && (
           <>
             <div className="grid grid-cols-3 gap-3 border-b p-4">
               <Stat label="Total spend" value={usd0.format(st.totalSpend)} />
-              <Stat label="POs" value={String(st.poCount)} />
-              <Stat label="Avg PO" value={usd0.format(st.avgPoValue)} />
-              <Stat
-                label="Date range"
-                value={
-                  st.earliestDate && st.latestDate
-                    ? `${st.earliestDate} → ${st.latestDate}`
-                    : "—"
-                }
-              />
-              <Stat
-                label="ABC"
-                value={s.abcClass ?? "—"}
-              />
-              <Stat label="Kraljic" value={s.kraljicQuadrant ?? "—"} />
-            </div>
-            {/* colored badges row */}
-            <div className="flex flex-wrap gap-2 px-4 pt-3">
-              {s.abcClass && (
-                <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${ABC_COLORS[s.abcClass]}22`, color: ABC_COLORS[s.abcClass] }}>
-                  Class {s.abcClass}
-                </span>
-              )}
-              {s.kraljicQuadrant && (
-                <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${QUADRANT_COLORS[s.kraljicQuadrant]}22`, color: QUADRANT_COLORS[s.kraljicQuadrant] }}>
-                  {s.kraljicQuadrant}
-                </span>
-              )}
+              <Stat label="Invoices" value={String(st.poCount)} />
+              <Stat label="Avg invoice" value={usd0.format(st.avgPoValue)} />
+              <Stat label="Activity" value={st.earliestDate && st.latestDate ? `${st.earliestDate} → ${st.latestDate}` : "—"} />
+              <div className="col-span-2 flex flex-wrap items-center gap-2">
+                {s.abcClass && (
+                  <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${ABC_COLORS[s.abcClass]}22`, color: ABC_COLORS[s.abcClass] }}>
+                    Class {s.abcClass}
+                  </span>
+                )}
+                {s.kraljicQuadrant && (
+                  <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${QUADRANT_COLORS[s.kraljicQuadrant]}22`, color: QUADRANT_COLORS[s.kraljicQuadrant] }}>
+                    {s.kraljicQuadrant}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-1 border-b px-4 pt-3">
-              {([["byItem", "Spend by item"], ["pos", "All POs"]] as const).map(([k, lbl]) => (
+              {([["byItem", "Spend by item"], ["pos", "All POs"], ["evolution", "Evolution"]] as const).map(([k, lbl]) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => setTab(k)}
-                  className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${
-                    tab === k ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${tab === k ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                 >
                   {lbl}
                 </button>
@@ -243,50 +450,31 @@ export function SpendDecompositionPanel({
             </div>
 
             <div className="flex-1 overflow-auto p-4">
-              {tab === "byItem" ? (
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b text-muted-foreground">
-                      <SortHeader label="POs" align="right" active={itemSort.key === "poCount"} dir={itemSort.dir} onClick={() => setItemSort((s2) => ({ key: "poCount", dir: s2.key === "poCount" && s2.dir === "desc" ? "asc" : "desc" }))} />
-                      <SortHeader label="Item" active={itemSort.key === "itemDescription"} dir={itemSort.dir} onClick={() => setItemSort((s2) => ({ key: "itemDescription", dir: s2.key === "itemDescription" && s2.dir === "asc" ? "desc" : "asc" }))} />
-                      <SortHeader label="Total spend" align="right" active={itemSort.key === "totalSpend"} dir={itemSort.dir} onClick={() => setItemSort((s2) => ({ key: "totalSpend", dir: s2.key === "totalSpend" && s2.dir === "desc" ? "asc" : "desc" }))} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedItems.map((it) => (
-                      <tr key={it.itemDescription} className="border-b">
-                        <td className="py-1.5 text-right text-muted-foreground">{it.poCount}</td>
-                        <td className="py-1.5">{it.itemDescription}</td>
-                        <td className="py-1.5 text-right">{usd0.format(it.totalSpend)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <table className="w-full border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b text-muted-foreground">
-                      <SortHeader label="PO ID" active={poSort.key === "poId"} dir={poSort.dir} onClick={() => setPoSort((s2) => ({ key: "poId", dir: s2.key === "poId" && s2.dir === "asc" ? "desc" : "asc" }))} />
-                      <SortHeader label="Item" active={poSort.key === "itemDescription"} dir={poSort.dir} onClick={() => setPoSort((s2) => ({ key: "itemDescription", dir: s2.key === "itemDescription" && s2.dir === "asc" ? "desc" : "asc" }))} />
-                      <SortHeader label="Date" active={poSort.key === "date"} dir={poSort.dir} onClick={() => setPoSort((s2) => ({ key: "date", dir: s2.key === "date" && s2.dir === "desc" ? "asc" : "desc" }))} />
-                      <SortHeader label="Qty" align="right" active={poSort.key === "quantity"} dir={poSort.dir} onClick={() => setPoSort((s2) => ({ key: "quantity", dir: s2.key === "quantity" && s2.dir === "desc" ? "asc" : "desc" }))} />
-                      <SortHeader label="Unit $" align="right" active={poSort.key === "unitPriceUsd"} dir={poSort.dir} onClick={() => setPoSort((s2) => ({ key: "unitPriceUsd", dir: s2.key === "unitPriceUsd" && s2.dir === "desc" ? "asc" : "desc" }))} />
-                      <SortHeader label="Total" align="right" active={poSort.key === "totalValueUsd"} dir={poSort.dir} onClick={() => setPoSort((s2) => ({ key: "totalValueUsd", dir: s2.key === "totalValueUsd" && s2.dir === "desc" ? "asc" : "desc" }))} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedPos.map((p) => (
-                      <tr key={p.poId} className="border-b">
-                        <td className="py-1.5 font-medium">{p.poId}</td>
-                        <td className="py-1.5">{p.itemDescription}</td>
-                        <td className="py-1.5 text-muted-foreground">{p.invoiceDate ?? p.prDate ?? "—"}</td>
-                        <td className="py-1.5 text-right">{num.format(p.quantity)}</td>
-                        <td className="py-1.5 text-right">{usd2.format(p.unitPriceUsd)}</td>
-                        <td className="py-1.5 text-right">{usd0.format(p.totalValueUsd)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {tab === "byItem" && (
+                <>
+                  <ViewToggle view={itemView} setView={setItemView} />
+                  {itemView === "chart" ? <SpendByItemChart detail={detail} /> : <ItemTable detail={detail} />}
+                </>
+              )}
+              {tab === "pos" && (
+                <>
+                  <ViewToggle view={posView} setView={setPosView} />
+                  {posView === "chart" ? <PosTimeChart detail={detail} /> : <PosTable detail={detail} />}
+                </>
+              )}
+              {tab === "evolution" && (
+                <>
+                  <p className="mb-3 text-[11px] text-muted-foreground">All years (not period-scoped).</p>
+                  {evo?.err ? (
+                    <p className="text-sm text-destructive">{evo.err}</p>
+                  ) : evoData ? (
+                    <EvolutionTab data={evoData} />
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading evolution…
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </>

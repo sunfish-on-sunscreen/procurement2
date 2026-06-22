@@ -131,7 +131,7 @@ export function SpendOverviewClient({
         <KpiCard label="Total Spend" value={usdCompact.format(spend.total_spend)} />
         <KpiCard label="Total invoices" value={num0.format(spend.total_pos)} />
         <KpiCard label="Active Suppliers" value={num0.format(spend.active_suppliers)} />
-        <KpiCard label="Avg PO Value" value={usd0.format(avgPoValue)} />
+        <KpiCard label="Avg invoice value" value={usd0.format(avgPoValue)} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -169,6 +169,8 @@ export function SpendOverviewClient({
 
       <SpendDecompositionPanel
         supplierId={selectedSupplierId}
+        startDate={startDate}
+        endDate={endDate}
         onClose={() => setSelectedSupplierId(null)}
       />
     </>

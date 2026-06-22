@@ -44,3 +44,19 @@ export type SpendDetail = {
     totalValueUsd: number;
   }[];
 };
+
+/** Year-by-year supplier trajectory (all years; not period-scoped). */
+export type SupplierEvolution = {
+  supplier: { id: string; name: string };
+  periods: {
+    year: string;
+    periodLabel: string;
+    spend: number;
+    invoiceCount: number;
+    abcClass: "A" | "B" | "C" | null;
+    kraljicQuadrant: KraljicQuadrant | null;
+    performanceScore: number | null;
+    topItems: { itemDescription: string; spend: number; count: number }[];
+  }[];
+  insights: string[];
+};
