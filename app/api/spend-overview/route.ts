@@ -96,5 +96,9 @@ export async function POST(request: Request) {
     .sort((a, b) => b.total_spend - a.total_spend)
     .map((row, i) => ({ ...row, rank: i + 1 }));
 
-  return NextResponse.json({ spend_overview: analyses.spend_overview, ranking });
+  return NextResponse.json({
+    spend_overview: analyses.spend_overview,
+    abc: analyses.abc ?? null,
+    ranking,
+  });
 }

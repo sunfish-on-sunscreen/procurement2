@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
-import type { SpendOverviewResult } from "@/lib/analysis-types";
+import type { SpendOverviewResult, AbcResult } from "@/lib/analysis-types";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import {
   Card,
@@ -17,6 +17,7 @@ import { TopSuppliersCard } from "@/components/analysis/OverviewCharts";
 import { PinProvider } from "@/components/Reports/PinContext";
 import { SupplierRankingTable } from "./SupplierRankingTable";
 import { SpendDecompositionPanel } from "./SpendDecompositionPanel";
+import { AbcParetoCard } from "./AbcParetoCard";
 
 const usdCompact = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -44,7 +45,11 @@ function KpiCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-type PageData = { spend_overview: SpendOverviewResult; ranking: SupplierRankingRow[] };
+type PageData = {
+  spend_overview: SpendOverviewResult;
+  abc: AbcResult | null;
+  ranking: SupplierRankingRow[];
+};
 
 /**
  * Client wrapper for the Spend Overview page. Fetches page data for the span
@@ -160,6 +165,8 @@ export function SpendOverviewClient({
           <MonthlySpendTrendChart data={spend.monthly_trend} />
         </CardContent>
       </Card>
+
+      {data.abc && <AbcParetoCard abc={data.abc} />}
 
       <SupplierRankingTable
         rows={data.ranking}

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  BarChart3,
   Grid3x3,
   TrendingUp,
   Clock,
@@ -24,7 +23,6 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { href: "/spend-overview", label: "Spend Overview", icon: LayoutDashboard },
-  { href: "/abc-analysis", label: "ABC Analysis", icon: BarChart3 },
   { href: "/supplier-quadrant", label: "Supplier Quadrant", icon: Grid3x3 },
   { href: "/performance-spend", label: "Performance vs Spend", icon: TrendingUp },
   { href: "/cycle-time", label: "Cycle Time", icon: Clock },
