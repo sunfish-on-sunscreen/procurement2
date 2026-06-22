@@ -43,7 +43,7 @@ const num0 = new Intl.NumberFormat("en-US");
  * If the per-category field is absent (old cached rows), the filter is hidden
  * and the card behaves exactly as before.
  */
-function TopSuppliersCard({ spend }: { spend: SpendOverviewResult }) {
+export function TopSuppliersCard({ spend }: { spend: SpendOverviewResult }) {
   const byCategory = spend.top_suppliers_by_category;
   const categories = byCategory ? Object.keys(byCategory).sort() : [];
   const [selected, setSelected] = useState<string>(ALL_CATEGORIES);

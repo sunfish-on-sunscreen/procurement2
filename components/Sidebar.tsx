@@ -23,7 +23,7 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/spend-overview", label: "Spend Overview", icon: LayoutDashboard },
   { href: "/abc-analysis", label: "ABC Analysis", icon: BarChart3 },
   { href: "/supplier-quadrant", label: "Supplier Quadrant", icon: Grid3x3 },
   { href: "/performance-spend", label: "Performance vs Spend", icon: TrendingUp },
