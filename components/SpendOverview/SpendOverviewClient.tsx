@@ -23,6 +23,17 @@ import { InsightsPanel } from "./InsightsPanel";
 
 const num0 = new Intl.NumberFormat("en-US");
 
+/** "from 2024 to 2026" (range) / "in 2026" (single year), tolerant of label shape. */
+function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
+  if (!periodLabel) return "this period";
+  if (isRangeMode) {
+    const parts = periodLabel.split(/[–-]/).map((s) => s.trim());
+    if (parts.length === 2 && parts[0] && parts[1]) return `from ${parts[0]} to ${parts[1]}`;
+    return periodLabel;
+  }
+  return `in ${periodLabel}`;
+}
+
 type PageData = {
   spend_overview: SpendOverviewResult;
   abc: AbcResult | null;
@@ -111,6 +122,10 @@ export function SpendOverviewClient({
 
   const spend = data.spend_overview;
   const avgPoValue = spend.total_pos > 0 ? spend.total_spend / spend.total_pos : 0;
+  const phrase = periodPhrase(periodLabel, isRangeMode);
+  const perSupplier =
+    spend.active_suppliers > 0 ? spend.total_pos / spend.active_suppliers : 0;
+  const categoryCount = spend.by_category.length;
 
   return (
     <>
@@ -125,10 +140,30 @@ export function SpendOverviewClient({
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatBlock size="lg" label="Total spend" value={formatCompactCurrency(spend.total_spend)} />
-        <StatBlock size="lg" label="Total invoices" value={num0.format(spend.total_pos)} />
-        <StatBlock size="lg" label="Active suppliers" value={num0.format(spend.active_suppliers)} />
-        <StatBlock size="lg" label="Avg invoice value" value={formatCompactCurrency(avgPoValue)} />
+        <StatBlock
+          size="lg"
+          label="Total spend"
+          value={formatCompactCurrency(spend.total_spend)}
+          sublabel={phrase}
+        />
+        <StatBlock
+          size="lg"
+          label="Total invoices"
+          value={num0.format(spend.total_pos)}
+          sublabel={`${perSupplier.toFixed(1)} per supplier`}
+        />
+        <StatBlock
+          size="lg"
+          label="Active suppliers"
+          value={num0.format(spend.active_suppliers)}
+          sublabel={`across ${categoryCount} categories`}
+        />
+        <StatBlock
+          size="lg"
+          label="Avg invoice value"
+          value={formatCompactCurrency(avgPoValue)}
+          sublabel="per invoice"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

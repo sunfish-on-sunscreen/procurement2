@@ -12,6 +12,20 @@ export const CHART_COLORS = [
   "var(--chart-8)",
 ];
 
+// Distinct palette for the Spend-by-Category donut, designed NOT to overlap with
+// ABC_COLORS (red/amber/lime) or QUADRANT_COLORS — so adjacent category slices
+// never read as an ABC class. Keep separate from CHART_COLORS (general series).
+export const CATEGORY_COLORS = [
+  "var(--category-1)",
+  "var(--category-2)",
+  "var(--category-3)",
+  "var(--category-4)",
+  "var(--category-5)",
+  "var(--category-6)",
+  "var(--category-7)",
+  "var(--category-8)",
+];
+
 export const ABC_COLORS: Record<"A" | "B" | "C", string> = {
   A: "var(--abc-a)",
   B: "var(--abc-b)",

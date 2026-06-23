@@ -99,6 +99,17 @@
   /* StatBlock accent helpers (theme has --destructive already). */
   --warning: #f59e0b;
   --success: #84cc16;
+  /* Category palette — deliberately a separate family from --abc-* / --quadrant-*
+     (no pure red/amber/lime/green), so the Spend-by-Category donut never collides
+     with ABC class or Kraljic quadrant colours. Blues/violets/cyans/magentas. */
+  --category-1: #2563eb;
+  --category-2: #7c3aed;
+  --category-3: #0891b2;
+  --category-4: #db2777;
+  --category-5: #4f46e5;
+  --category-6: #9333ea;
+  --category-7: #0e7490;
+  --category-8: #64748b;
   --radius: 0.625rem;
   --sidebar: oklch(0.984 0.003 247.858);
   --sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -152,6 +163,14 @@
   --zone-long-tail: #cbd5e1;
   --warning: #fbbf24;
   --success: #a3e635;
+  --category-1: #60a5fa;
+  --category-2: #a78bfa;
+  --category-3: #22d3ee;
+  --category-4: #f472b6;
+  --category-5: #818cf8;
+  --category-6: #c084fc;
+  --category-7: #67e8f9;
+  --category-8: #94a3b8;
   --sidebar: oklch(0.208 0.042 265.755);
   --sidebar-foreground: oklch(0.984 0.003 247.858);
   --sidebar-primary: oklch(0.488 0.243 264.376);

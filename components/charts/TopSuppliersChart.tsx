@@ -31,6 +31,34 @@ type TooltipProps = {
   payload?: Array<{ payload: TopSupplier }>;
 };
 
+// Custom Y-axis tick so supplier names use a theme token (was Recharts' default
+// hardcoded #666, which didn't adapt to dark mode). The pinned supplier's name is
+// highlighted (primary + bold) so the cross-chart pin reads on the label too.
+type SupplierTickProps = {
+  x?: number;
+  y?: number;
+  payload?: { value?: string };
+  pinnedName?: string | null;
+};
+
+function SupplierNameTick({ x, y, payload, pinnedName }: SupplierTickProps) {
+  const name = payload?.value ?? "";
+  const isPinned = !!pinnedName && name === pinnedName;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy="0.355em"
+      textAnchor="end"
+      fontSize={11}
+      fontWeight={isPinned ? 600 : 400}
+      fill={isPinned ? "var(--primary)" : "var(--foreground)"}
+    >
+      {name}
+    </text>
+  );
+}
+
 function TopSupplierTooltip({ active, payload }: TooltipProps) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
@@ -44,6 +72,8 @@ function TopSupplierTooltip({ active, payload }: TooltipProps) {
 
 export function TopSuppliersChart({ data }: { data: TopSupplier[] }) {
   const { pinnedSupplierId, pin } = usePin();
+  const pinnedName =
+    data.find((d) => d.supplier_id === pinnedSupplierId)?.supplier_name ?? null;
   return (
     <ChartFrame height={Math.max(300, data.length * 36)}>
       <BarChart data={data} layout="vertical" margin={{ left: 20, right: 24 }}>
@@ -57,7 +87,7 @@ export function TopSuppliersChart({ data }: { data: TopSupplier[] }) {
           type="category"
           dataKey="supplier_name"
           width={170}
-          tick={{ fontSize: 11 }}
+          tick={<SupplierNameTick pinnedName={pinnedName} />}
         />
         <Tooltip content={<TopSupplierTooltip />} cursor={{ fillOpacity: 0.06 }} />
         <Bar

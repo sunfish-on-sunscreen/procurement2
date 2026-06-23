@@ -126,6 +126,29 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   `uppercase tracking-wide` labels (panel header stats + Evolution-tab headers)
   are now sentence case.
 
+### Spend Overview visual polish (follow-up)
+- **`StatBlock` density + coherence.** It now sets explicit padding (`p-3`
+  default / `p-4` `lg`) — `Card` only applies `py`, so without this the content
+  was flush to the horizontal edges. Tight top-aligned stack (no
+  `justify-between`); `lg` is the same component a notch larger. KPI cards carry
+  period-aware **sublabels** ("from 2024 to 2026" / "in 2026", "N.N per supplier",
+  "across N categories", "per invoice") via `periodPhrase()` in
+  `SpendOverviewClient` (mirrors `InsightsPanel`'s).
+- **Category colours are a SEPARATE family.** `CATEGORY_COLORS` (`var(--category-1..8)`,
+  defined in `app/globals.css` light+dark) — deliberately blues/violets/cyans/
+  magentas with **no** red/amber/lime/green, so the Spend-by-Category donut never
+  collides with `--abc-*` (Class C lime) or `--quadrant-*`. ⚠️ Only
+  `SpendByCategoryChart` uses it; `CHART_COLORS` is unchanged and still used by the
+  other series (Top 10, trends, panel). The panel's product-mix stacked bars still
+  cycle `CHART_COLORS` (left as-is — not the donut).
+- **Top 10 supplier labels are theme-aware.** `TopSuppliersChart` uses a custom
+  `SupplierNameTick` (`fill="var(--foreground)"`) instead of Recharts' hardcoded
+  `#666` (which didn't adapt to dark mode). The **pinned** supplier's label is
+  highlighted (`var(--primary)` + weight 600) so the cross-chart pin reads on the
+  label, not just the bar. (No actual "pink labels" bug was found in `0820996`;
+  this applied the decision's stated remedy — theme-aware default + distinct
+  pinned — which also fixes dark-mode legibility.)
+
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
   `transform_dataset.py`, Prisma schema, DB (migration

@@ -2,7 +2,7 @@
 
 import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { ChartFrame } from "./ChartFrame";
-import { CHART_COLORS } from "@/lib/chart-colors";
+import { CATEGORY_COLORS } from "@/lib/chart-colors";
 
 const usdCompact = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -30,7 +30,7 @@ export function SpendByCategoryChart({
           paddingAngle={1}
         >
           {data.map((_, i) => (
-            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+            <Cell key={i} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
           ))}
         </Pie>
         <Tooltip

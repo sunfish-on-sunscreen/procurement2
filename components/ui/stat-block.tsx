@@ -40,7 +40,15 @@ export function StatBlock({
   const accentColor = ACCENT_COLORS[accent]
   return (
     <Card
-      className={cn("justify-between gap-1", className)}
+      data-size={size}
+      // Tight, top-aligned stack (label → value → sublabel) with explicit
+      // padding — `Card` only sets py, so without this the content is flush to
+      // the horizontal edges. `lg` is the same component a notch larger.
+      className={cn(
+        "gap-0.5 px-3 py-3",
+        size === "lg" && "gap-1 px-4 py-4",
+        className,
+      )}
       style={
         accentColor
           ? { borderLeft: `4px solid ${accentColor}` }
@@ -50,7 +58,7 @@ export function StatBlock({
       <div className="text-sm text-muted-foreground">{label}</div>
       <div
         className={cn(
-          "font-semibold",
+          "font-semibold leading-tight tracking-tight",
           size === "lg" ? "text-3xl" : "text-2xl",
         )}
       >
