@@ -72,78 +72,94 @@ export function SupplierRankingTable({
     );
 
   return (
-    <Card>
+    // overflow-visible overrides Card's overflow-hidden so the sticky header can
+    // pin to the viewport (an overflow:hidden ancestor would trap position:sticky).
+    <Card className="overflow-visible">
       <CardHeader>
         <CardTitle>All Suppliers</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="max-h-[640px] overflow-y-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 bg-card">
-              <tr className="border-b text-muted-foreground">
-                {COLUMNS.map((col) => (
-                  <th
-                    key={col.key}
-                    className={`py-2 font-medium ${col.align === "right" ? "text-right" : "text-left"}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(col.key)}
-                      className={`inline-flex items-center gap-1 hover:text-foreground ${
-                        col.align === "right" ? "flex-row-reverse" : ""
-                      }`}
-                    >
-                      {col.label}
-                      {sort.key === col.key &&
-                        (sort.dir === "asc" ? (
-                          <ArrowUp className="h-3 w-3" />
-                        ) : (
-                          <ArrowDown className="h-3 w-3" />
-                        ))}
-                    </button>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((r) => (
-                <tr
-                  key={r.supplier_id}
-                  onClick={() => onSupplierClick(r.supplier_id)}
-                  className={`cursor-pointer border-b ${
-                    r.supplier_id === selectedSupplierId
-                      ? "bg-foreground/5 ring-1 ring-inset ring-foreground/30"
-                      : "hover:bg-muted/50"
+      <CardContent className="pt-1">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              {COLUMNS.map((col) => (
+                <th
+                  key={col.key}
+                  className={`sticky top-0 z-10 border-b bg-card py-2 font-medium text-muted-foreground ${
+                    col.align === "right" ? "text-right" : "text-left"
                   }`}
                 >
-                  <td className="py-1.5 text-right text-muted-foreground">{r.rank}</td>
-                  <td className="py-1.5 font-medium">{r.supplier_name}</td>
-                  <td className="py-1.5 text-muted-foreground">{r.category ?? "—"}</td>
-                  <td className="py-1.5">{r.tier ?? "—"}</td>
-                  <td className="py-1.5 text-right">{formatCompactCurrency(r.total_spend)}</td>
-                  <td className="py-1.5 text-right">{num0.format(r.po_count)}</td>
-                  <td className="py-1.5 text-right">{formatCompactCurrency(r.avg_po_value)}</td>
-                  <td className="py-1.5">
-                    {r.abc_class ? (
-                      <span style={{ color: ABC_COLORS[r.abc_class] }}>{r.abc_class}</span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="py-1.5">
-                    {r.kraljic_quadrant ? (
-                      <span style={{ color: QUADRANT_COLORS[r.kraljic_quadrant] }}>
-                        {r.kraljic_quadrant}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(col.key)}
+                    className={`inline-flex items-center gap-1 hover:text-foreground ${
+                      col.align === "right" ? "flex-row-reverse" : ""
+                    }`}
+                  >
+                    {col.label}
+                    {sort.key === col.key &&
+                      (sort.dir === "asc" ? (
+                        <ArrowUp className="h-3 w-3" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3" />
+                      ))}
+                  </button>
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr
+                key={r.supplier_id}
+                onClick={() => onSupplierClick(r.supplier_id)}
+                className={`cursor-pointer border-b ${
+                  r.supplier_id === selectedSupplierId
+                    ? "bg-foreground/5 ring-1 ring-inset ring-foreground/30"
+                    : "hover:bg-muted/40"
+                }`}
+              >
+                <td className="py-3 text-right text-muted-foreground">{r.rank}</td>
+                <td className="py-3 font-medium">{r.supplier_name}</td>
+                <td className="py-3">{r.category ?? "—"}</td>
+                <td className="py-3">{r.tier ?? "—"}</td>
+                <td className="py-3 text-right">{formatCompactCurrency(r.total_spend)}</td>
+                <td className="py-3 text-right">{num0.format(r.po_count)}</td>
+                <td className="py-3 text-right">{formatCompactCurrency(r.avg_po_value)}</td>
+                <td className="py-3">
+                  {r.abc_class ? (
+                    <span
+                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${ABC_COLORS[r.abc_class]} 12%, transparent)`,
+                        color: ABC_COLORS[r.abc_class],
+                      }}
+                    >
+                      {r.abc_class}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="py-3">
+                  {r.kraljic_quadrant ? (
+                    <span
+                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${QUADRANT_COLORS[r.kraljic_quadrant]} 12%, transparent)`,
+                        color: QUADRANT_COLORS[r.kraljic_quadrant],
+                      }}
+                    >
+                      {r.kraljic_quadrant}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </CardContent>
     </Card>
   );

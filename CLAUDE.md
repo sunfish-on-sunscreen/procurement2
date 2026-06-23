@@ -149,6 +149,23 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   this applied the decision's stated remedy — theme-aware default + distinct
   pinned — which also fixes dark-mode legibility.)
 
+### Supplier ranking table polish (follow-up)
+- **No internal scroll** — the `max-h-[640px] overflow-y-auto` wrapper was removed;
+  all 54 rows render at natural height and the page scrolls.
+- **Page-sticky column header** — `sticky top-0 z-10` is on the `<th>` cells (with
+  `bg-card` + `border-b`). ⚠️ The card must be `overflow-visible`: the `Card`
+  primitive's default `overflow-hidden` establishes a scroll-container that would
+  trap `position: sticky`. The page `Header` is NOT sticky (it scrolls away), so
+  `top-0` pins to the viewport — no header offset needed.
+- **ABC + Kraljic are `color-mix` chips** (`rounded-md px-2 py-0.5 text-xs`,
+  `var(--abc-*)` / `var(--quadrant-*)` tint at 12% + full-intensity text) instead
+  of bare colored letters/words. ABC chip = just "A"/"B"/"C"; Kraljic chip = full
+  quadrant name.
+- **Row-click only** (no per-cell handlers exist) — every cell opens the panel via
+  the `<tr>` onClick. Categorical cells are plain `--foreground` text (Category was
+  `text-muted-foreground`) with NO link affordance; `py-3` rows, `hover:bg-muted/40`,
+  selected row keeps `ring-inset`. Numeric columns were already right-aligned.
+
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
   `transform_dataset.py`, Prisma schema, DB (migration
