@@ -83,7 +83,14 @@ export async function GET(
     prisma.supplierMetric.findFirst({
       where: { supplierExternalId: id },
       orderBy: { periodId: "desc" },
-      select: { supplierName: true, category: true, tier: true },
+      select: {
+        supplierName: true,
+        category: true,
+        tier: true,
+        compositeScore: true,
+        calculatedTier: true,
+        tierMismatch: true,
+      },
     }),
     prisma.supplier.findFirst({
       where: { externalId: id },
@@ -157,6 +164,9 @@ export async function GET(
       country: supplier?.country ?? null,
       abcClass,
       kraljicQuadrant,
+      performanceScore: metric?.compositeScore ?? null,
+      calculatedTier: metric?.calculatedTier ?? null,
+      tierMismatch: metric?.tierMismatch ?? false,
     },
     stats: {
       totalSpend,

@@ -24,6 +24,11 @@ export type SpendDetail = {
     country: string | null;
     abcClass: "A" | "B" | "C" | null;
     kraljicQuadrant: KraljicQuadrant | null;
+    // Latest-period SupplierMetric snapshot (composite 0-100; declared vs
+    // calculated tier + mismatch flag). Null when no metric row exists.
+    performanceScore: number | null;
+    calculatedTier: string | null;
+    tierMismatch: boolean;
   };
   stats: {
     totalSpend: number;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
-import { ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
+import { ABC_COLORS } from "@/lib/chart-colors";
 import { formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
@@ -22,8 +22,7 @@ type SortKey =
   | "total_spend"
   | "po_count"
   | "avg_po_value"
-  | "abc_class"
-  | "kraljic_quadrant";
+  | "abc_class";
 
 const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
   { key: "rank", label: "#", align: "right" },
@@ -34,7 +33,6 @@ const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
   { key: "po_count", label: "Invoices", align: "right" },
   { key: "avg_po_value", label: "Avg invoice", align: "right" },
   { key: "abc_class", label: "ABC", align: "left" },
-  { key: "kraljic_quadrant", label: "Kraljic", align: "left" },
 ];
 
 function compare(a: SupplierRankingRow, b: SupplierRankingRow, key: SortKey) {
@@ -136,21 +134,6 @@ export function SupplierRankingTable({
                       }}
                     >
                       {r.abc_class}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="py-3">
-                  {r.kraljic_quadrant ? (
-                    <span
-                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                      style={{
-                        backgroundColor: `color-mix(in srgb, ${QUADRANT_COLORS[r.kraljic_quadrant]} 12%, transparent)`,
-                        color: QUADRANT_COLORS[r.kraljic_quadrant],
-                      }}
-                    >
-                      {r.kraljic_quadrant}
                     </span>
                   ) : (
                     <span className="text-muted-foreground">—</span>

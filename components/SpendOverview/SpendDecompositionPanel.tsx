@@ -302,6 +302,26 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
   );
 }
 
+// Classification chip — same style as the ranking table (color-mix tint + token
+// text). `color` null renders a neutral placeholder so the layout is preserved.
+function Chip({ color, label }: { color: string | null; label: string }) {
+  if (!color) {
+    return (
+      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
+    >
+      {label}
+    </span>
+  );
+}
+
 // ---- Panel ---------------------------------------------------------------- #
 export function SpendDecompositionPanel({
   supplierId,
@@ -403,35 +423,52 @@ export function SpendDecompositionPanel({
 
         {detail && st && s && (
           <>
+            {/* Section 1: spend stats */}
             <div className="border-b p-4">
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Spend at a glance</h4>
               <div className="grid grid-cols-3 gap-4">
                 <StatBlock label="Total spend" value={usd0.format(st.totalSpend)} />
                 <StatBlock label="Invoices" value={String(st.poCount)} />
                 <StatBlock label="Avg invoice" value={usd0.format(st.avgPoValue)} />
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {st.earliestDate && st.latestDate && (
-                  <span className="text-xs text-muted-foreground">
-                    Active {st.earliestDate} → {st.latestDate}
-                  </span>
-                )}
-                {s.abcClass && (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-medium"
-                    style={{ backgroundColor: `color-mix(in srgb, ${ABC_COLORS[s.abcClass]} 13%, transparent)`, color: ABC_COLORS[s.abcClass] }}
-                  >
-                    Class {s.abcClass}
-                  </span>
-                )}
-                {s.kraljicQuadrant && (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-medium"
-                    style={{ backgroundColor: `color-mix(in srgb, ${QUADRANT_COLORS[s.kraljicQuadrant]} 13%, transparent)`, color: QUADRANT_COLORS[s.kraljicQuadrant] }}
-                  >
-                    {s.kraljicQuadrant}
-                  </span>
-                )}
+            </div>
+
+            {/* Section 2: performance + classification */}
+            <div className="border-b p-4">
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Performance &amp; classification</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <StatBlock
+                  label="Performance score"
+                  value={s.performanceScore != null ? s.performanceScore.toFixed(1) : "—"}
+                  sublabel="out of 100"
+                />
+                <div className="col-span-2 flex flex-wrap content-start items-start gap-2">
+                  <Chip
+                    color={s.abcClass ? ABC_COLORS[s.abcClass] : null}
+                    label={s.abcClass ? `Class ${s.abcClass}` : "Class —"}
+                  />
+                  <Chip
+                    color={s.kraljicQuadrant ? QUADRANT_COLORS[s.kraljicQuadrant] : null}
+                    label={s.kraljicQuadrant ?? "—"}
+                  />
+                  {s.tierMismatch && (
+                    <span
+                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                      style={{ backgroundColor: "color-mix(in srgb, var(--destructive) 10%, transparent)", color: "var(--destructive)" }}
+                    >
+                      Tier mismatch: declared {s.tier ?? "—"}, calculated {s.calculatedTier ?? "—"}
+                    </span>
+                  )}
+                </div>
               </div>
+            </div>
+
+            {/* Section 3: activity span */}
+            <div className="border-b p-4">
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity</h4>
+              <p className="text-xs text-muted-foreground">
+                {st.earliestDate && st.latestDate ? `${st.earliestDate} → ${st.latestDate}` : "—"}
+              </p>
             </div>
 
             <div className="flex gap-1 border-b px-4 pt-3">

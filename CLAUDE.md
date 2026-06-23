@@ -166,6 +166,37 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   `text-muted-foreground`) with NO link affordance; `py-3` rows, `hover:bg-muted/40`,
   selected row keeps `ring-inset`. Numeric columns were already right-aligned.
 
+### Supplier ranking + detail panel + sidebar (follow-up)
+- **Kraljic column removed** from the ranking table → 8 cols (`# · Supplier ·
+  Category · Tier · Total spend · Invoices · Avg invoice · ABC`). `kraljic_quadrant`
+  stays in the row data, just unrendered; the `SortKey` member + `QUADRANT_COLORS`
+  import were dropped from the table.
+- **Detail-panel header is now a 3-section supplier profile** — each a `border-b
+  p-4` block with a sentence-case `text-sm font-medium text-muted-foreground`
+  subheader: **"Spend at a glance"** (3 StatBlocks) · **"Performance &
+  classification"** (Performance-score StatBlock + ALWAYS-on ABC + Kraljic chips
+  via a shared `Chip` helper — `rounded-md` color-mix 12% tint, null → muted "—"
+  placeholder — plus a destructive `Tier mismatch: declared X, calculated Y` badge
+  when flagged) · **"Activity"** (date span). The old single stats+chips block is gone.
+- ⚠️ **`spend-detail` route extended** (the one sanctioned API change this batch,
+  user-approved): `SupplierMetric.compositeScore` / `calculatedTier` /
+  `tierMismatch` added to the SELECT and to `SpendDetail.supplier`
+  (`performanceScore`, `calculatedTier`, `tierMismatch`). The panel shows the
+  **REAL** composite score + **REAL** tier-mismatch (not the ABC-class heuristic
+  the spec proposed as a fallback). ⚠️ ABC/Kraljic chips remain **LATEST-period**
+  (a supplier inactive in the latest period — e.g. PT Hexindo, last active 2025 —
+  shows "Class —"/"—"; the tier-mismatch + perf score come from its latest
+  `SupplierMetric` row regardless).
+- **Sidebar is collapsible** (`components/Sidebar.tsx`): chevron toggle at top,
+  `w-60`↔`w-16`, `transition-[width] duration-200`, labels hidden when collapsed,
+  `title`-attribute tooltips (no `Tooltip` primitive exists in the repo). State
+  persists in `localStorage["dashboard_sidebar_collapsed"]`, read via
+  **`useSyncExternalStore`** (server snapshot = expanded) — this both avoids the
+  lint-banned set-state-in-effect and stays hydration-safe. Content area
+  auto-expands (sidebar is `shrink-0`, `<main>` is `flex-1` — no `ml` math).
+  ⚠️ The width transition is throttled in hidden preview tabs (measure with
+  transition disabled to verify the 240/64 px target).
+
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
   `transform_dataset.py`, Prisma schema, DB (migration
