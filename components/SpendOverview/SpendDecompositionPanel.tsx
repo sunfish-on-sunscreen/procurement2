@@ -16,6 +16,7 @@ import type { SpendDetail, SupplierEvolution } from "@/lib/spend-overview-types"
 import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
 import { formatCompactCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -372,28 +373,21 @@ export function SpendDecompositionPanel({
     return () => { cancelled = true; };
   }, [supplierId]);
 
-  // ESC closes.
-  useEffect(() => {
-    if (!supplierId) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [supplierId, onClose]);
-
   const evoData = evo?.id === supplierId ? evo.data : undefined;
 
   const s = detail?.supplier;
   const st = detail?.stats;
 
-  if (!supplierId) return null;
-
   return (
-    <div className="fixed inset-0 z-40">
-      <button type="button" aria-label="Close spend decomposition" onClick={onClose} className="absolute inset-0 cursor-default bg-foreground/10" />
-      <aside role="dialog" aria-label="Spend decomposition" className="absolute inset-y-0 right-0 flex w-[440px] max-w-[94vw] flex-col border-l bg-background shadow-xl">
+    <Dialog open={!!supplierId} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        aria-label="Spend decomposition"
+        className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[680px]"
+      >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold">{s?.name ?? "Loading…"}</h3>
+            <DialogTitle className="truncate text-base font-semibold">{s?.name ?? "Loading…"}</DialogTitle>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
                 {[s.category, s.tier, s.country].filter(Boolean).join(" · ") || s.id}
@@ -479,7 +473,7 @@ export function SpendDecompositionPanel({
             </div>
           </>
         )}
-      </aside>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

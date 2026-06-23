@@ -44,8 +44,16 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   cumulative-% line + 80/95 reference lines) + methodology footer. ⚠️ `AbcView`
   and `ParetoChart` are RETAINED — still imported by the shared `RangeCompute`
   (its `kind="abc"` branch is now unreachable but harmless).
-- **Spend decomposition panel** (`SpendDecompositionPanel`, right slideout) is
-  CHART-DRIVEN: Tab 1 "Spend by item" = horizontal bar chart (top 15 + Others);
+- **Spend decomposition panel** (`SpendDecompositionPanel`) is a **centered
+  floating card** (not a docked sidebar) — refactored onto the shadcn/base-ui
+  `Dialog`/`DialogContent` primitive (`components/ui/dialog.tsx`), which owns the
+  dim backdrop, fade-in + zoom-in animation, focus trap, scroll lock, and the ESC
+  / backdrop-click close paths. Open is controlled by `open={!!supplierId}` +
+  `onOpenChange`→`onClose` (parent always mounts it). Widened to ~680px
+  (`sm:max-w-[680px]`, `max-h-[85vh]` with internal scroll) to accommodate the
+  chart-driven content; header X button + DialogTitle (supplier name) retained,
+  the primitive's built-in close button is suppressed (`showCloseButton={false}`).
+  It is CHART-DRIVEN: Tab 1 "Spend by item" = horizontal bar chart (top 15 + Others);
   Tab 2 "All POs" = time-series bar chart; both have a "View as table" toggle
   (chart default). Tabs 1+2 are **period-scoped** via
   `/api/suppliers/[id]/spend-detail?start&end` (optional params; omit = all-time,
