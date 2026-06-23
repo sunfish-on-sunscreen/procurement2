@@ -39,7 +39,7 @@ function Pill({ color, children }: { color?: string; children: React.ReactNode }
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
       style={
         color
-          ? { backgroundColor: `${color}22`, color }
+          ? { backgroundColor: `color-mix(in srgb, ${color} 13%, transparent)`, color }
           : { backgroundColor: "var(--muted)" }
       }
     >

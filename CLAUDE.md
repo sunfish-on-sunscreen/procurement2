@@ -71,6 +71,61 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
 - **Report editor unchanged**: it keeps its own ABC section and `OverviewCharts`;
   dashboard→report propagation is deferred (`dashboard_report_propagation.md`).
 
+### Spend Overview design unification + insights panel
+- **`StatBlock` primitive (`components/ui/stat-block.tsx`)** — the single stat
+  callout (`Card` container, sentence-case `label`, `font-semibold` value,
+  optional `sublabel`, `accent` left-border, `size` default/`lg`). Replaced THREE
+  divergent patterns: KPI cards (now `lg`), ABC class boxes (`accent`
+  destructive/warning/success), and the panel header stats. Lives in
+  `components/ui/` for reuse on future merges (e.g. Supplier Classification).
+- **Chart colours are CSS vars (Approach A).** `lib/chart-colors.ts` now holds
+  `var(--chart-1..8)` / `var(--abc-*)` / `var(--quadrant-*)` / `var(--zone-*)`
+  instead of hex; the tokens are defined in `app/globals.css` for **both** light
+  (values preserve the prior hardcoded hex — light mode unchanged) and dark
+  (brightened ≈Tailwind *-400). ⚠️ Recharts resolves `var()` in `fill`/`stroke`
+  (verified in-browser). Charts now adapt to dark mode app-wide. The Pareto
+  cumulative line uses `var(--chart-line)` (was `#334155`).
+- ⚠️ **Hex-alpha concatenation (`${color}22`) breaks with CSS vars** — replaced
+  with `color-mix(in srgb, ${color} 13%, transparent)` at the badge tints in
+  `SpendDecompositionPanel` AND (compat-only, appearance-preserving) the report
+  editor's `SupplierDetailPanel` `Pill`. This is the one report-editor file the
+  batch touched, and only to keep it rendering identically after the constant
+  migration.
+- **Number formatting — "tooltips local" (user ruling).** Dashboard-only surfaces
+  (KPIs, `InsightsPanel`, ranking) use `formatCompactCurrency` (the canonical
+  compact formatter); the duplicate `Intl` `usdCompact` was removed from
+  `SpendOverviewClient`. ⚠️ The **shared chart components keep `usdCompact`** so
+  report tooltips stay byte-identical (they render in `ReportDocument`); the
+  decomposition panel keeps `usd0` (exact) since it's the exact-values surface.
+  *(Deferred: when the report editor is synced, reconcile report-chart tooltips —
+  the intended report convention is FULL numbers. There is no
+  `dashboard_report_propagation.md` file in the repo yet; this note records it.)*
+- ⚠️ **html2canvas + `var()` caveat (untested here):** report PDF export
+  rasterizes Recharts SVG; html2canvas's CSS-var support is historically partial.
+  PDF export was NOT modified or re-verified in this batch — confirm chart colours
+  survive PDF export when the report-sync batch runs.
+- **`InsightsPanel` (`components/SpendOverview/InsightsPanel.tsx`)** — consolidated
+  analytical summary at the TOP of the page (below title, above KPIs), in a `Card`
+  titled "Spend at a glance". Three sections (scale+concentration paragraph,
+  "Where the money goes" category/top-supplier paragraph, "Patterns worth noting"
+  bullets) + an italic closing hint. Computed CLIENT-SIDE from already-loaded
+  `spend_overview` + `abc` + `ranking` (no new API/Python). **Period-aware**:
+  `periodPhrase()` renders "from 2024 to 2026" (range) vs "in 2026" (single year),
+  threaded via new `periodLabel`/`isRangeMode` props from `page.tsx`
+  (`isRangeMode = source.kind === "range"`). Top-supplier invoice count is joined
+  from `ranking` by `supplier_id` (not in `top_suppliers`). ⚠️ The "supplier
+  consistency across periods" idea from the spec was **replaced with an in-span
+  spend-concentration bullet** (suppliers to reach 50%/80%) — per-period
+  decomposition isn't in the loaded aggregate and new fetches were out of scope.
+  Gated on `data.abc` (skips gracefully in any abc-less mode).
+- **Per-section card descriptions REMOVED** (Monthly Spend Trend, Pareto/ABC, All
+  Suppliers) — the InsightsPanel now carries all context. Spend-by-Category and
+  Top-10 already had none.
+- **Typography unified**: panel `DialogTitle` uses `CardTitle` styling
+  (`font-heading font-medium`, not the old `font-semibold` override); all
+  `uppercase tracking-wide` labels (panel header stats + Evolution-tab headers)
+  are now sentence case.
+
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
   `transform_dataset.py`, Prisma schema, DB (migration

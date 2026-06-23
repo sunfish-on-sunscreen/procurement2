@@ -52,7 +52,12 @@ export default async function SpendOverviewPage() {
       <h1 className="text-2xl font-semibold">
         Spend Overview{label ? ` — ${label}` : ""}
       </h1>
-      <SpendOverviewClient startDate={startDate} endDate={endDate} />
+      <SpendOverviewClient
+        startDate={startDate}
+        endDate={endDate}
+        periodLabel={label}
+        isRangeMode={source.kind === "range"}
+      />
     </div>
   );
 }

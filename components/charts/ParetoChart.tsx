@@ -100,7 +100,7 @@ export function ParetoChart({ data }: { data: AbcClassification[] }) {
           type="monotone"
           dataKey="cumulative_pct"
           name="Cumulative %"
-          stroke="#334155"
+          stroke="var(--chart-line)"
           strokeWidth={2}
           dot={false}
         />

@@ -7,10 +7,11 @@ import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatBlock } from "@/components/ui/stat-block";
+import { formatCompactCurrency } from "@/lib/utils";
 import { SpendByCategoryChart } from "@/components/charts/SpendByCategoryChart";
 import { MonthlySpendTrendChart } from "@/components/charts/MonthlySpendTrendChart";
 import { TopSuppliersCard } from "@/components/analysis/OverviewCharts";
@@ -18,32 +19,9 @@ import { PinProvider } from "@/components/Reports/PinContext";
 import { SupplierRankingTable } from "./SupplierRankingTable";
 import { SpendDecompositionPanel } from "./SpendDecompositionPanel";
 import { AbcParetoCard } from "./AbcParetoCard";
+import { InsightsPanel } from "./InsightsPanel";
 
-const usdCompact = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-const usd0 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
 const num0 = new Intl.NumberFormat("en-US");
-
-function KpiCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription>{label}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
-      </CardContent>
-    </Card>
-  );
-}
 
 type PageData = {
   spend_overview: SpendOverviewResult;
@@ -59,9 +37,13 @@ type PageData = {
 export function SpendOverviewClient({
   startDate,
   endDate,
+  periodLabel,
+  isRangeMode,
 }: {
   startDate: string;
   endDate: string;
+  periodLabel: string;
+  isRangeMode: boolean;
 }) {
   // Loaded data / error are tagged with the span key they belong to, so loading
   // is derived (no synchronous setState in the effect — matches ReportEditor).
@@ -132,11 +114,21 @@ export function SpendOverviewClient({
 
   return (
     <>
+      {data.abc && (
+        <InsightsPanel
+          spendOverview={spend}
+          abc={data.abc}
+          ranking={data.ranking}
+          periodLabel={periodLabel}
+          isRangeMode={isRangeMode}
+        />
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Total Spend" value={usdCompact.format(spend.total_spend)} />
-        <KpiCard label="Total invoices" value={num0.format(spend.total_pos)} />
-        <KpiCard label="Active Suppliers" value={num0.format(spend.active_suppliers)} />
-        <KpiCard label="Avg invoice value" value={usd0.format(avgPoValue)} />
+        <StatBlock size="lg" label="Total spend" value={formatCompactCurrency(spend.total_spend)} />
+        <StatBlock size="lg" label="Total invoices" value={num0.format(spend.total_pos)} />
+        <StatBlock size="lg" label="Active suppliers" value={num0.format(spend.active_suppliers)} />
+        <StatBlock size="lg" label="Avg invoice value" value={formatCompactCurrency(avgPoValue)} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -157,9 +149,6 @@ export function SpendOverviewClient({
       <Card>
         <CardHeader>
           <CardTitle>Monthly Spend Trend</CardTitle>
-          <CardDescription>
-            Realized spend, bucketed by supplier invoice date.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <MonthlySpendTrendChart data={spend.monthly_trend} />

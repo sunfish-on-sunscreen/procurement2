@@ -17,6 +17,7 @@ import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
 import { formatCompactCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -37,15 +38,6 @@ function ViewToggle({ view, setView }: { view: View; setView: (v: View) => void 
         {view === "chart" ? <TableIcon className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
         {view === "chart" ? "View as table" : "View as chart"}
       </button>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="truncate text-sm font-semibold">{value}</div>
     </div>
   );
 }
@@ -229,7 +221,7 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
 
       {/* A: classification trajectory */}
       <section>
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Classification</h4>
+        <h4 className="mb-2 text-xs font-medium text-muted-foreground">Classification</h4>
         <div className="flex flex-wrap items-center gap-1.5">
           {data.periods.map((p, i) => (
             <div key={p.year} className="flex items-center gap-1.5">
@@ -249,7 +241,7 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
 
       {/* B: spend trajectory */}
       <section>
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Annual spend</h4>
+        <h4 className="mb-2 text-xs font-medium text-muted-foreground">Annual spend</h4>
         <ChartFrame height={180}>
           <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -264,7 +256,7 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
       {/* C: performance trajectory (only if any data) */}
       {hasPerf && (
         <section>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Performance score</h4>
+          <h4 className="mb-2 text-xs font-medium text-muted-foreground">Performance score</h4>
           <ChartFrame height={180}>
             <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -280,7 +272,7 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
       {/* D: product mix over time */}
       {mixKeys.length > 0 && (
         <section>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Product mix over time</h4>
+          <h4 className="mb-2 text-xs font-medium text-muted-foreground">Product mix over time</h4>
           <ChartFrame height={200}>
             <BarChart data={mix} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -298,7 +290,7 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
       {/* E: insights */}
       {data.insights.length > 0 && (
         <section>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Insights</h4>
+          <h4 className="mb-1 text-xs font-medium text-muted-foreground">Insights</h4>
           <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
             {data.insights.map((t, i) => (
               <li key={i}>{t}</li>
@@ -387,7 +379,7 @@ export function SpendDecompositionPanel({
       >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
-            <DialogTitle className="truncate text-base font-semibold">{s?.name ?? "Loading…"}</DialogTitle>
+            <DialogTitle className="truncate font-heading text-base font-medium leading-snug">{s?.name ?? "Loading…"}</DialogTitle>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
                 {[s.category, s.tier, s.country].filter(Boolean).join(" · ") || s.id}
@@ -411,19 +403,31 @@ export function SpendDecompositionPanel({
 
         {detail && st && s && (
           <>
-            <div className="grid grid-cols-3 gap-3 border-b p-4">
-              <Stat label="Total spend" value={usd0.format(st.totalSpend)} />
-              <Stat label="Invoices" value={String(st.poCount)} />
-              <Stat label="Avg invoice" value={usd0.format(st.avgPoValue)} />
-              <Stat label="Activity" value={st.earliestDate && st.latestDate ? `${st.earliestDate} → ${st.latestDate}` : "—"} />
-              <div className="col-span-2 flex flex-wrap items-center gap-2">
+            <div className="border-b p-4">
+              <div className="grid grid-cols-3 gap-4">
+                <StatBlock label="Total spend" value={usd0.format(st.totalSpend)} />
+                <StatBlock label="Invoices" value={String(st.poCount)} />
+                <StatBlock label="Avg invoice" value={usd0.format(st.avgPoValue)} />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {st.earliestDate && st.latestDate && (
+                  <span className="text-xs text-muted-foreground">
+                    Active {st.earliestDate} → {st.latestDate}
+                  </span>
+                )}
                 {s.abcClass && (
-                  <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${ABC_COLORS[s.abcClass]}22`, color: ABC_COLORS[s.abcClass] }}>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{ backgroundColor: `color-mix(in srgb, ${ABC_COLORS[s.abcClass]} 13%, transparent)`, color: ABC_COLORS[s.abcClass] }}
+                  >
                     Class {s.abcClass}
                   </span>
                 )}
                 {s.kraljicQuadrant && (
-                  <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ backgroundColor: `${QUADRANT_COLORS[s.kraljicQuadrant]}22`, color: QUADRANT_COLORS[s.kraljicQuadrant] }}>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{ backgroundColor: `color-mix(in srgb, ${QUADRANT_COLORS[s.kraljicQuadrant]} 13%, transparent)`, color: QUADRANT_COLORS[s.kraljicQuadrant] }}
+                  >
                     {s.kraljicQuadrant}
                   </span>
                 )}

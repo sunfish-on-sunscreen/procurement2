@@ -8,7 +8,6 @@ import { formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -76,10 +75,6 @@ export function SupplierRankingTable({
     <Card>
       <CardHeader>
         <CardTitle>All Suppliers</CardTitle>
-        <CardDescription>
-          {rows.length} suppliers by spend. Click a row for the spend
-          decomposition.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="max-h-[640px] overflow-y-auto">

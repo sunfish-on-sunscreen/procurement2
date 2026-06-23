@@ -18,6 +18,9 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-chart-8: var(--chart-8);
+  --color-chart-7: var(--chart-7);
+  --color-chart-6: var(--chart-6);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -67,11 +70,35 @@
   --border: oklch(0.929 0.013 255.508);
   --input: oklch(0.929 0.013 255.508);
   --ring: oklch(0.704 0.04 256.788);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  /* Chart palette — light values preserve the prior hardcoded CHART_COLORS so
+     light mode is visually unchanged; .dark provides tuned variants so charts
+     finally adapt to theme like the rest of the UI. */
+  --chart-1: #3b82f6;
+  --chart-2: #10b981;
+  --chart-3: #f59e0b;
+  --chart-4: #ef4444;
+  --chart-5: #8b5cf6;
+  --chart-6: #06b6d4;
+  --chart-7: #ec4899;
+  --chart-8: #84cc16;
+  /* Neutral line used for the Pareto cumulative-% overlay. */
+  --chart-line: #334155;
+  /* Semantic analysis colors (ABC class, Kraljic quadrant, performance zone).
+     --abc-a and --quadrant-strategic intentionally share red — separate tokens. */
+  --abc-a: #ef4444;
+  --abc-b: #f59e0b;
+  --abc-c: #84cc16;
+  --quadrant-strategic: #ef4444;
+  --quadrant-leverage: #10b981;
+  --quadrant-bottleneck: #f59e0b;
+  --quadrant-routine: #3b82f6;
+  --zone-stars: #10b981;
+  --zone-critical: #ef4444;
+  --zone-hidden-gems: #8b5cf6;
+  --zone-long-tail: #94a3b8;
+  /* StatBlock accent helpers (theme has --destructive already). */
+  --warning: #f59e0b;
+  --success: #84cc16;
   --radius: 0.625rem;
   --sidebar: oklch(0.984 0.003 247.858);
   --sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -102,11 +129,29 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  /* Brightened palette for legibility on the dark canvas (≈Tailwind *-400). */
+  --chart-1: #60a5fa;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #f87171;
+  --chart-5: #a78bfa;
+  --chart-6: #22d3ee;
+  --chart-7: #f472b6;
+  --chart-8: #a3e635;
+  --chart-line: #94a3b8;
+  --abc-a: #f87171;
+  --abc-b: #fbbf24;
+  --abc-c: #a3e635;
+  --quadrant-strategic: #f87171;
+  --quadrant-leverage: #34d399;
+  --quadrant-bottleneck: #fbbf24;
+  --quadrant-routine: #60a5fa;
+  --zone-stars: #34d399;
+  --zone-critical: #f87171;
+  --zone-hidden-gems: #a78bfa;
+  --zone-long-tail: #cbd5e1;
+  --warning: #fbbf24;
+  --success: #a3e635;
   --sidebar: oklch(0.208 0.042 265.755);
   --sidebar-foreground: oklch(0.984 0.003 247.858);
   --sidebar-primary: oklch(0.488 0.243 264.376);

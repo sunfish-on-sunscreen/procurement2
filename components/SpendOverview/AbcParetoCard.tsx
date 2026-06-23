@@ -1,17 +1,21 @@
 "use client";
 
 import type { AbcResult } from "@/lib/analysis-types";
-import { ABC_COLORS } from "@/lib/chart-colors";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatBlock, type StatBlockProps } from "@/components/ui/stat-block";
 import { ParetoChart } from "@/components/charts/ParetoChart";
 
 const ABC_CLASSES = ["A", "B", "C"] as const;
+const ABC_ACCENT: Record<"A" | "B" | "C", StatBlockProps["accent"]> = {
+  A: "destructive",
+  B: "warning",
+  C: "success",
+};
 const pct1 = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
 
 /**
@@ -26,27 +30,17 @@ export function AbcParetoCard({ abc }: { abc: AbcResult }) {
     <Card>
       <CardHeader>
         <CardTitle>Pareto / ABC Analysis</CardTitle>
-        <CardDescription>
-          Suppliers ranked by spend; the top 80% form Class A, the next 15%
-          Class B, the bottom 5% Class C.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-4">
           {ABC_CLASSES.map((cls) => (
-            <div
+            <StatBlock
               key={cls}
-              className="rounded-md border p-3"
-              style={{ borderLeft: `4px solid ${ABC_COLORS[cls]}` }}
-            >
-              <div className="text-xs text-muted-foreground">Class {cls}</div>
-              <div className="text-lg font-semibold">
-                {abc.summary[cls].n} suppliers
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {pct1(abc.summary[cls].pct_of_spend)} of spend
-              </div>
-            </div>
+              accent={ABC_ACCENT[cls]}
+              label={`Class ${cls}`}
+              value={`${abc.summary[cls].n} suppliers`}
+              sublabel={`${pct1(abc.summary[cls].pct_of_spend)} of spend`}
+            />
           ))}
         </div>
 
