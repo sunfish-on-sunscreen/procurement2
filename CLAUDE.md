@@ -197,6 +197,43 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   ⚠️ The width transition is throttled in hidden preview tabs (measure with
   transition disabled to verify the 240/64 px target).
 
+### Score Methodology Architecture (methodology rebuild)
+- **All five sub-scores are now code-derived in `scripts/transform_dataset.py`**
+  from raw operational inputs — the xlsx score columns are OVERWRITTEN, so the
+  transformer (not the xlsx) is the source of truth. The transformer is now
+  **fully deterministic — no `rng` / no Gaussian noise anywhere**.
+- **Fixed industry bounds** (NOT population min/max), so scores are stable when
+  data changes. `norm_high/norm_low` clamp to [0,100]:
+  - `quality = (norm_low(defect_rate_pct,0,10) + norm_low(complaint_count,0,10))/2`
+  - `delivery = (norm_high(on_time_delivery_pct,0,100) + norm_low(avg_lead_time_days,0,60))/2`
+  - `service = (norm_low(avg_response_time_days,0,14) + norm_high(rfx_response_rate_pct,0,100))/2`
+  - `process = norm_high(three_way_match_pct,0,100)`
+- **`risk_score` is now fully derivable (Decision C), higher = SAFER:**
+  `100 − (0.4·country_distance_score + 0.3·min(complaints×10,100) + 0.3·single_source_risk×100)`
+  where `country_distance_score` = ID 0 / ASEAN 30 / Asia-Pacific 60 / other 100.
+  ⚠️ This **corrected a polarity bug**: the old risk_score was higher=riskier yet
+  positively weighted in the composite. The fix (plus fixed bounds) is why
+  composites/tiers shifted on the rebuild (composite mean ~68→76; calc-tier
+  ~12/38/5 → 32/21/2 Core/Est/Std; mismatch 25→27).
+- `single_source_risk` is read as an **existing 0/1 data field** (no longer
+  regenerated) so the transformer carries no randomness; `composite_score`
+  (weights 0.25/0.25/0.15/0.20/0.15) and `calculated_tier` (75/55) recompute over
+  the derived sub-scores; `process_score` reproduces the prior identity exactly
+  (= three_way_match_pct), so it shows 0 change in the diff.
+- **`scripts/transform_dataset.py` logs an old-vs-new diff** (summary + buckets +
+  top-5/score + tier crossings + mismatch flips) and saves the full diff to
+  `scripts/score_rebuild_diff.json` (**gitignored**, intermediate). It prompts
+  before overwrite when interactive; auto-proceeds when stdin is piped.
+- ⚠️ **The transformer writes the xlsx only — the DB is refreshed by re-importing
+  via `/api/imports/upload`** (admin), which re-runs the Python analyses. ABC /
+  Kraljic are spend-based → unchanged; Performance-vs-Spend zones + Action recs
+  recompute from the new composite (expected).
+- **Tier-mismatch badge softened (Layout C):** the detail panel no longer shows a
+  destructive "Tier mismatch: declared X, calculated Y" badge. It now shows a
+  muted diagnostic — `Composite NN.N (suggests <calc> · declared <tier>)` + the
+  threshold reference `Core ≥ 75 · Established 55–74 · Standard < 55` — **gated on
+  `s.tierMismatch && s.abcClass != null`** (suppress when no latest-period activity).
+
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
   `transform_dataset.py`, Prisma schema, DB (migration

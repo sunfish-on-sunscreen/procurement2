@@ -29,7 +29,9 @@ Purchases dates are left untouched.
 Usage:  python scripts/transform_dataset.py
 """
 
+import json
 import os
+import sys
 import numpy as np
 import pandas as pd
 
@@ -47,28 +49,107 @@ WEIGHTS = {
     "process_score": 0.20,
     "risk_score": 0.15,
 }
-ASEAN = {"SG", "MY", "TH", "VN", "PH", "BN", "MM", "LA", "KH"}
-
-# Single-source flag probability by category size. Calibrated DOWN from the
-# spec's suggested rates because this dataset has no 1-supplier categories and
-# many 2-3 supplier ones, so the spec rates would flag ~30% (target is 15-20%).
-def single_source_prob(category_size: int) -> float:
-    if category_size <= 1:
-        return 1.0
-    if category_size <= 3:
-        return 0.28
-    if category_size <= 5:
-        return 0.12
-    return 0.05
-
-
-def country_distance(code: str) -> float:
-    c = str(code).strip()
-    if c in ("ID", "Indonesia"):
+# --- Score helpers (methodology rebuild) ---------------------------------- #
+# Geographic supply risk, coarse tiers 0 (safest) … 100 (riskiest) (Decision C).
+def country_distance_score(code: str) -> float:
+    c = str(code).strip().upper()
+    if c in ("ID", "INDONESIA"):
         return 0.0
-    if c in ASEAN:
-        return 5.0
-    return 15.0
+    if c in ("SG", "MY", "TH", "VN", "PH"):  # ASEAN regional
+        return 30.0
+    if c in ("CN", "JP", "KR", "AU", "IN"):  # Asia-Pacific
+        return 60.0
+    return 100.0  # other international
+
+
+# Fixed-bound min-max normalization, clamped to [0,100] so inputs outside the
+# documented bounds can't produce negative or >100 scores (Decision B/D).
+def norm_high(value: float, lo: float, hi: float) -> float:
+    """Higher input → higher score."""
+    return float(np.clip((float(value) - lo) / (hi - lo), 0.0, 1.0) * 100.0)
+
+
+def norm_low(value: float, lo: float, hi: float) -> float:
+    """Lower input → higher score."""
+    return float(np.clip((hi - float(value)) / (hi - lo), 0.0, 1.0) * 100.0)
+
+
+SCORE_COLS = [
+    "quality_score", "delivery_score", "service_score",
+    "process_score", "risk_score", "composite_score",
+]
+
+
+def _buckets(deltas):
+    b = {"<1": 0, "1-5": 0, "5-10": 0, "10-25": 0, ">25": 0}
+    for d in deltas:
+        a = abs(d)
+        if a < 1:
+            b["<1"] += 1
+        elif a < 5:
+            b["1-5"] += 1
+        elif a < 10:
+            b["5-10"] += 1
+        elif a <= 25:
+            b["10-25"] += 1
+        else:
+            b[">25"] += 1
+    return b
+
+
+def build_diff(old, new):
+    """Per-supplier old-vs-new score diff for human review (Decision F)."""
+    oi, ni = old.set_index("supplier_id"), new.set_index("supplier_id")
+    per = []
+    for sid in ni.index:
+        row = {"supplier_id": sid, "supplier_name": ni.loc[sid, "supplier_name"]}
+        for c in SCORE_COLS:
+            ov, nv = float(oi.loc[sid, c]), float(ni.loc[sid, c])
+            row[c] = {"old": ov, "new": nv, "delta": round(nv - ov, 2)}
+        row["calculated_tier"] = {"old": oi.loc[sid, "calculated_tier"], "new": ni.loc[sid, "calculated_tier"]}
+        row["tier_mismatch"] = {"old": bool(oi.loc[sid, "tier_mismatch"]), "new": bool(ni.loc[sid, "tier_mismatch"])}
+        per.append(row)
+    summary, top5 = {}, {}
+    for c in SCORE_COLS:
+        deltas = [r[c]["delta"] for r in per]
+        summary[c] = {
+            "changed": sum(1 for d in deltas if abs(d) >= 0.01),
+            "mean_abs": round(sum(abs(d) for d in deltas) / len(deltas), 2),
+            "max_abs": round(max(abs(d) for d in deltas), 2),
+            "buckets": _buckets(deltas),
+        }
+        top5[c] = sorted(
+            [{"supplier_name": r["supplier_name"], "old": r[c]["old"], "new": r[c]["new"], "delta": r[c]["delta"]} for r in per],
+            key=lambda x: abs(x["delta"]), reverse=True,
+        )[:5]
+    tier_changes = [
+        {"supplier_name": r["supplier_name"], "old": r["calculated_tier"]["old"], "new": r["calculated_tier"]["new"]}
+        for r in per if r["calculated_tier"]["old"] != r["calculated_tier"]["new"]
+    ]
+    mismatch_changes = [
+        {"supplier_name": r["supplier_name"], "old": r["tier_mismatch"]["old"], "new": r["tier_mismatch"]["new"]}
+        for r in per if r["tier_mismatch"]["old"] != r["tier_mismatch"]["new"]
+    ]
+    return {"summary": summary, "top5": top5, "tier_changes": tier_changes, "mismatch_changes": mismatch_changes, "per_supplier": per}
+
+
+def print_diff_summary(diff):
+    print("\n==================== SCORE REBUILD DIFF ====================")
+    for c, s in diff["summary"].items():
+        print(f"  {c:16} changed={s['changed']:2}/55  mean|d|={s['mean_abs']:6}  max|d|={s['max_abs']:6}  {s['buckets']}")
+    for c in SCORE_COLS:
+        print(f"\n  Top 5 shifts - {c}:")
+        for t in diff["top5"][c]:
+            print(f"    {t['supplier_name'][:30]:30} {t['old']:6} -> {t['new']:6}  (d {t['delta']:+.2f})")
+    print(f"\n  calculated_tier crossings ({len(diff['tier_changes'])}):")
+    for t in diff["tier_changes"]:
+        print(f"    {t['supplier_name'][:30]:30} {t['old']} -> {t['new']}")
+    old_mm = sum(1 for r in diff["per_supplier"] if r["tier_mismatch"]["old"])
+    new_mm = sum(1 for r in diff["per_supplier"] if r["tier_mismatch"]["new"])
+    print(f"\n  tier_mismatch: was {old_mm}/55 true, now {new_mm}/55 true ({len(diff['mismatch_changes'])} flipped)")
+    for t in diff["mismatch_changes"]:
+        print(f"    {t['supplier_name'][:30]:30} {t['old']} -> {t['new']}")
+    print("============================================================")
 
 
 def summarize(label, series):
@@ -79,8 +160,9 @@ def summarize(label, series):
 
 
 def main():
-    rng = np.random.default_rng(SEED)
-
+    # Methodology rebuild: the transformer is now FULLY DETERMINISTIC — no rng.
+    # All five sub-scores + composite + tier are derived from raw operational
+    # inputs with fixed industry bounds (the xlsx scores are overwritten).
     sheets = pd.read_excel(XLSX, sheet_name=None)  # ordered dict of all sheets
     suppliers = sheets["Suppliers"]
     metrics = sheets["SupplierMetrics"]
@@ -98,37 +180,50 @@ def main():
     suppliers["tier"] = suppliers["tier"].map(lambda t: TIER_MAP.get(t, t))
     metrics["tier"] = metrics["tier"].map(lambda t: TIER_MAP.get(t, t))
 
-    # Category sizes from the supplier catalogue.
-    cat_size = suppliers.groupby("category")["supplier_id"].transform("size")
-    size_by_id = dict(zip(suppliers["supplier_id"], cat_size))
+    # Snapshot the pre-rebuild scores so we can diff old-vs-new (Decision F).
+    old_scores = metrics[
+        ["supplier_id", "supplier_name", "tier", *SCORE_COLS, "calculated_tier", "tier_mismatch"]
+    ].copy()
 
-    # --- 2. risk_score (varied 20-95) ------------------------------------- #
-    # Spend reliability credit: top spenders earn up to -10 (more dependable).
-    spend = metrics["total_spend_usd"].astype(float)
-    spend_norm = (spend - spend.min()) / (spend.max() - spend.min() + 1e-9)
+    # --- 2. Sub-scores from raw operational inputs, FIXED bounds (Decision B) #
+    # Bounds rationale (see methodology doc):
+    #   defect_rate 0-10% (Toyota near-zero; >1% investigate; 10% unacceptable)
+    #   complaint_count 0-10 (>10/yr = severe relationship issue)
+    #   lead_time 0-60 days (60-day lead = poor); response_time 0-14 days (2-wk SLA)
+    #   OTD / rfx_rate / 3-way-match are percentages (0-100) by definition.
+    metrics["quality_score"] = np.round([
+        (norm_low(r["defect_rate_pct"], 0, 10) + norm_low(r["complaint_count_annual"], 0, 10)) / 2
+        for _, r in metrics.iterrows()
+    ], 2)
+    metrics["delivery_score"] = np.round([
+        (norm_high(r["on_time_delivery_pct"], 0, 100) + norm_low(r["avg_lead_time_days"], 0, 60)) / 2
+        for _, r in metrics.iterrows()
+    ], 2)
+    metrics["service_score"] = np.round([
+        (norm_low(r["avg_response_time_days"], 0, 14) + norm_high(r["rfx_response_rate_pct"], 0, 100)) / 2
+        for _, r in metrics.iterrows()
+    ], 2)
+    metrics["process_score"] = np.round([
+        norm_high(r["three_way_match_pct"], 0, 100) for _, r in metrics.iterrows()
+    ], 2)
+
+    # --- 3. risk_score: deterministic composite, higher = safer (Decision C) #
+    # single_source_risk is read as an existing 0/1 data field (NOT regenerated).
     new_risk = []
     for _, r in metrics.iterrows():
-        base = 44.0
-        noise = float(np.clip(rng.normal(0, 18), -30, 30))
-        country = country_distance(r.get("country", ""))
-        complaints = min(float(r["complaint_count_annual"]) * 3.0, 15.0)
-        credit = -10.0 * float(spend_norm.loc[r.name])
-        new_risk.append(float(np.clip(base + noise + country + complaints + credit, 0, 100)))
+        country = country_distance_score(r.get("country", ""))
+        complaint = min(float(r["complaint_count_annual"]) * 10.0, 100.0)
+        concentration = float(r["single_source_risk"]) * 100.0
+        risk = 100.0 - (0.4 * country + 0.3 * complaint + 0.3 * concentration)
+        new_risk.append(float(np.clip(risk, 0, 100)))
     metrics["risk_score"] = np.round(new_risk, 2)
 
-    # --- 3. single_source_risk (~15-20%, small-category biased) ----------- #
-    flags = []
-    for _, r in metrics.iterrows():
-        size = int(size_by_id.get(r["supplier_id"], 99))
-        flags.append(1 if rng.random() < single_source_prob(size) else 0)
-    metrics["single_source_risk"] = flags
-
-    # --- 4. composite_score (recompute with new risk) --------------------- #
+    # --- 4. composite_score (existing weights, now over derived sub-scores) - #
     metrics["composite_score"] = np.round(
         sum(metrics[col] * w for col, w in WEIGHTS.items()), 2
     )
 
-    # --- 5. calculated_tier + tier_mismatch (new names) ------------------- #
+    # --- 5. calculated_tier + tier_mismatch (75/55 thresholds) ------------ #
     def tier_of(score):
         if score >= 75:
             return "Core"
@@ -157,6 +252,21 @@ def main():
     summarize("composite_score", metrics["composite_score"])
     print("  calculated_tier:", metrics["calculated_tier"].value_counts().to_dict())
     print("  tier_mismatch:", metrics["tier_mismatch"].value_counts().to_dict())
+
+    # --- Rebuild diff + review gate (Decision F) -------------------------- #
+    diff = build_diff(old_scores, metrics)
+    print_diff_summary(diff)
+    diff_path = os.path.join(HERE, "score_rebuild_diff.json")
+    with open(diff_path, "w") as f:
+        json.dump(diff, f, indent=2)
+    print(f"\nFull diff saved to {diff_path}")
+    # Confirmation gate: interactive prompt for humans; auto-proceed when piped.
+    if sys.stdin.isatty():
+        if input("\nContinue with overwrite? [y/N] ").strip().lower() != "y":
+            print("Aborted — no values written.")
+            return
+    else:
+        print("\n[non-interactive] Would prompt 'Continue with overwrite? [y/N]' - proceeding.")
 
     # --- Write back (preserve sheet order) -------------------------------- #
     sheets["Suppliers"] = suppliers

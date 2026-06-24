@@ -451,13 +451,17 @@ export function SpendDecompositionPanel({
                     color={s.kraljicQuadrant ? QUADRANT_COLORS[s.kraljicQuadrant] : null}
                     label={s.kraljicQuadrant ?? "—"}
                   />
-                  {s.tierMismatch && (
-                    <span
-                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                      style={{ backgroundColor: "color-mix(in srgb, var(--destructive) 10%, transparent)", color: "var(--destructive)" }}
-                    >
-                      Tier mismatch: declared {s.tier ?? "—"}, calculated {s.calculatedTier ?? "—"}
-                    </span>
+                  {/* Tier-mismatch diagnostic (Layout C): muted, self-documenting,
+                      and gated on latest-period activity (abcClass present) so it
+                      doesn't fire for suppliers absent from the latest period. */}
+                  {s.tierMismatch && s.abcClass != null && (
+                    <div className="basis-full text-xs leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        Composite {s.performanceScore != null ? s.performanceScore.toFixed(1) : "—"}
+                      </span>{" "}
+                      (suggests {s.calculatedTier ?? "—"} · declared {s.tier ?? "—"})
+                      <div>Core ≥ 75 · Established 55–74 · Standard &lt; 55</div>
+                    </div>
                   )}
                 </div>
               </div>

@@ -285,10 +285,125 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 4. Action Recommendations Synthesis */}
+      {/* 4. Supplier Scorecard Methodology */}
       <Card>
         <CardHeader>
-          <CardTitle>4. Action Recommendations Synthesis</CardTitle>
+          <CardTitle>4. Supplier Scorecard Methodology</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            Each supplier carries a 0–100 <strong>composite performance score</strong>,
+            built from five sub-scores that are <strong>derived in code from raw
+            operational data</strong> (deliveries, three-way-match results, quality and
+            service records). Every sub-score is normalized to 0–100 against{" "}
+            <strong>fixed industry bounds</strong>, so a supplier is measured against
+            absolute standards — not against whoever else happens to be in the dataset.
+          </p>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">4.1 Sub-scores</h3>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>Quality</strong> — average of defect rate (bound 0–10%) and
+                annual complaints (0–10), both lower-is-better.
+              </li>
+              <li>
+                <strong>Delivery</strong> — average of on-time-delivery % (0–100,
+                higher-better) and average lead time (0–60 days, lower-better).
+              </li>
+              <li>
+                <strong>Service</strong> — average of response time (0–14 days,
+                lower-better) and RFx response rate (0–100, higher-better).
+              </li>
+              <li>
+                <strong>Process</strong> — three-way-match pass rate (0–100).
+              </li>
+              <li>
+                <strong>Risk</strong> — a geographic/operational/dependency index
+                (see 4.3).
+              </li>
+            </ul>
+            <p className="rounded-md bg-muted/50 p-2 text-xs">
+              <code>
+                norm_high(v, lo, hi) = clamp((v−lo)/(hi−lo), 0, 1) × 100 · norm_low(v,
+                lo, hi) = clamp((hi−v)/(hi−lo), 0, 1) × 100
+              </code>
+            </p>
+            <p className="text-xs">
+              Bounds reflect procurement conventions: near-zero-defect quality, a
+              two-week response SLA, a 60-day lead-time ceiling; percentages are 0–100
+              by definition. Clamping means values outside a bound score 0 or 100, never
+              negative or &gt;100.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              4.2 Composite score
+            </h3>
+            <p className="rounded-md bg-muted/50 p-2 text-xs">
+              <code>
+                composite = 0.25·quality + 0.25·delivery + 0.20·process + 0.15·service
+                + 0.15·risk
+              </code>
+            </p>
+            <p>
+              Quality and delivery carry the most weight — in mining, defective or late
+              equipment and consumables halt production. Process reflects documentation
+              discipline; service and risk act as modifiers. Weights align with CIPS and
+              APQC supplier-scorecard guidance for heavy industry.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">4.3 Risk score</h3>
+            <p className="rounded-md bg-muted/50 p-2 text-xs">
+              <code>
+                risk = 100 − (0.4·country_distance + 0.3·min(complaints×10, 100) +
+                0.3·single_source×100)
+              </code>
+            </p>
+            <p>
+              Higher = safer. Geographic distance tiers: Indonesia 0 · ASEAN 30 ·
+              Asia-Pacific 60 · other 100. The score is fully deterministic, with no
+              random component.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              4.4 Tier thresholds
+            </h3>
+            <p className="rounded-md bg-muted/50 p-2 text-xs">
+              <code>
+                composite ≥ 75 → Core · 55–74 → Established · &lt; 55 → Standard
+              </code>
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              How to interpret a tier mismatch
+            </h3>
+            <p>
+              Each supplier has a <strong>declared tier</strong> (its current
+              contractual classification) and a <strong>calculated tier</strong> (what
+              the composite score suggests). When they differ, the supplier detail
+              panel shows a muted note — e.g. <em>&ldquo;Composite 69.0 (suggests
+              Established · declared Core)&rdquo;</em> with the threshold reference —
+              rather than an alarm. It is a <strong>prompt to review</strong>, not a
+              verdict: declared tiers are set contractually and can lag current
+              performance. The note appears only for suppliers active in the latest
+              period.
+            </p>
+          </section>
+        </CardContent>
+      </Card>
+
+      {/* 5. Action Recommendations Synthesis */}
+      <Card>
+        <CardHeader>
+          <CardTitle>5. Action Recommendations Synthesis</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
           <p>
@@ -365,7 +480,7 @@ export default async function MethodologyPage() {
       {/* 5. Reporting Periods */}
       <Card>
         <CardHeader>
-          <CardTitle>5. Reporting Periods</CardTitle>
+          <CardTitle>6. Reporting Periods</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">
@@ -392,7 +507,7 @@ export default async function MethodologyPage() {
       {/* 5. Assumptions and Limitations */}
       <Card>
         <CardHeader>
-          <CardTitle>6. Assumptions and Limitations</CardTitle>
+          <CardTitle>7. Assumptions and Limitations</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-2 pl-5">
@@ -428,7 +543,7 @@ export default async function MethodologyPage() {
       {/* 6. References */}
       <Card>
         <CardHeader>
-          <CardTitle>7. References</CardTitle>
+          <CardTitle>8. References</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">
