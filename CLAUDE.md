@@ -198,10 +198,21 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   transition disabled to verify the 240/64 px target).
 
 ### Score Methodology Architecture (methodology rebuild)
-- **All five sub-scores are now code-derived in `scripts/transform_dataset.py`**
-  from raw operational inputs — the xlsx score columns are OVERWRITTEN, so the
-  transformer (not the xlsx) is the source of truth. The transformer is now
-  **fully deterministic — no `rng` / no Gaussian noise anywhere**.
+- **All five sub-scores are code-derived in `scripts/transform_dataset.py`**
+  from raw operational inputs — the transformer (not the xlsx) is the source of
+  truth for every derived value. It is **fully deterministic — no `rng` / no
+  Gaussian noise anywhere**.
+- ⚠️ **Two-file schema (xlsx cleanup).** The dataset is split into two committed
+  workbooks under `data/raw/`:
+  `procurement_data_raw.xlsx` = **input**, operational measurements only (NO
+  derived score columns), the source of truth for raw data; and
+  `procurement_data.xlsx` = **output**, raw columns + the 8 computed scores,
+  **regenerated each transformer run** and the file the import route reads.
+  **Flow: raw xlsx → transformer → enriched xlsx → import → DB.** The transformer
+  reads `RAW_XLSX`, **strictly rejects** any of the 8 derived columns in the raw
+  input (`DERIVED_COLS`, clear abort message), computes, and writes `XLSX`. The
+  import zod schema still requires the derived columns, so it reads the enriched
+  output — unchanged.
 - **Fixed industry bounds** (NOT population min/max), so scores are stable when
   data changes. `norm_high/norm_low` clamp to [0,100]:
   - `quality = (norm_low(defect_rate_pct,0,10) + norm_low(complaint_count,0,10))/2`
@@ -222,8 +233,11 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   (= three_way_match_pct), so it shows 0 change in the diff.
 - **`scripts/transform_dataset.py` logs an old-vs-new diff** (summary + buckets +
   top-5/score + tier crossings + mismatch flips) and saves the full diff to
-  `scripts/score_rebuild_diff.json` (**gitignored**, intermediate). It prompts
-  before overwrite when interactive; auto-proceeds when stdin is piped.
+  `scripts/score_rebuild_diff.json` (**gitignored**, intermediate). ⚠️ The diff
+  baseline is the **PREVIOUS enriched output** (`procurement_data.xlsx` read
+  before overwrite), not the raw input — on a first run with no prior output the
+  diff is skipped. It prompts before overwrite when interactive; auto-proceeds
+  when stdin is piped.
 - ⚠️ **The transformer writes the xlsx only — the DB is refreshed by re-importing
   via `/api/imports/upload`** (admin), which re-runs the Python analyses. ABC /
   Kraljic are spend-based → unchanged; Performance-vs-Spend zones + Action recs

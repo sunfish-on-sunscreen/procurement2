@@ -298,6 +298,9 @@ export default async function MethodologyPage() {
             service records). Every sub-score is normalized to 0–100 against{" "}
             <strong>fixed industry bounds</strong>, so a supplier is measured against
             absolute standards — not against whoever else happens to be in the dataset.
+            The source data contains <strong>operational measurements only</strong>; all
+            scorecard values are computed in our transformer, so every stored score is
+            reproducible from the underlying records.
           </p>
 
           <section className="space-y-2">

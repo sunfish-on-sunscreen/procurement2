@@ -203,13 +203,35 @@ Defense: documented threshold values. The 14/28 days OTD threshold reflects real
 
 #### Normalized sub-scores (formula-driven, FIXED bounds)
 
-> **Methodology rebuild.** All five sub-scores are now computed **in code**
-> (`scripts/transform_dataset.py`) from raw operational inputs and **overwrite**
-> the xlsx columns — the transformer, not the xlsx, is the source of truth.
-> Normalization uses **fixed industry bounds** (NOT population min/max), so a
-> supplier's score doesn't shift when other suppliers' data changes. All
-> normalization is clamped to [0, 100], so out-of-range inputs can't produce
-> negative or >100 scores.
+> **Methodology rebuild.** All five sub-scores are computed **in code**
+> (`scripts/transform_dataset.py`) from raw operational inputs — the transformer,
+> not the xlsx, is the source of truth for every derived value. Normalization
+> uses **fixed industry bounds** (NOT population min/max), so a supplier's score
+> doesn't shift when other suppliers' data changes. All normalization is clamped
+> to [0, 100], so out-of-range inputs can't produce negative or >100 scores.
+
+#### Source workbook schema (two files)
+
+The dataset lives in **two committed workbooks** under `data/raw/` so the schema
+reflects the rebuild — the input carries operational measurements only; the
+transformer computes and adds the scores:
+
+| File | Role | `SupplierMetrics` columns |
+|---|---|---|
+| `procurement_data_raw.xlsx` | **input** (source of truth for raw data) | identity + operational inputs only — **no** derived columns |
+| `procurement_data.xlsx` | **output** (regenerated each run; the import reads this) | raw columns **plus** the 8 derived columns |
+
+- **Raw input columns** (kept): `supplier_id`, `supplier_name`, `country`,
+  `category`, `tier` (declared), `total_spend_usd`, `num_pos`, `avg_po_value_usd`,
+  `avg_lead_time_days`, `avg_cycle_time_days`, `on_time_delivery_pct`,
+  `three_way_match_pct`, `defect_rate_pct`, `complaint_count_annual`,
+  `rfx_response_rate_pct`, `avg_response_time_days`, `single_source_risk`
+  (+ `product_description`).
+- **Transformer-output columns** (computed, NOT in the raw file): `quality_score`,
+  `delivery_score`, `service_score`, `process_score`, `risk_score`,
+  `composite_score`, `calculated_tier`, `tier_mismatch`.
+- The transformer **rejects** a raw workbook that contains any of the 8 derived
+  columns (they aren't authoritative inputs — see the run flow below).
 
 ```
 norm_high(v, lo, hi) = clamp((v - lo) / (hi - lo), 0, 1) × 100   # higher-is-better

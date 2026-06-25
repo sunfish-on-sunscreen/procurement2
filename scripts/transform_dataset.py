@@ -1,30 +1,31 @@
-"""One-off dataset transformer for Phase 11F (Batches 3a + 5).
+"""Deterministic supplier-scorecard transformer (two-file, schema-clean).
 
-The original synthetic-data GENERATOR is not in this repository — only its
-output (data/raw/procurement_data.xlsx). Rather than reconstruct the generator,
-this script reads that workbook, applies targeted fixes, and writes it back. A
-proper generator is deferred to a future phase.
+This script is the sole source of truth for all derived supplier scores. It
+reads the RAW workbook (``procurement_data_raw.xlsx``) — operational
+measurements only, with **no** derived score columns — computes the full
+scorecard, and writes the ENRICHED workbook (``procurement_data.xlsx``) that the
+import route reads. The two files are committed separately:
 
-Transformations (deterministic — fixed seed):
-  1. Tier rename:  Strategic -> Core, Preferred -> Established, Approved -> Standard
-                   (Suppliers.tier, SupplierMetrics.tier, .calculated_tier)
-  2. risk_score:   was saturated at 100 for every supplier; replaced with a
-                   varied 20-95 score driven by country distance, complaints,
-                   spend reliability credit, plus seeded Gaussian noise.
-  3. single_source_risk: was 0 for everyone; ~15-20% of suppliers are now
-                   flagged 1, biased toward small categories (fewer alternatives).
-  4. composite_score: recomputed from the (changed) risk_score.
-  5. calculated_tier / tier_mismatch: recomputed from the new composite_score,
-                   using the new tier names.
-  6. (Batch 5) Drop the Purchases.automation_period column. It was a hardcoded
-                   pre/post label for a one-time 2024->2025 automation event;
-                   the Cycle Time page no longer uses it (reframed to date-driven
-                   process-health monitoring). Idempotent: a no-op if absent.
+    procurement_data_raw.xlsx   (input)  — raw operational inputs, source of truth
+    procurement_data.xlsx       (output) — raw inputs + computed scores, imported
 
-Steps 1-5 are idempotent on already-transformed input (risk/single-source are
-recomputed from unchanged inputs under the fixed seed, so re-running reproduces
-identical Suppliers/SupplierMetrics). Supplier identities, spend, and all
-Purchases dates are left untouched.
+Pipeline (fully deterministic — no rng):
+  1. Tier rename (Strategic->Core, Preferred->Established, Approved->Standard);
+     idempotent on already-renamed input.
+  2. Five sub-scores (quality/delivery/service/process) from raw inputs with
+     FIXED industry bounds.
+  3. risk_score: deterministic 100 - weighted(country, complaints, single-source),
+     higher = safer.
+  4. composite_score (weights 0.25/0.25/0.15/0.20/0.15).
+  5. calculated_tier (>=75 Core / >=55 Established / else Standard) + tier_mismatch.
+  6. Drop the obsolete Purchases.automation_period column if present.
+
+Strict input validation (Decision C): the raw workbook must NOT contain any of
+the eight derived columns. If found, the run aborts with a clear message.
+
+The old-vs-new diff (scripts/score_rebuild_diff.json) compares the new output
+against the PREVIOUS enriched workbook if one exists; on a first run there is no
+baseline and the diff is skipped.
 
 Usage:  python scripts/transform_dataset.py
 """
@@ -35,11 +36,18 @@ import sys
 import numpy as np
 import pandas as pd
 
-SEED = 42
 HERE = os.path.dirname(os.path.abspath(__file__))
-XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data.xlsx")
+RAW_XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data_raw.xlsx")  # input
+XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data.xlsx")  # output (imported)
 
 TIER_MAP = {"Strategic": "Core", "Preferred": "Established", "Approved": "Standard"}
+
+# The eight derived columns this transformer COMPUTES — they must NOT appear in
+# the raw input workbook (Decision C). Kept in sync with SCORE_COLS below.
+DERIVED_COLS = [
+    "quality_score", "delivery_score", "service_score", "process_score",
+    "risk_score", "composite_score", "calculated_tier", "tier_mismatch",
+]
 
 # Composite weights (Batch 3a spec) and new tier thresholds.
 WEIGHTS = {
@@ -160,30 +168,44 @@ def summarize(label, series):
 
 
 def main():
-    # Methodology rebuild: the transformer is now FULLY DETERMINISTIC — no rng.
-    # All five sub-scores + composite + tier are derived from raw operational
-    # inputs with fixed industry bounds (the xlsx scores are overwritten).
-    sheets = pd.read_excel(XLSX, sheet_name=None)  # ordered dict of all sheets
+    # FULLY DETERMINISTIC (no rng). Read the RAW input workbook (operational
+    # inputs only); all derived scores are computed here and written to the
+    # ENRICHED output workbook.
+    sheets = pd.read_excel(RAW_XLSX, sheet_name=None)  # ordered dict of all sheets
     suppliers = sheets["Suppliers"]
     metrics = sheets["SupplierMetrics"]
     purchases = sheets["Purchases"]
 
-    print(f"Loaded {len(suppliers)} suppliers, {len(metrics)} metric rows.")
-    print("BEFORE:")
-    print("  tier:", suppliers["tier"].value_counts().to_dict())
-    summarize("risk_score", metrics["risk_score"])
-    print("  single_source_risk sum:", int(metrics["single_source_risk"].sum()))
-    summarize("composite_score", metrics["composite_score"])
-    print("  calculated_tier:", metrics["calculated_tier"].value_counts().to_dict())
+    # Strict input validation (Decision C): the raw workbook must carry only raw
+    # inputs — reject any derived score columns rather than silently overwriting.
+    present = [c for c in DERIVED_COLS if c in metrics.columns]
+    if present:
+        raise SystemExit(
+            "xlsx contains derived score columns that should not be present. "
+            "These are computed by the transformer. Remove columns: "
+            + ", ".join(present)
+        )
 
-    # --- 1. Tier rename --------------------------------------------------- #
+    print(
+        f"Loaded {len(suppliers)} suppliers, {len(metrics)} metric rows "
+        f"from {os.path.basename(RAW_XLSX)} (raw inputs only)."
+    )
+
+    # Diff baseline = the PREVIOUS enriched output, read BEFORE we overwrite it.
+    # On a first run (no prior output / missing columns) the diff is skipped.
+    need = ["supplier_id", "supplier_name", "tier", *SCORE_COLS, "calculated_tier", "tier_mismatch"]
+    old_scores = None
+    if os.path.exists(XLSX):
+        try:
+            prev = pd.read_excel(XLSX, sheet_name="SupplierMetrics")
+            if all(c in prev.columns for c in need):
+                old_scores = prev[need].copy()
+        except Exception:
+            old_scores = None
+
+    # --- 1. Tier rename (idempotent on already-renamed input) ------------- #
     suppliers["tier"] = suppliers["tier"].map(lambda t: TIER_MAP.get(t, t))
     metrics["tier"] = metrics["tier"].map(lambda t: TIER_MAP.get(t, t))
-
-    # Snapshot the pre-rebuild scores so we can diff old-vs-new (Decision F).
-    old_scores = metrics[
-        ["supplier_id", "supplier_name", "tier", *SCORE_COLS, "calculated_tier", "tier_mismatch"]
-    ].copy()
 
     # --- 2. Sub-scores from raw operational inputs, FIXED bounds (Decision B) #
     # Bounds rationale (see methodology doc):
@@ -254,12 +276,15 @@ def main():
     print("  tier_mismatch:", metrics["tier_mismatch"].value_counts().to_dict())
 
     # --- Rebuild diff + review gate (Decision F) -------------------------- #
-    diff = build_diff(old_scores, metrics)
-    print_diff_summary(diff)
-    diff_path = os.path.join(HERE, "score_rebuild_diff.json")
-    with open(diff_path, "w") as f:
-        json.dump(diff, f, indent=2)
-    print(f"\nFull diff saved to {diff_path}")
+    if old_scores is not None:
+        diff = build_diff(old_scores, metrics)
+        print_diff_summary(diff)
+        diff_path = os.path.join(HERE, "score_rebuild_diff.json")
+        with open(diff_path, "w") as f:
+            json.dump(diff, f, indent=2)
+        print(f"\nFull diff saved to {diff_path} (new output vs previous enriched output)")
+    else:
+        print("\nNo previous enriched output to diff against — fresh computation.")
     # Confirmation gate: interactive prompt for humans; auto-proceed when piped.
     if sys.stdin.isatty():
         if input("\nContinue with overwrite? [y/N] ").strip().lower() != "y":
