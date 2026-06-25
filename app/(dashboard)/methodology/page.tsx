@@ -375,29 +375,14 @@ export default async function MethodologyPage() {
 
           <section className="space-y-2">
             <h3 className="text-base font-semibold text-foreground">
-              4.4 Tier thresholds
-            </h3>
-            <p className="rounded-md bg-muted/50 p-2 text-xs">
-              <code>
-                composite ≥ 75 → Core · 55–74 → Established · &lt; 55 → Standard
-              </code>
-            </p>
-          </section>
-
-          <section className="space-y-2">
-            <h3 className="text-base font-semibold text-foreground">
-              How to interpret a tier mismatch
+              4.4 Declared tier
             </h3>
             <p>
-              Each supplier has a <strong>declared tier</strong> (its current
-              contractual classification) and a <strong>calculated tier</strong> (what
-              the composite score suggests). When they differ, the supplier detail
-              panel shows a muted note — e.g. <em>&ldquo;Composite 69.0 (suggests
-              Established · declared Core)&rdquo;</em> with the threshold reference —
-              rather than an alarm. It is a <strong>prompt to review</strong>, not a
-              verdict: declared tiers are set contractually and can lag current
-              performance. The note appears only for suppliers active in the latest
-              period.
+              Each supplier carries a <strong>declared tier</strong> (Core /
+              Established / Standard) — its contractual classification, shown as
+              identity in the ranking and detail panel. It is not recomputed from the
+              composite score; the scorecard above stands on its own as the
+              performance signal.
             </p>
           </section>
         </CardContent>

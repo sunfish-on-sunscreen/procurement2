@@ -12,6 +12,9 @@ export type SupplierRankingRow = {
   abc_class: "A" | "B" | "C" | null;
   kraljic_quadrant: KraljicQuadrant | null;
   rank: number;
+  // True when the supplier has no purchases in the selected period (rendered
+  // muted, ranked last). The supplier still exists (identity + snapshot score).
+  inactive: boolean;
 };
 
 /** Per-supplier spend decomposition (all-time) for the drill-down panel. */
@@ -22,13 +25,13 @@ export type SpendDetail = {
     category: string | null;
     tier: string | null;
     country: string | null;
+    // ABC class + Kraljic quadrant for the SELECTED period (period-scoped, matches
+    // the ranking table). Null when the supplier is absent from that period.
     abcClass: "A" | "B" | "C" | null;
     kraljicQuadrant: KraljicQuadrant | null;
-    // Latest-period SupplierMetric snapshot (composite 0-100; declared vs
-    // calculated tier + mismatch flag). Null when no metric row exists.
+    // Composite performance score — a single per-supplier snapshot (not
+    // period-scoped); null when no metric row exists.
     performanceScore: number | null;
-    calculatedTier: string | null;
-    tierMismatch: boolean;
   };
   stats: {
     totalSpend: number;

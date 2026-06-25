@@ -156,7 +156,7 @@ The value is computed from a formula that combines other fields. Unlike aggregat
 ### Where it's used
 
 - **purchases.csv**: `total_value_usd`, `po_date`, `delivery_date`, `invoice_date`, `payment_date`, `total_cycle_days`, `on_time_delivery`, `automation_period`
-- **supplier_metrics.csv**: `single_source_risk`, `quality_score`, `delivery_score`, `service_score`, `process_score`, `risk_score`, `composite_score`, `calculated_tier`, `tier_mismatch`
+- **supplier_metrics.csv**: `single_source_risk`, `quality_score`, `delivery_score`, `service_score`, `process_score`, `risk_score`, `composite_score`
 
 ### The key insight: precision ≠ legitimacy
 
@@ -229,8 +229,9 @@ transformer computes and adds the scores:
   (+ `product_description`).
 - **Transformer-output columns** (computed, NOT in the raw file): `quality_score`,
   `delivery_score`, `service_score`, `process_score`, `risk_score`,
-  `composite_score`, `calculated_tier`, `tier_mismatch`.
-- The transformer **rejects** a raw workbook that contains any of the 8 derived
+  `composite_score`. *(`calculated_tier` + `tier_mismatch` were removed — an
+  unreliable diagnostic; the transformer no longer computes them.)*
+- The transformer **rejects** a raw workbook that contains any of the 6 derived
   columns (they aren't authoritative inputs — see the run flow below).
 
 ```
@@ -310,26 +311,19 @@ This is where the weights matter most. Defense:
 - Quality-heavy (40%/20%/20%/10%/10%): Used in highly regulated industries (pharma, aerospace)
 - Cost-included (25% Quality / 25% Delivery / 25% Price / 15% Service / 10% Risk): If price competitiveness is added as a dimension
 
-#### Tier thresholds
-
-```
-composite_score ≥ 75 → Core
-composite_score ≥ 55 → Established
-composite_score < 55 → Standard
-```
+#### Composite + declared tier
 
 > **Score-methodology rebuild.** The transformer recomputes `composite_score`
 > with weights **quality 0.25 / delivery 0.25 / process 0.20 / service 0.15 /
-> risk 0.15** over the **derived** sub-scores above, then `calculated_tier`
-> (**≥75 → Core, ≥55 → Established, else Standard**) and
-> `tier_mismatch = (tier ≠ calculated_tier)`. `tier` (declared) is the legacy
-> synthetic label and is **not** changed — `tier_mismatch` is a comparison, not a
-> correction.
+> risk 0.15** over the **derived** sub-scores above. The declared `tier`
+> (Core / Established / Standard) is the legacy synthetic label, carried as
+> identity and **not** recomputed.
 
-Defense: 75/55 are organizational-policy thresholds — companies set them after
-observing their composite distribution. `calculated_tier` is a *suggestion* from
-the scorecard, surfaced in the detail panel as a muted diagnostic (composite +
-threshold), not an authoritative verdict.
+> ⚠️ **`calculated_tier` + `tier_mismatch` were removed** (data-integrity batch).
+> Comparing a composite-derived tier against the declared tier proved unreliable
+> (~45% "mismatch" rate, uncorrelated with the composite), so the concept was
+> dropped from the transformer, schema, xlsx, panel, and docs rather than shown
+> with caveats. The composite score stands on its own as the performance signal.
 
 ### Methodology Defense (talking points)
 
@@ -555,5 +549,5 @@ That last sentence is critical. It's both honest and protective.
 | Is the composite_score formula standard? | Yes — weights align with CIPS scorecard convention for heavy industry |
 | Are the defect rates accurate? | Statistically realistic; not from actual QC records (which don't exist in this dataset) |
 | Can I defend the 80/95 ABC thresholds? | Yes — these are textbook Pareto principle thresholds |
-| Can I defend the 75/55 tier thresholds? | Core ≥75 · Established 55–74 · Standard <55 — organizational-policy thresholds, common practice; surfaced as a suggestion, not a verdict |
+| Why was tier-mismatch removed? | Comparing a composite-derived tier to the declared tier fired ~45% of the time and didn't correlate with the composite — unreliable, so it was dropped rather than shown with caveats |
 | Why 25/25/20/15/15 composite weights? | quality 0.25 / delivery 0.25 / process 0.20 / service 0.15 / risk 0.15 — align with CIPS/APQC heavy-industry supplier-scorecard convention |

@@ -65,9 +65,9 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
 - ⚠️ **Performance trajectory is flat by design** — `performance_score` is
   `SupplierMetric.compositeScore`, a per-supplier snapshot that doesn't vary by
   period (e.g. 76.0 in both 2024 and 2025). The chart is ready for varying data.
-- **Panel header badges (ABC class, Kraljic quadrant) are LATEST-period** — a
-  stable strategic descriptor, intentionally NOT period-scoped; the Evolution tab
-  shows the full per-year trajectory.
+- **Panel ABC/Kraljic chips** ⚠️ **SUPERSEDED** — were latest-period; now
+  **period-scoped** (see "Panel consistency + data integrity batch" below). The
+  Evolution tab still shows the full per-year trajectory.
 - **Report editor unchanged**: it keeps its own ABC section and `OverviewCharts`;
   dashboard→report propagation is deferred (`dashboard_report_propagation.md`).
 
@@ -176,17 +176,13 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   subheader: **"Spend at a glance"** (3 StatBlocks) · **"Performance &
   classification"** (Performance-score StatBlock + ALWAYS-on ABC + Kraljic chips
   via a shared `Chip` helper — `rounded-md` color-mix 12% tint, null → muted "—"
-  placeholder — plus a destructive `Tier mismatch: declared X, calculated Y` badge
-  when flagged) · **"Activity"** (date span). The old single stats+chips block is gone.
-- ⚠️ **`spend-detail` route extended** (the one sanctioned API change this batch,
-  user-approved): `SupplierMetric.compositeScore` / `calculatedTier` /
-  `tierMismatch` added to the SELECT and to `SpendDetail.supplier`
-  (`performanceScore`, `calculatedTier`, `tierMismatch`). The panel shows the
-  **REAL** composite score + **REAL** tier-mismatch (not the ABC-class heuristic
-  the spec proposed as a fallback). ⚠️ ABC/Kraljic chips remain **LATEST-period**
-  (a supplier inactive in the latest period — e.g. PT Hexindo, last active 2025 —
-  shows "Class —"/"—"; the tier-mismatch + perf score come from its latest
-  `SupplierMetric` row regardless).
+  placeholder) · **"Activity"**. The old single stats+chips block is gone.
+  ⚠️ The tier-mismatch badge that once lived here was **REMOVED** (data-integrity
+  batch); the perf StatBlock is labeled "out of 100 · latest snapshot".
+- ⚠️ **`spend-detail` route** — `performanceScore` (= `SupplierMetric.compositeScore`)
+  in `SpendDetail.supplier`; ABC/Kraljic are **period-scoped** via
+  `getRangeAnalyses(start,end)` (NOT latest-period — superseded). `calculatedTier`
+  / `tierMismatch` were removed from the SELECT and the type.
 - **Sidebar is collapsible** (`components/Sidebar.tsx`): chevron toggle at top,
   `w-60`↔`w-16`, `transition-[width] duration-200`, labels hidden when collapsed,
   `title`-attribute tooltips (no `Tooltip` primitive exists in the repo). State
@@ -228,9 +224,11 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   ~12/38/5 → 32/21/2 Core/Est/Std; mismatch 25→27).
 - `single_source_risk` is read as an **existing 0/1 data field** (no longer
   regenerated) so the transformer carries no randomness; `composite_score`
-  (weights 0.25/0.25/0.15/0.20/0.15) and `calculated_tier` (75/55) recompute over
-  the derived sub-scores; `process_score` reproduces the prior identity exactly
-  (= three_way_match_pct), so it shows 0 change in the diff.
+  (weights 0.25/0.25/0.15/0.20/0.15) recomputes over the derived sub-scores;
+  `process_score` reproduces the prior identity exactly (= three_way_match_pct),
+  so it shows 0 change in the diff. ⚠️ **`calculated_tier` + `tier_mismatch` were
+  REMOVED** (see the data-integrity batch below) — the transformer no longer
+  computes them, `DERIVED_COLS` is 6, and they're dropped from the schema/zod.
 - **`scripts/transform_dataset.py` logs an old-vs-new diff** (summary + buckets +
   top-5/score + tier crossings + mismatch flips) and saves the full diff to
   `scripts/score_rebuild_diff.json` (**gitignored**, intermediate). ⚠️ The diff
@@ -242,11 +240,38 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
   via `/api/imports/upload`** (admin), which re-runs the Python analyses. ABC /
   Kraljic are spend-based → unchanged; Performance-vs-Spend zones + Action recs
   recompute from the new composite (expected).
-- **Tier-mismatch badge softened (Layout C):** the detail panel no longer shows a
-  destructive "Tier mismatch: declared X, calculated Y" badge. It now shows a
-  muted diagnostic — `Composite NN.N (suggests <calc> · declared <tier>)` + the
-  threshold reference `Core ≥ 75 · Established 55–74 · Standard < 55` — **gated on
-  `s.tierMismatch && s.abcClass != null`** (suppress when no latest-period activity).
+
+### Panel consistency + data integrity batch
+- **Tier mismatch REMOVED entirely** (unreliable: 45% fire rate, uncorrelated
+  with composite). Dropped from: Prisma `SupplierMetric` (migration
+  `remove_tier_mismatch` drops `calculatedTier` + `tierMismatch`), the transformer
+  (no compute; `DERIVED_COLS` now 6), the enriched xlsx, the upload zod, the
+  `SpendDetail` type, the detail panel badge, the methodology page, and these docs.
+- **ABC + Kraljic chips are now PERIOD-SCOPED** (revises the old "latest-period"
+  Decision F). `spend-detail` sources them via **`getRangeAnalyses(start,end)`** —
+  the SAME function the ranking uses — so the panel chips and the ranking table's
+  ABC column always agree for the selected period. Absent from the period → `null`
+  → "—". (No-span fallback: latest period, backward-compat.)
+- **Performance score stays a single snapshot** (`SupplierMetric.compositeScore`,
+  tagged latest period) — labeled **"out of 100 · latest snapshot"** in the panel
+  so its non-period scope is explicit (true per-period perf needs per-period
+  operational metrics, deferred).
+- **The ranking table lists ALL suppliers** (`SupplierMetric` roster, not just
+  in-period ones). Suppliers with no period activity get `inactive: true`, render
+  **muted (`opacity-50`)** with "—" for spend/invoices/avg, ABC "—", ranked last
+  (sort by spend desc). Still clickable → panel shows the honest absent view.
+  ⚠️ `InsightsPanel` concentration math filters to `!inactive` so $0 rows don't
+  inflate the long-tail count.
+- **Absent-supplier detail panel:** spend stats "—", Activity "No activity in this
+  period", chips "—", Spend-by-item/All-POs tabs show empty states; Evolution
+  (all-years) still renders. `spend-detail` returns **200 with zeroed stats** for
+  an existing-but-inactive supplier (404 only for a genuinely unknown id) — the old
+  misleading "Supplier not found" no longer fires for real suppliers.
+- **PT Gunung Raja Paksi (S101) is no longer a phantom** — 7 reconciled Local-Steel
+  POs added to `procurement_data_raw.xlsx` (spread 2024–2026); its SupplierMetric
+  operational aggregates (otd/twm/lead/cycle/spend/npos/avg) are DERIVED from those
+  POs (preserving the "aggregates == purchase-derived rates" invariant), soft
+  metrics (defect/complaints/rfx/response/single-source) set to spec values.
 
 ### Cycle Time reframe (Batch 5)
 - **`automation_period` column NO LONGER EXISTS** — dropped from the xlsx,
@@ -484,7 +509,7 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
 Single .xlsx with 3 sheets:
 - Sheet "Suppliers": supplier_id, supplier_name, country, category, product_description, tier
 - Sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
-- Sheet "SupplierMetrics": supplier_id, supplier_name, category, tier, total_spend_usd, num_pos, avg_po_value_usd, avg_lead_time_days, avg_cycle_time_days, on_time_delivery_pct, three_way_match_pct, defect_rate_pct, complaint_count_annual, rfx_response_rate_pct, avg_response_time_days, single_source_risk, quality_score, delivery_score, service_score, process_score, risk_score, composite_score, calculated_tier, tier_mismatch
+- Sheet "SupplierMetrics" (ENRICHED output): supplier_id, supplier_name, category, tier, total_spend_usd, num_pos, avg_po_value_usd, avg_lead_time_days, avg_cycle_time_days, on_time_delivery_pct, three_way_match_pct, defect_rate_pct, complaint_count_annual, rfx_response_rate_pct, avg_response_time_days, single_source_risk, quality_score, delivery_score, service_score, process_score, risk_score, composite_score  *(`calculated_tier` + `tier_mismatch` removed; the raw input file drops the 6 score columns too)*
 
 Sample data file: `data/raw/procurement_data.xlsx` (use for testing)
 

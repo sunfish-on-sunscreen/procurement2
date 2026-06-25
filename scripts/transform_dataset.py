@@ -17,11 +17,10 @@ Pipeline (fully deterministic — no rng):
   3. risk_score: deterministic 100 - weighted(country, complaints, single-source),
      higher = safer.
   4. composite_score (weights 0.25/0.25/0.15/0.20/0.15).
-  5. calculated_tier (>=75 Core / >=55 Established / else Standard) + tier_mismatch.
-  6. Drop the obsolete Purchases.automation_period column if present.
+  5. Drop the obsolete Purchases.automation_period column if present.
 
 Strict input validation (Decision C): the raw workbook must NOT contain any of
-the eight derived columns. If found, the run aborts with a clear message.
+the derived score columns. If found, the run aborts with a clear message.
 
 The old-vs-new diff (scripts/score_rebuild_diff.json) compares the new output
 against the PREVIOUS enriched workbook if one exists; on a first run there is no
@@ -42,11 +41,11 @@ XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data.xlsx")  # outpu
 
 TIER_MAP = {"Strategic": "Core", "Preferred": "Established", "Approved": "Standard"}
 
-# The eight derived columns this transformer COMPUTES — they must NOT appear in
-# the raw input workbook (Decision C). Kept in sync with SCORE_COLS below.
+# The derived columns this transformer COMPUTES — they must NOT appear in the
+# raw input workbook (Decision C). Kept in sync with SCORE_COLS below.
 DERIVED_COLS = [
     "quality_score", "delivery_score", "service_score", "process_score",
-    "risk_score", "composite_score", "calculated_tier", "tier_mismatch",
+    "risk_score", "composite_score",
 ]
 
 # Composite weights (Batch 3a spec) and new tier thresholds.
@@ -114,8 +113,6 @@ def build_diff(old, new):
         for c in SCORE_COLS:
             ov, nv = float(oi.loc[sid, c]), float(ni.loc[sid, c])
             row[c] = {"old": ov, "new": nv, "delta": round(nv - ov, 2)}
-        row["calculated_tier"] = {"old": oi.loc[sid, "calculated_tier"], "new": ni.loc[sid, "calculated_tier"]}
-        row["tier_mismatch"] = {"old": bool(oi.loc[sid, "tier_mismatch"]), "new": bool(ni.loc[sid, "tier_mismatch"])}
         per.append(row)
     summary, top5 = {}, {}
     for c in SCORE_COLS:
@@ -130,33 +127,17 @@ def build_diff(old, new):
             [{"supplier_name": r["supplier_name"], "old": r[c]["old"], "new": r[c]["new"], "delta": r[c]["delta"]} for r in per],
             key=lambda x: abs(x["delta"]), reverse=True,
         )[:5]
-    tier_changes = [
-        {"supplier_name": r["supplier_name"], "old": r["calculated_tier"]["old"], "new": r["calculated_tier"]["new"]}
-        for r in per if r["calculated_tier"]["old"] != r["calculated_tier"]["new"]
-    ]
-    mismatch_changes = [
-        {"supplier_name": r["supplier_name"], "old": r["tier_mismatch"]["old"], "new": r["tier_mismatch"]["new"]}
-        for r in per if r["tier_mismatch"]["old"] != r["tier_mismatch"]["new"]
-    ]
-    return {"summary": summary, "top5": top5, "tier_changes": tier_changes, "mismatch_changes": mismatch_changes, "per_supplier": per}
+    return {"summary": summary, "top5": top5, "per_supplier": per}
 
 
 def print_diff_summary(diff):
     print("\n==================== SCORE REBUILD DIFF ====================")
     for c, s in diff["summary"].items():
-        print(f"  {c:16} changed={s['changed']:2}/55  mean|d|={s['mean_abs']:6}  max|d|={s['max_abs']:6}  {s['buckets']}")
+        print(f"  {c:16} changed={s['changed']:2}/{len(diff['per_supplier'])}  mean|d|={s['mean_abs']:6}  max|d|={s['max_abs']:6}  {s['buckets']}")
     for c in SCORE_COLS:
         print(f"\n  Top 5 shifts - {c}:")
         for t in diff["top5"][c]:
             print(f"    {t['supplier_name'][:30]:30} {t['old']:6} -> {t['new']:6}  (d {t['delta']:+.2f})")
-    print(f"\n  calculated_tier crossings ({len(diff['tier_changes'])}):")
-    for t in diff["tier_changes"]:
-        print(f"    {t['supplier_name'][:30]:30} {t['old']} -> {t['new']}")
-    old_mm = sum(1 for r in diff["per_supplier"] if r["tier_mismatch"]["old"])
-    new_mm = sum(1 for r in diff["per_supplier"] if r["tier_mismatch"]["new"])
-    print(f"\n  tier_mismatch: was {old_mm}/55 true, now {new_mm}/55 true ({len(diff['mismatch_changes'])} flipped)")
-    for t in diff["mismatch_changes"]:
-        print(f"    {t['supplier_name'][:30]:30} {t['old']} -> {t['new']}")
     print("============================================================")
 
 
@@ -193,7 +174,7 @@ def main():
 
     # Diff baseline = the PREVIOUS enriched output, read BEFORE we overwrite it.
     # On a first run (no prior output / missing columns) the diff is skipped.
-    need = ["supplier_id", "supplier_name", "tier", *SCORE_COLS, "calculated_tier", "tier_mismatch"]
+    need = ["supplier_id", "supplier_name", "tier", *SCORE_COLS]
     old_scores = None
     if os.path.exists(XLSX):
         try:
@@ -245,18 +226,9 @@ def main():
         sum(metrics[col] * w for col, w in WEIGHTS.items()), 2
     )
 
-    # --- 5. calculated_tier + tier_mismatch (75/55 thresholds) ------------ #
-    def tier_of(score):
-        if score >= 75:
-            return "Core"
-        if score >= 55:
-            return "Established"
-        return "Standard"
+    # (tier_mismatch + calculated_tier removed — unreliable diagnostic, dropped.)
 
-    metrics["calculated_tier"] = metrics["composite_score"].map(tier_of)
-    metrics["tier_mismatch"] = metrics["tier"] != metrics["calculated_tier"]
-
-    # --- 6. (Batch 5) Drop Purchases.automation_period -------------------- #
+    # --- 5. (Batch 5) Drop Purchases.automation_period -------------------- #
     if "automation_period" in purchases.columns:
         purchases = purchases.drop(columns=["automation_period"])
         print("  dropped Purchases.automation_period")
@@ -272,8 +244,6 @@ def main():
         f"({metrics['single_source_risk'].mean() * 100:.0f}%)",
     )
     summarize("composite_score", metrics["composite_score"])
-    print("  calculated_tier:", metrics["calculated_tier"].value_counts().to_dict())
-    print("  tier_mismatch:", metrics["tier_mismatch"].value_counts().to_dict())
 
     # --- Rebuild diff + review gate (Decision F) -------------------------- #
     if old_scores is not None:

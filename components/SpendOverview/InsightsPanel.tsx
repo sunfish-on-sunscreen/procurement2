@@ -101,9 +101,11 @@ export function InsightsPanel({
   const minMonth = sortedMonths[0] ?? 0;
   const maxMonth = sortedMonths[sortedMonths.length - 1] ?? 0;
 
-  // Spend concentration (suppliers needed to reach 50% / 80%).
-  const sup50 = suppliersToReach(ranking, total, 50);
-  const sup80 = suppliersToReach(ranking, total, 80);
+  // Spend concentration over ACTIVE suppliers (the ranking now also carries
+  // $0/inactive rows, which must not inflate the long-tail count).
+  const activeRanking = ranking.filter((r) => !r.inactive);
+  const sup50 = suppliersToReach(activeRanking, total, 50);
+  const sup80 = suppliersToReach(activeRanking, total, 80);
 
   return (
     <Card>
@@ -155,11 +157,11 @@ export function InsightsPanel({
                 the period.
               </li>
             )}
-            {ranking.length > 0 && (
+            {activeRanking.length > 0 && (
               <li>
                 Spend is steeply concentrated: just {sup50} supplier{sup50 === 1 ? "" : "s"} make
                 up 50% of spend, and {sup80} cover 80% — the remaining{" "}
-                {Math.max(0, ranking.length - sup80)} contribute the long tail.
+                {Math.max(0, activeRanking.length - sup80)} contribute the long tail.
               </li>
             )}
             {categories.length > 0 && (

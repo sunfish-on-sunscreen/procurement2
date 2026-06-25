@@ -71,8 +71,6 @@ const SupplierMetricsRow = z.object({
   process_score: z.number(),
   risk_score: z.number(),
   composite_score: z.number(),
-  calculated_tier: z.string(),
-  tier_mismatch: z.boolean(),
 });
 
 function parseExcelDate(value: Date | string): Date {
@@ -280,8 +278,6 @@ export async function POST(request: Request) {
     processScore: r.process_score,
     riskScore: r.risk_score,
     compositeScore: r.composite_score,
-    calculatedTier: r.calculated_tier,
-    tierMismatch: r.tier_mismatch,
     periodId: maxYearPeriodId,
   }));
 

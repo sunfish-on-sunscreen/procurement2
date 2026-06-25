@@ -111,19 +111,20 @@ export function SupplierRankingTable({
               <tr
                 key={r.supplier_id}
                 onClick={() => onSupplierClick(r.supplier_id)}
+                title={r.inactive ? "No activity in this period" : undefined}
                 className={`cursor-pointer border-b ${
                   r.supplier_id === selectedSupplierId
                     ? "bg-foreground/5 ring-1 ring-inset ring-foreground/30"
                     : "hover:bg-muted/40"
-                }`}
+                } ${r.inactive ? "opacity-50" : ""}`}
               >
                 <td className="py-3 text-right text-muted-foreground">{r.rank}</td>
                 <td className="py-3 font-medium">{r.supplier_name}</td>
                 <td className="py-3">{r.category ?? "—"}</td>
                 <td className="py-3">{r.tier ?? "—"}</td>
-                <td className="py-3 text-right">{formatCompactCurrency(r.total_spend)}</td>
-                <td className="py-3 text-right">{num0.format(r.po_count)}</td>
-                <td className="py-3 text-right">{formatCompactCurrency(r.avg_po_value)}</td>
+                <td className="py-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.total_spend)}</td>
+                <td className="py-3 text-right">{r.inactive ? "—" : num0.format(r.po_count)}</td>
+                <td className="py-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.avg_po_value)}</td>
                 <td className="py-3">
                   {r.abc_class ? (
                     <span

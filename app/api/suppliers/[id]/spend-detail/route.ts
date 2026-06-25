@@ -6,6 +6,7 @@ import {
   type AbcResult,
   type KraljicResult,
 } from "@/lib/analysis-types";
+import { getRangeAnalyses } from "@/lib/range-analyses";
 import type { SpendDetail } from "@/lib/spend-overview-types";
 
 export const runtime = "nodejs";
@@ -13,9 +14,14 @@ export const runtime = "nodejs";
 const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
 /**
- * All-time spend decomposition for one supplier (by externalId): identity +
- * stats + spend-by-item + every PO. ABC/Kraljic badges reflect the latest
- * period's classification. Login required (read-only); any role.
+ * Period-scoped spend decomposition for one supplier (by externalId): identity +
+ * stats + spend-by-item + every PO in the selected span. ABC/Kraljic chips are
+ * scoped to the SELECTED period (via getRangeAnalyses — same source as the
+ * ranking table), so a supplier absent from that period shows "—".
+ *
+ * Suppliers with no in-span activity but a real identity still return 200 with
+ * zeroed stats (the panel renders an honest "no activity in this period" view).
+ * 404 only for a genuinely unknown supplier id. Login required; any role.
  */
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -29,10 +35,9 @@ export async function GET(
   }
   const { id } = await params;
 
-  // Optional period scope (Batch: polish). Both must be valid YYYY-MM-DD with
-  // end >= start; omit either for all-time (backward compat). invoiceDate is
-  // non-null in this schema, so filtering it matches the COALESCE(invoiceDate,
-  // prDate) period tag used by the ranking aggregate.
+  // Optional period scope. Both must be valid YYYY-MM-DD with end >= start;
+  // omit both for all-time (backward compat). invoiceDate is non-null here, so
+  // filtering it matches the COALESCE(invoiceDate, prDate) tag the ranking uses.
   const sp = new URL(request.url).searchParams;
   const start = sp.get("start");
   const end = sp.get("end");
@@ -56,6 +61,25 @@ export async function GET(
     };
   }
 
+  // Identity first, so suppliers absent from the span still render.
+  const [metric, supplier] = await Promise.all([
+    prisma.supplierMetric.findFirst({
+      where: { supplierExternalId: id },
+      orderBy: { periodId: "desc" },
+      select: { supplierName: true, category: true, tier: true, compositeScore: true },
+    }),
+    prisma.supplier.findFirst({
+      where: { externalId: id },
+      orderBy: { periodId: "desc" },
+      select: { supplierName: true, country: true, category: true, tier: true },
+    }),
+  ]);
+
+  // Genuinely unknown supplier → 404. (Absence from a PERIOD is a 200 below.)
+  if (!metric && !supplier) {
+    return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
+  }
+
   const purchases = await prisma.purchase.findMany({
     where: {
       supplierExternalId: id,
@@ -74,51 +98,34 @@ export async function GET(
     },
   });
 
-  if (purchases.length === 0) {
-    return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
-  }
-
-  // Identity: current tier/category from SupplierMetric, country from Supplier.
-  const [metric, supplier, latestPeriod] = await Promise.all([
-    prisma.supplierMetric.findFirst({
-      where: { supplierExternalId: id },
-      orderBy: { periodId: "desc" },
-      select: {
-        supplierName: true,
-        category: true,
-        tier: true,
-        compositeScore: true,
-        calculatedTier: true,
-        tierMismatch: true,
-      },
-    }),
-    prisma.supplier.findFirst({
-      where: { externalId: id },
-      orderBy: { periodId: "desc" },
-      select: { country: true, category: true },
-    }),
-    prisma.reportingPeriod.findFirst({
-      orderBy: { startDate: "desc" },
-      select: { id: true },
-    }),
-  ]);
-
-  // Badges from the latest period's analyses.
+  // ABC + Kraljic scoped to the SELECTED period (same source as the ranking).
+  // With no span, fall back to the latest period's analysis (backward compat).
   let abcClass: SpendDetail["supplier"]["abcClass"] = null;
   let kraljicQuadrant: SpendDetail["supplier"]["kraljicQuadrant"] = null;
-  if (latestPeriod) {
-    const [abc, kraljic] = await Promise.all([
-      getAnalysisResult<AbcResult>(latestPeriod.id, "abc"),
-      getAnalysisResult<KraljicResult>(latestPeriod.id, "kraljic"),
-    ]);
+  if (start && end) {
+    const analyses = await getRangeAnalyses(start, end);
     abcClass =
-      abc?.classifications.find((c) => c.supplier_id === id)?.abc_class ?? null;
+      analyses?.abc?.classifications.find((c) => c.supplier_id === id)?.abc_class ?? null;
     kraljicQuadrant =
-      kraljic?.quadrant_assignments.find((q) => q.supplier_id === id)
+      analyses?.kraljic?.quadrant_assignments.find((q) => q.supplier_id === id)
         ?.quadrant ?? null;
+  } else {
+    const latestPeriod = await prisma.reportingPeriod.findFirst({
+      orderBy: { startDate: "desc" },
+      select: { id: true },
+    });
+    if (latestPeriod) {
+      const [abc, kraljic] = await Promise.all([
+        getAnalysisResult<AbcResult>(latestPeriod.id, "abc"),
+        getAnalysisResult<KraljicResult>(latestPeriod.id, "kraljic"),
+      ]);
+      abcClass = abc?.classifications.find((c) => c.supplier_id === id)?.abc_class ?? null;
+      kraljicQuadrant =
+        kraljic?.quadrant_assignments.find((q) => q.supplier_id === id)?.quadrant ?? null;
+    }
   }
 
-  // Stats + spend-by-item, aggregated in JS over the supplier's POs.
+  // Stats + spend-by-item, aggregated over the in-span POs (0 POs → zeros).
   let totalSpend = 0;
   let earliest: Date | null = null;
   let latest: Date | null = null;
@@ -158,15 +165,13 @@ export async function GET(
   const detail: SpendDetail = {
     supplier: {
       id,
-      name: metric?.supplierName ?? purchases[0].supplierName,
+      name: metric?.supplierName ?? supplier?.supplierName ?? purchases[0]?.supplierName ?? id,
       category: metric?.category ?? supplier?.category ?? null,
-      tier: metric?.tier ?? null,
+      tier: metric?.tier ?? supplier?.tier ?? null,
       country: supplier?.country ?? null,
       abcClass,
       kraljicQuadrant,
       performanceScore: metric?.compositeScore ?? null,
-      calculatedTier: metric?.calculatedTier ?? null,
-      tierMismatch: metric?.tierMismatch ?? false,
     },
     stats: {
       totalSpend,

@@ -389,6 +389,8 @@ export function SpendDecompositionPanel({
 
   const s = detail?.supplier;
   const st = detail?.stats;
+  // No purchases in the selected period — render an honest "absent" view.
+  const absent = st != null && st.poCount === 0;
 
   return (
     <Dialog open={!!supplierId} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -427,9 +429,9 @@ export function SpendDecompositionPanel({
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Spend at a glance</h4>
               <div className="grid grid-cols-3 gap-4">
-                <StatBlock label="Total spend" value={usd0.format(st.totalSpend)} />
-                <StatBlock label="Invoices" value={String(st.poCount)} />
-                <StatBlock label="Avg invoice" value={usd0.format(st.avgPoValue)} />
+                <StatBlock label="Total spend" value={absent ? "—" : usd0.format(st.totalSpend)} />
+                <StatBlock label="Invoices" value={absent ? "—" : String(st.poCount)} />
+                <StatBlock label="Avg invoice" value={absent ? "—" : usd0.format(st.avgPoValue)} />
               </div>
             </div>
 
@@ -440,7 +442,7 @@ export function SpendDecompositionPanel({
                 <StatBlock
                   label="Performance score"
                   value={s.performanceScore != null ? s.performanceScore.toFixed(1) : "—"}
-                  sublabel="out of 100"
+                  sublabel="out of 100 · latest snapshot"
                 />
                 <div className="col-span-2 flex flex-wrap content-start items-start gap-2">
                   <Chip
@@ -451,18 +453,6 @@ export function SpendDecompositionPanel({
                     color={s.kraljicQuadrant ? QUADRANT_COLORS[s.kraljicQuadrant] : null}
                     label={s.kraljicQuadrant ?? "—"}
                   />
-                  {/* Tier-mismatch diagnostic (Layout C): muted, self-documenting,
-                      and gated on latest-period activity (abcClass present) so it
-                      doesn't fire for suppliers absent from the latest period. */}
-                  {s.tierMismatch && s.abcClass != null && (
-                    <div className="basis-full text-xs leading-relaxed text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        Composite {s.performanceScore != null ? s.performanceScore.toFixed(1) : "—"}
-                      </span>{" "}
-                      (suggests {s.calculatedTier ?? "—"} · declared {s.tier ?? "—"})
-                      <div>Core ≥ 75 · Established 55–74 · Standard &lt; 55</div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -471,7 +461,11 @@ export function SpendDecompositionPanel({
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity</h4>
               <p className="text-xs text-muted-foreground">
-                {st.earliestDate && st.latestDate ? `${st.earliestDate} → ${st.latestDate}` : "—"}
+                {absent
+                  ? "No activity in this period"
+                  : st.earliestDate && st.latestDate
+                    ? `${st.earliestDate} → ${st.latestDate}`
+                    : "—"}
               </p>
             </div>
 
@@ -490,16 +484,24 @@ export function SpendDecompositionPanel({
 
             <div className="flex-1 overflow-auto p-4">
               {tab === "byItem" && (
-                <>
-                  <ViewToggle view={itemView} setView={setItemView} />
-                  {itemView === "chart" ? <SpendByItemChart detail={detail} /> : <ItemTable detail={detail} />}
-                </>
+                absent ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">No items purchased in this period.</p>
+                ) : (
+                  <>
+                    <ViewToggle view={itemView} setView={setItemView} />
+                    {itemView === "chart" ? <SpendByItemChart detail={detail} /> : <ItemTable detail={detail} />}
+                  </>
+                )
               )}
               {tab === "pos" && (
-                <>
-                  <ViewToggle view={posView} setView={setPosView} />
-                  {posView === "chart" ? <PosTimeChart detail={detail} /> : <PosTable detail={detail} />}
-                </>
+                absent ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">No purchase orders in this period.</p>
+                ) : (
+                  <>
+                    <ViewToggle view={posView} setView={setPosView} />
+                    {posView === "chart" ? <PosTimeChart detail={detail} /> : <PosTable detail={detail} />}
+                  </>
+                )
               )}
               {tab === "evolution" && (
                 <>
