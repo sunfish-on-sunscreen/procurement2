@@ -15,7 +15,6 @@ import {
 const num0 = new Intl.NumberFormat("en-US");
 
 type SortKey =
-  | "rank"
   | "supplier_name"
   | "category"
   | "tier"
@@ -24,8 +23,9 @@ type SortKey =
   | "avg_po_value"
   | "abc_class";
 
+// The leading "#" column is a positional index (not in COLUMNS) — it reflects
+// the current sort order and is intentionally NOT sortable.
 const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
-  { key: "rank", label: "#", align: "right" },
   { key: "supplier_name", label: "Supplier", align: "left" },
   { key: "category", label: "Category", align: "left" },
   { key: "tier", label: "Tier", align: "left" },
@@ -80,12 +80,16 @@ export function SupplierRankingTable({
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
+              {/* Positional index column — visual reference only, not sortable. */}
+              <th className="sticky top-0 z-10 border-b bg-card py-2 text-right font-medium tabular-nums text-muted-foreground">
+                #
+              </th>
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
                   className={`sticky top-0 z-10 border-b bg-card py-2 font-medium text-muted-foreground ${
                     col.align === "right" ? "text-right" : "text-left"
-                  }`}
+                  } ${col.key === "avg_po_value" ? "pr-3" : ""}`}
                 >
                   <button
                     type="button"
@@ -107,7 +111,7 @@ export function SupplierRankingTable({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r) => (
+            {sorted.map((r, i) => (
               <tr
                 key={r.supplier_id}
                 onClick={() => onSupplierClick(r.supplier_id)}
@@ -118,13 +122,14 @@ export function SupplierRankingTable({
                     : "hover:bg-muted/40"
                 } ${r.inactive ? "opacity-50" : ""}`}
               >
-                <td className="py-3 text-right text-muted-foreground">{r.rank}</td>
+                {/* Positional index reflecting current sort order. */}
+                <td className="py-3 text-right tabular-nums text-muted-foreground">{i + 1}</td>
                 <td className="py-3 font-medium">{r.supplier_name}</td>
                 <td className="py-3">{r.category ?? "—"}</td>
                 <td className="py-3">{r.tier ?? "—"}</td>
                 <td className="py-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.total_spend)}</td>
                 <td className="py-3 text-right">{r.inactive ? "—" : num0.format(r.po_count)}</td>
-                <td className="py-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.avg_po_value)}</td>
+                <td className="py-3 pr-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.avg_po_value)}</td>
                 <td className="py-3">
                   {r.abc_class ? (
                     <span
