@@ -304,8 +304,8 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
   );
 }
 
-// Signed performance delta vs the previous period (A5): green up, red down,
-// muted no-change; always 2 decimals.
+// Signed performance delta vs the previous period (A5): green ↑, red ↓, muted →;
+// always 2 decimals. Rendered INLINE inside the sublabel ("↑ +9.69").
 function PerfDelta({ delta }: { delta: number }) {
   const r = Math.round(delta * 100) / 100;
   const cls =
@@ -316,59 +316,71 @@ function PerfDelta({ delta }: { delta: number }) {
         : "text-muted-foreground";
   const Icon = r > 0 ? ArrowUp : r < 0 ? ArrowDown : Minus;
   return (
-    <span className={`ml-1.5 inline-flex items-center gap-0.5 text-sm font-medium ${cls}`}>
-      <Icon className="h-3.5 w-3.5" />
+    <span className={`inline-flex items-center gap-0.5 font-medium ${cls}`}>
+      <Icon className="h-3 w-3" />
       {r > 0 ? "+" : ""}
       {r.toFixed(2)}
     </span>
   );
 }
 
-// Period-scoped performance score StatBlock (A3/A5): single-year shows a delta
-// arrow vs the previous period + the prior value in parentheses; range shows the
-// range composite + the latest-period snapshot; all-time shows the snapshot.
+// Period-scoped performance score StatBlock (A3/A5). Value line carries the
+// "/ out of 100" unit; the sublabel carries period + context:
+//   single, no prev:  {year} · first year on record
+//   single, w/ prev:  {year} · ↑ +Δ vs {prev} ({prevScore})
+//   range:            {span} · Latest active ({year}): {score}
+//   inactive year:    value "—" · "No score in {year}"
 function PerformanceStat({ perf }: { perf: SpendDetail["supplier"]["performance"] }) {
-  const value = perf.score != null ? perf.score.toFixed(2) : "—";
+  const hasScore = perf.score != null;
   const delta =
     perf.mode === "single" && perf.score != null && perf.previousScore != null
       ? perf.score - perf.previousScore
       : null;
 
   let sublabel: React.ReactNode;
-  if (perf.score == null) {
+  if (!hasScore) {
     sublabel = `No score in ${perf.periodLabel ?? "this period"}`;
   } else if (perf.mode === "single") {
     sublabel =
       perf.previousScore != null && perf.previousLabel ? (
         <>
-          out of 100 · {perf.periodLabel} ({perf.previousScore.toFixed(2)} in{" "}
-          {perf.previousLabel})
+          {perf.periodLabel} · <PerfDelta delta={delta!} /> vs {perf.previousLabel} (
+          {perf.previousScore.toFixed(2)})
         </>
       ) : (
-        <>out of 100 · {perf.periodLabel ?? "this period"}</>
+        <>{perf.periodLabel ?? "this period"} · first year on record</>
       );
   } else if (perf.mode === "range") {
     sublabel =
-      perf.latestScore != null ? (
+      perf.latestScore != null && perf.latestLabel ? (
         <>
-          range {perf.periodLabel} · {perf.latestLabel} snapshot{" "}
+          {perf.periodLabel} · Latest active ({perf.latestLabel}):{" "}
           {perf.latestScore.toFixed(2)}
         </>
       ) : (
-        <>range composite · {perf.periodLabel}</>
+        <>{perf.periodLabel}</>
       );
   } else {
-    sublabel = "out of 100 · latest snapshot";
+    sublabel = "latest snapshot";
   }
 
   return (
     <StatBlock
       label="Performance score"
       value={
-        <span className="inline-flex items-baseline">
-          {value}
-          {delta != null && <PerfDelta delta={delta} />}
-        </span>
+        hasScore ? (
+          // Score (hero) + muted unit. `whitespace-nowrap` keeps "out of 100"
+          // intact so on a narrow card it drops to a second line as one piece
+          // rather than breaking word-by-word.
+          <span>
+            {perf.score!.toFixed(2)}{" "}
+            <span className="whitespace-nowrap text-sm font-normal text-muted-foreground">
+              / out of 100
+            </span>
+          </span>
+        ) : (
+          "—"
+        )
       }
       sublabel={sublabel}
     />
