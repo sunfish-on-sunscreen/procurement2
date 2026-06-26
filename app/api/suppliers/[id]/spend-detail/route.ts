@@ -82,6 +82,12 @@ export async function GET(
         rfxResponseRatePct: true,
         threeWayMatchPct: true,
         singleSourceRisk: true,
+        // Stored sub-scores (single-period subScores read these directly).
+        qualityScore: true,
+        deliveryScore: true,
+        serviceScore: true,
+        processScore: true,
+        riskScore: true,
       },
     }),
     prisma.supplier.findFirst({
@@ -106,6 +112,15 @@ export async function GET(
   const compositeByPeriod = new Map(
     metricRows.map((m) => [m.periodId, m.compositeScore]),
   );
+  const metricByPeriod = new Map(metricRows.map((m) => [m.periodId, m]));
+  // Map a stored metric row's five sub-scores into the response shape.
+  const storedSubScores = (m: (typeof metricRows)[number]) => ({
+    quality: m.qualityScore,
+    delivery: m.deliveryScore,
+    service: m.serviceScore,
+    process: m.processScore,
+    risk: m.riskScore,
+  });
   const latestMetric =
     metricRows.length > 0
       ? metricRows.reduce((a, b) =>
@@ -231,6 +246,10 @@ export async function GET(
     latestScore: null,
     latestLabel: null,
   };
+  // Period-scoped sub-score breakdown (consumed by the classification panel;
+  // the Spend Overview panel ignores it). Single/all read stored sub-scores;
+  // range derives them from the same aggregated inputs as the range composite.
+  let subScores: SpendDetail["supplier"]["subScores"] = null;
 
   if (!dateFilter) {
     // No span → latest snapshot (backward compat).
@@ -239,12 +258,15 @@ export async function GET(
     performance.periodLabel = latestMetric
       ? (periods.find((p) => p.id === latestMetric.periodId)?.name ?? null)
       : null;
+    if (latestMetric) subScores = storedSubScores(latestMetric);
   } else if (inWindow.length === 1) {
     // Single-year → that period's composite + previous active period for delta.
     performance.mode = "single";
     const sel = inWindow[0];
     performance.score = compositeByPeriod.get(sel.id) ?? null;
     performance.periodLabel = sel.name;
+    const selMetric = metricByPeriod.get(sel.id);
+    if (selMetric) subScores = storedSubScores(selMetric);
     const selIdx = periodOrder.get(sel.id) ?? -1;
     // Nearest earlier period that the supplier actually has a metric row for.
     const prev = [...periods]
@@ -269,7 +291,9 @@ export async function GET(
     }
     if (latestMetric && purchases.length > 0) {
       const n = purchases.length;
-      const { compositeScore } = computeScores({
+      // Span-aggregated raw inputs (delivery/process recomputed over the in-span
+      // POs; soft survey inputs constant from the latest snapshot).
+      const b = computeScores({
         defectRatePct: latestMetric.defectRatePct,
         complaintCountAnnual: latestMetric.complaintCountAnnual,
         onTimeDeliveryPct: (otdCount / n) * 100,
@@ -280,7 +304,14 @@ export async function GET(
         singleSourceRisk: latestMetric.singleSourceRisk,
         country: supplier?.country ?? "",
       });
-      performance.score = compositeScore;
+      performance.score = b.compositeScore;
+      subScores = {
+        quality: b.qualityScore,
+        delivery: b.deliveryScore,
+        service: b.serviceScore,
+        process: b.processScore,
+        risk: b.riskScore,
+      };
     }
   }
 
@@ -294,6 +325,7 @@ export async function GET(
       abcClass,
       kraljicQuadrant,
       performance,
+      subScores,
     },
     stats: {
       totalSpend,

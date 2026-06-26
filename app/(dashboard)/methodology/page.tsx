@@ -388,10 +388,71 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 5. Action Recommendations Synthesis */}
+      {/* 5. Supplier Classification (Combined View) */}
       <Card>
         <CardHeader>
-          <CardTitle>5. Action Recommendations Synthesis</CardTitle>
+          <CardTitle>5. Supplier Classification Methodology</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            The <strong>Supplier Classification</strong> page brings the Kraljic
+            matrix (3.2) and the Performance-vs-Spend diagnostic (3.3) together on
+            one screen, because they answer complementary questions:{" "}
+            <strong>Kraljic</strong> describes how much leverage and supply risk a
+            relationship carries, while <strong>Performance vs Spend</strong>{" "}
+            describes how well the supplier actually performs for the money spent.
+            Reading them side by side turns two separate portfolios into a single
+            prioritised view. The performance axis uses the same 0–100 composite
+            score defined in <strong>Section 4</strong>.
+          </p>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              5.1 Cross-classification synthesis
+            </h3>
+            <p>
+              Four synthesis buckets combine each supplier&apos;s Kraljic quadrant
+              with the <strong>period performance median</strong> — the same median
+              line the Performance-vs-Spend scatter uses, so the cards and the chart
+              are always internally consistent. &ldquo;Below&rdquo; means a composite
+              below the period median; &ldquo;above&rdquo; means at or over it:
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>Strategic underperformers</strong> — Strategic quadrant{" "}
+                <em>and</em> below the median: high-spend, hard-to-replace suppliers
+                that are not performing — the highest-priority engagement targets.
+              </li>
+              <li>
+                <strong>Bottleneck critical issues</strong> — Bottleneck quadrant{" "}
+                <em>and</em> below the median: small dollars but real supply risk if
+                they fail.
+              </li>
+              <li>
+                <strong>Workhorse leverage</strong> — Leverage quadrant <em>and</em>{" "}
+                above the median: dependable, competitive-category volume to
+                consolidate around.
+              </li>
+              <li>
+                <strong>Routine quality risks</strong> — Routine quadrant{" "}
+                <em>and</em> below the median: candidates to rationalize or move to
+                catalog buys.
+              </li>
+            </ul>
+            <p>
+              The buckets are presented as clickable cards that filter the combined
+              supplier table. Everything on the page is{" "}
+              <strong>period-scoped</strong> — single-year or range — consistent with
+              the rest of the dashboard.
+            </p>
+          </section>
+        </CardContent>
+      </Card>
+
+      {/* 6. Action Recommendations Synthesis */}
+      <Card>
+        <CardHeader>
+          <CardTitle>6. Action Recommendations Synthesis</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
           <p>
@@ -465,10 +526,10 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 5. Reporting Periods */}
+      {/* 7. Reporting Periods */}
       <Card>
         <CardHeader>
-          <CardTitle>6. Reporting Periods</CardTitle>
+          <CardTitle>7. Reporting Periods</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">
@@ -492,10 +553,10 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 5. Assumptions and Limitations */}
+      {/* 8. Assumptions and Limitations */}
       <Card>
         <CardHeader>
-          <CardTitle>7. Assumptions and Limitations</CardTitle>
+          <CardTitle>8. Assumptions and Limitations</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-2 pl-5">
@@ -528,10 +589,10 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 6. References */}
+      {/* 9. References */}
       <Card>
         <CardHeader>
-          <CardTitle>8. References</CardTitle>
+          <CardTitle>9. References</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">

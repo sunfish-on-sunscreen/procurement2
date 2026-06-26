@@ -5,17 +5,16 @@ import { Loader2 } from "lucide-react";
 import type { RangeAnalyses } from "@/lib/analysis-types";
 import { OverviewCharts } from "./OverviewCharts";
 import { AbcView } from "./AbcView";
-import { SupplierKraljicView } from "@/components/SupplierKraljicView";
-import { PerformanceSpendView } from "@/components/PerformanceSpendView";
 import { ActionDashboardView } from "@/components/ActionDashboardView";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { EmptyState } from "@/components/EmptyState";
 
+// Kraljic + performance_spend ranges are now served by the Supplier
+// Classification page's own client (/api/supplier-classification), so they are
+// no longer routed through RangeCompute.
 type View =
   | "overview"
   | "abc"
-  | "kraljic"
-  | "performance_spend"
   | "recommendations"
   | "cycle_time";
 
@@ -97,23 +96,6 @@ export function RangeCompute({
   }
   if (kind === "abc") {
     return state.data.abc ? <AbcView abc={state.data.abc} /> : <EmptyState />;
-  }
-  if (kind === "kraljic") {
-    return state.data.kraljic ? (
-      <SupplierKraljicView kraljic={state.data.kraljic} period={period} />
-    ) : (
-      <EmptyState />
-    );
-  }
-  if (kind === "performance_spend") {
-    return state.data.performance_spend ? (
-      <PerformanceSpendView
-        data={state.data.performance_spend}
-        period={period}
-      />
-    ) : (
-      <EmptyState />
-    );
   }
   if (kind === "recommendations") {
     return state.data.recommendations ? (

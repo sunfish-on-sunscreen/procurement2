@@ -30,7 +30,7 @@ export async function GET(
   }
   const { id } = await params;
 
-  const [periods, purchases, metric] = await Promise.all([
+  const [periods, purchases, metricRows] = await Promise.all([
     prisma.reportingPeriod.findMany({
       orderBy: { startDate: "asc" },
       select: { id: true, name: true, startDate: true, endDate: true },
@@ -45,16 +45,39 @@ export async function GET(
         supplierName: true,
       },
     }),
-    prisma.supplierMetric.findFirst({
+    // Per-period sub-scores (P2) for the sub-score trajectory cards.
+    prisma.supplierMetric.findMany({
       where: { supplierExternalId: id },
-      orderBy: { periodId: "desc" },
-      select: { supplierName: true },
+      select: {
+        periodId: true,
+        supplierName: true,
+        qualityScore: true,
+        deliveryScore: true,
+        serviceScore: true,
+        processScore: true,
+        riskScore: true,
+      },
     }),
   ]);
 
   if (purchases.length === 0) {
     return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
   }
+
+  const metric = metricRows[0] ?? null;
+  // periodId → that period's five sub-scores.
+  const subByPeriod = new Map(
+    metricRows.map((m) => [
+      m.periodId,
+      {
+        quality: m.qualityScore,
+        delivery: m.deliveryScore,
+        service: m.serviceScore,
+        process: m.processScore,
+        risk: m.riskScore,
+      },
+    ]),
+  );
 
   // Read each period's analyses in parallel.
   const analysesByPeriod = await Promise.all(
@@ -102,6 +125,7 @@ export async function GET(
         performanceScore:
           perf?.suppliers.find((s) => s.supplier_id === id)?.performance_score ??
           null,
+        subScores: subByPeriod.get(period.id) ?? null,
         topItems,
       };
     },

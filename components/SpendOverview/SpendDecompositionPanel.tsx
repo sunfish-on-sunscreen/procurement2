@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, BarChart3, Table as TableIcon, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import { X, Loader2, BarChart3, Table as TableIcon } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
+import { PerformanceScoreCard } from "@/components/PerformanceScoreCard";
+import { PerformanceTrajectory } from "@/components/PerformanceTrajectory";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -304,89 +306,6 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
   );
 }
 
-// Signed performance delta vs the previous period (A5): green ↑, red ↓, muted →;
-// always 2 decimals. Rendered INLINE inside the sublabel ("↑ +9.69").
-function PerfDelta({ delta }: { delta: number }) {
-  const r = Math.round(delta * 100) / 100;
-  const cls =
-    r > 0
-      ? "text-green-600 dark:text-green-500"
-      : r < 0
-        ? "text-red-600 dark:text-red-500"
-        : "text-muted-foreground";
-  const Icon = r > 0 ? ArrowUp : r < 0 ? ArrowDown : Minus;
-  return (
-    <span className={`inline-flex items-center gap-0.5 font-medium ${cls}`}>
-      <Icon className="h-3 w-3" />
-      {r > 0 ? "+" : ""}
-      {r.toFixed(2)}
-    </span>
-  );
-}
-
-// Period-scoped performance score StatBlock (A3/A5). Value line carries the
-// "/ out of 100" unit; the sublabel carries period + context:
-//   single, no prev:  {year} · first year on record
-//   single, w/ prev:  {year} · ↑ +Δ vs {prev} ({prevScore})
-//   range:            {span} · Latest active ({year}): {score}
-//   inactive year:    value "—" · "No score in {year}"
-function PerformanceStat({ perf }: { perf: SpendDetail["supplier"]["performance"] }) {
-  const hasScore = perf.score != null;
-  const delta =
-    perf.mode === "single" && perf.score != null && perf.previousScore != null
-      ? perf.score - perf.previousScore
-      : null;
-
-  let sublabel: React.ReactNode;
-  if (!hasScore) {
-    sublabel = `No score in ${perf.periodLabel ?? "this period"}`;
-  } else if (perf.mode === "single") {
-    sublabel =
-      perf.previousScore != null && perf.previousLabel ? (
-        <>
-          {perf.periodLabel} · <PerfDelta delta={delta!} /> vs {perf.previousLabel} (
-          {perf.previousScore.toFixed(2)})
-        </>
-      ) : (
-        <>{perf.periodLabel ?? "this period"} · first year on record</>
-      );
-  } else if (perf.mode === "range") {
-    sublabel =
-      perf.latestScore != null && perf.latestLabel ? (
-        <>
-          {perf.periodLabel} · Latest active ({perf.latestLabel}):{" "}
-          {perf.latestScore.toFixed(2)}
-        </>
-      ) : (
-        <>{perf.periodLabel}</>
-      );
-  } else {
-    sublabel = "latest snapshot";
-  }
-
-  return (
-    <StatBlock
-      label="Performance score"
-      value={
-        hasScore ? (
-          // Score (hero) + muted unit. `whitespace-nowrap` keeps "out of 100"
-          // intact so on a narrow card it drops to a second line as one piece
-          // rather than breaking word-by-word.
-          <span>
-            {perf.score!.toFixed(2)}{" "}
-            <span className="whitespace-nowrap text-sm font-normal text-muted-foreground">
-              / out of 100
-            </span>
-          </span>
-        ) : (
-          "—"
-        )
-      }
-      sublabel={sublabel}
-    />
-  );
-}
-
 // Classification chip — same style as the ranking table (color-mix tint + token
 // text). `color` null renders a neutral placeholder so the layout is preserved.
 function Chip({ color, label }: { color: string | null; label: string }) {
@@ -425,6 +344,7 @@ export function SpendDecompositionPanel({
   const [tab, setTab] = useState<Tab>("byItem");
   const [itemView, setItemView] = useState<View>("chart");
   const [posView, setPosView] = useState<View>("chart");
+  const [perfOpen, setPerfOpen] = useState(false);
 
   const detail = detailState?.key === detailKey ? detailState.detail : undefined;
   const detailErr = detailState?.key === detailKey ? detailState.err : undefined;
@@ -437,6 +357,7 @@ export function SpendDecompositionPanel({
     setTab("byItem");
     setItemView("chart");
     setPosView("chart");
+    setPerfOpen(false);
   }
 
   // Period-scoped spend detail (refetch on supplier OR span change).
@@ -482,7 +403,7 @@ export function SpendDecompositionPanel({
       <DialogContent
         showCloseButton={false}
         aria-label="Spend decomposition"
-        className="flex max-h-[85vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[680px]"
+        className="flex max-h-[85vh] w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[680px]"
       >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
@@ -524,7 +445,11 @@ export function SpendDecompositionPanel({
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Performance &amp; classification</h4>
               <div className="grid grid-cols-3 gap-4">
-                <PerformanceStat perf={s.performance} />
+                <PerformanceScoreCard
+                  perf={s.performance}
+                  open={perfOpen}
+                  onToggle={() => setPerfOpen((o) => !o)}
+                />
                 <div className="col-span-2 flex flex-wrap content-start items-start gap-2">
                   <Chip
                     color={s.abcClass ? ABC_COLORS[s.abcClass] : null}
@@ -536,6 +461,21 @@ export function SpendDecompositionPanel({
                   />
                 </div>
               </div>
+              {perfOpen && (
+                <div className="mt-4 border-t pt-3">
+                  {s.performance.score == null ? (
+                    <p className="text-xs text-muted-foreground">No data for this period.</p>
+                  ) : evo?.err ? (
+                    <p className="text-sm text-destructive">{evo.err}</p>
+                  ) : evoData ? (
+                    <PerformanceTrajectory data={evoData} />
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading trajectory…
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Section 3: activity span */}
@@ -551,7 +491,7 @@ export function SpendDecompositionPanel({
             </div>
 
             <div className="flex gap-1 border-b px-4 pt-3">
-              {([["byItem", "Spend by item"], ["pos", "All POs"], ["evolution", "Evolution"]] as const).map(([k, lbl]) => (
+              {([["byItem", "Spend by item"], ["pos", "All POs"], ["evolution", "Annual breakdown"]] as const).map(([k, lbl]) => (
                 <button
                   key={k}
                   type="button"
@@ -563,7 +503,7 @@ export function SpendDecompositionPanel({
               ))}
             </div>
 
-            <div className="flex-1 overflow-auto p-4">
+            <div className="p-4">
               {tab === "byItem" && (
                 absent ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">No items purchased in this period.</p>

@@ -43,6 +43,17 @@ export type SpendDetail = {
       latestScore: number | null;
       latestLabel: string | null;
     };
+    // Period-scoped sub-score breakdown (P2 methodology: quality/delivery/
+    // service/process/risk, each 0–100). Used by the Supplier Classification
+    // detail panel; the Spend Overview panel ignores it. Null when no metric row
+    // exists for the resolved period.
+    subScores: {
+      quality: number;
+      delivery: number;
+      service: number;
+      process: number;
+      risk: number;
+    } | null;
   };
   stats: {
     totalSpend: number;
@@ -75,6 +86,15 @@ export type SupplierEvolution = {
     abcClass: "A" | "B" | "C" | null;
     kraljicQuadrant: KraljicQuadrant | null;
     performanceScore: number | null;
+    // Per-period sub-scores (P2) — null when the supplier has no metric row that
+    // period. Feeds the sub-score trajectory cards in the performance expand.
+    subScores: {
+      quality: number;
+      delivery: number;
+      service: number;
+      process: number;
+      risk: number;
+    } | null;
     topItems: { itemDescription: string; spend: number; count: number }[];
   }[];
   insights: string[];
