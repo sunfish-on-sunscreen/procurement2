@@ -29,9 +29,20 @@ export type SpendDetail = {
     // the ranking table). Null when the supplier is absent from that period.
     abcClass: "A" | "B" | "C" | null;
     kraljicQuadrant: KraljicQuadrant | null;
-    // Composite performance score — a single per-supplier snapshot (not
-    // period-scoped); null when no metric row exists.
-    performanceScore: number | null;
+    // Period-scoped performance (P2). `score` is the SELECTED period's composite
+    // (single-year) or the range composite (range, computed from aggregated raw
+    // inputs). `previousScore` drives the single-year delta arrow; `latestScore`
+    // is the latest-period snapshot shown alongside a range composite. In the
+    // no-span (all-time) fallback, `score` is the latest snapshot.
+    performance: {
+      score: number | null;
+      mode: "single" | "range" | "all";
+      periodLabel: string | null;
+      previousScore: number | null;
+      previousLabel: string | null;
+      latestScore: number | null;
+      latestLabel: string | null;
+    };
   };
   stats: {
     totalSpend: number;

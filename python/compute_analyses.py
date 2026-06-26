@@ -121,11 +121,22 @@ def load_frames(conn, start_ts, end_ts):
         'WHERE "externalId" IN %s ORDER BY "externalId"',
         (supplier_ids,),
     )
+    # Per-period (P2): SupplierMetric now holds one row per supplier-period.
+    # Pick the row(s) whose period falls inside [start_ts, end_ts]. In Mode A the
+    # window IS one period's bounds, so exactly that period's metrics load. In
+    # Mode B (range) several periods qualify; DISTINCT ON keeps the LATEST one
+    # per supplier (period scores trend, latest = current snapshot for the
+    # range's spend/Kraljic analyses; the panel computes a true range composite
+    # separately).
     metrics = _df(
         conn,
-        'SELECT DISTINCT ON ("supplierExternalId") * FROM "SupplierMetric" '
-        'WHERE "supplierExternalId" IN %s ORDER BY "supplierExternalId"',
-        (supplier_ids,),
+        'SELECT DISTINCT ON (m."supplierExternalId") m.* '
+        'FROM "SupplierMetric" m '
+        'JOIN "ReportingPeriod" rp ON rp.id = m."periodId" '
+        'WHERE m."supplierExternalId" IN %s '
+        'AND rp."startDate" >= %s AND rp."endDate" <= %s '
+        'ORDER BY m."supplierExternalId", rp."startDate" DESC',
+        (supplier_ids, start_ts, end_ts),
     )
     return suppliers, purchases, metrics
 

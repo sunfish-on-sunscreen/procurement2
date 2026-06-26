@@ -4,11 +4,12 @@ import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { ChartFrame } from "./ChartFrame";
 import { CATEGORY_COLORS } from "@/lib/chart-colors";
 
-const usdCompact = new Intl.NumberFormat("en-US", {
+// Tooltips use FULL numbers (matches TopSuppliers / MonthlyTrend tooltips and
+// the report convention); axes/labels elsewhere stay compact.
+const usd0 = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
+  maximumFractionDigits: 0,
 });
 
 export function SpendByCategoryChart({
@@ -35,7 +36,7 @@ export function SpendByCategoryChart({
         </Pie>
         <Tooltip
           formatter={(value, name) => [
-            `${usdCompact.format(Number(value))} (${total ? ((Number(value) / total) * 100).toFixed(1) : "0"}%)`,
+            `${usd0.format(Number(value))} (${total ? ((Number(value) / total) * 100).toFixed(1) : "0"}%)`,
             name,
           ]}
         />

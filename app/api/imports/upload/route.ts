@@ -53,6 +53,9 @@ const SupplierMetricsRow = z.object({
   supplier_name: z.string(),
   category: z.string(),
   tier: z.string(),
+  // Per-period (P2): the enriched sheet carries one row per active
+  // supplier-period; `period` is the invoice-year that row is scoped to.
+  period: z.number().int(),
   total_spend_usd: z.number(),
   num_pos: z.number().int(),
   avg_po_value_usd: z.number(),
@@ -255,6 +258,10 @@ export async function POST(request: Request) {
     );
   }
 
+  // Each metric row is scoped to its own period (the `period` invoice-year).
+  // Map it to that year's periodId; fall back to the latest year if a metric
+  // row's year somehow isn't among the detected purchase years (shouldn't
+  // happen — metric periods are derived from the same purchases).
   const metricData = metricsParsed.data.map((r) => ({
     supplierExternalId: r.supplier_id,
     supplierName: r.supplier_name,
@@ -278,7 +285,7 @@ export async function POST(request: Request) {
     processScore: r.process_score,
     riskScore: r.risk_score,
     compositeScore: r.composite_score,
-    periodId: maxYearPeriodId,
+    periodId: yearToPeriodId.get(r.period) ?? maxYearPeriodId,
   }));
 
   // 11a. Create PROCESSING import records OUTSIDE the data transaction, so a

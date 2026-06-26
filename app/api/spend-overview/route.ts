@@ -75,8 +75,13 @@ export async function POST(request: Request) {
   // The full supplier roster (identity + declared tier) — one row per supplier.
   // Including ALL suppliers means those with $0 in the period appear too, muted
   // and ranked last (they still exist; only their period activity is empty).
+  // ⚠️ SupplierMetric is now per-period (P2): without `distinct` this fans out to
+  // one row per supplier-period and duplicates every supplier in the ranking.
+  // Identity/category/tier are period-invariant, so keep any one row per supplier.
   const roster = await prisma.supplierMetric.findMany({
     select: { supplierExternalId: true, supplierName: true, category: true, tier: true },
+    distinct: ["supplierExternalId"],
+    orderBy: { periodId: "desc" },
   });
 
   const ranking: SupplierRankingRow[] = roster

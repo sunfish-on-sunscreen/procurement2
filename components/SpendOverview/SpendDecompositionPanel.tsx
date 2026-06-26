@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, BarChart3, Table as TableIcon } from "lucide-react";
+import { X, Loader2, BarChart3, Table as TableIcon, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -262,8 +262,10 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={32} />
-              <Tooltip formatter={(v) => [v == null ? "—" : Number(v).toFixed(1), "Performance"]} />
-              <Line type="monotone" dataKey="performanceScore" stroke={CHART_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
+              <Tooltip formatter={(v) => [v == null ? "—" : Number(v).toFixed(2), "Performance"]} />
+              {/* No connectNulls: an inactive year is a real gap, not a straight
+                  interpolation between the surrounding periods. */}
+              <Line type="monotone" dataKey="performanceScore" stroke={CHART_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
             </LineChart>
           </ChartFrame>
         </section>
@@ -299,6 +301,77 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
         </section>
       )}
     </div>
+  );
+}
+
+// Signed performance delta vs the previous period (A5): green up, red down,
+// muted no-change; always 2 decimals.
+function PerfDelta({ delta }: { delta: number }) {
+  const r = Math.round(delta * 100) / 100;
+  const cls =
+    r > 0
+      ? "text-green-600 dark:text-green-500"
+      : r < 0
+        ? "text-red-600 dark:text-red-500"
+        : "text-muted-foreground";
+  const Icon = r > 0 ? ArrowUp : r < 0 ? ArrowDown : Minus;
+  return (
+    <span className={`ml-1.5 inline-flex items-center gap-0.5 text-sm font-medium ${cls}`}>
+      <Icon className="h-3.5 w-3.5" />
+      {r > 0 ? "+" : ""}
+      {r.toFixed(2)}
+    </span>
+  );
+}
+
+// Period-scoped performance score StatBlock (A3/A5): single-year shows a delta
+// arrow vs the previous period + the prior value in parentheses; range shows the
+// range composite + the latest-period snapshot; all-time shows the snapshot.
+function PerformanceStat({ perf }: { perf: SpendDetail["supplier"]["performance"] }) {
+  const value = perf.score != null ? perf.score.toFixed(2) : "—";
+  const delta =
+    perf.mode === "single" && perf.score != null && perf.previousScore != null
+      ? perf.score - perf.previousScore
+      : null;
+
+  let sublabel: React.ReactNode;
+  if (perf.score == null) {
+    sublabel = `No score in ${perf.periodLabel ?? "this period"}`;
+  } else if (perf.mode === "single") {
+    sublabel =
+      perf.previousScore != null && perf.previousLabel ? (
+        <>
+          out of 100 · {perf.periodLabel} ({perf.previousScore.toFixed(2)} in{" "}
+          {perf.previousLabel})
+        </>
+      ) : (
+        <>out of 100 · {perf.periodLabel ?? "this period"}</>
+      );
+  } else if (perf.mode === "range") {
+    sublabel =
+      perf.latestScore != null ? (
+        <>
+          range {perf.periodLabel} · {perf.latestLabel} snapshot{" "}
+          {perf.latestScore.toFixed(2)}
+        </>
+      ) : (
+        <>range composite · {perf.periodLabel}</>
+      );
+  } else {
+    sublabel = "out of 100 · latest snapshot";
+  }
+
+  return (
+    <StatBlock
+      label="Performance score"
+      value={
+        <span className="inline-flex items-baseline">
+          {value}
+          {delta != null && <PerfDelta delta={delta} />}
+        </span>
+      }
+      sublabel={sublabel}
+    />
   );
 }
 
@@ -439,11 +512,7 @@ export function SpendDecompositionPanel({
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Performance &amp; classification</h4>
               <div className="grid grid-cols-3 gap-4">
-                <StatBlock
-                  label="Performance score"
-                  value={s.performanceScore != null ? s.performanceScore.toFixed(1) : "—"}
-                  sublabel="out of 100 · latest snapshot"
-                />
+                <PerformanceStat perf={s.performance} />
                 <div className="col-span-2 flex flex-wrap content-start items-start gap-2">
                   <Chip
                     color={s.abcClass ? ABC_COLORS[s.abcClass] : null}

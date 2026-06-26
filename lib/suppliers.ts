@@ -18,26 +18,30 @@ export async function getSupplierCategoryMap(): Promise<Record<string, string>> 
  * Static per-supplier catalog facts (country + PO count) for the Batch 6b
  * supplier detail panel — fields the period analyses don't carry. Suppliers are
  * a global catalog (one row per externalId, tagged to the latest period), so a
- * `distinct` on externalId is period-stable for country; `numPos` is the
- * SupplierMetric snapshot (latest period wins), consistent with the other
- * denormalized SupplierMetric snapshots.
+ * `distinct` on externalId is period-stable for country.
+ *
+ * ⚠️ `num_pos` is the ALL-TIME PO count, computed from the Purchase table.
+ * SupplierMetric.numPos is now a PER-PERIOD value (P2), so reading it (even the
+ * latest period's) would understate the all-time total — counting Purchase rows
+ * directly keeps the long-standing all-time meaning.
  */
 export async function getSupplierDirectory(): Promise<
   Record<string, { country: string; num_pos: number }>
 > {
-  const [suppliers, metrics] = await Promise.all([
+  const [suppliers, poCounts] = await Promise.all([
     prisma.supplier.findMany({
       select: { externalId: true, country: true },
       distinct: ["externalId"],
       orderBy: { periodId: "desc" },
     }),
-    prisma.supplierMetric.findMany({
-      select: { supplierExternalId: true, numPos: true },
-      distinct: ["supplierExternalId"],
-      orderBy: { periodId: "desc" },
+    prisma.purchase.groupBy({
+      by: ["supplierExternalId"],
+      _count: { _all: true },
     }),
   ]);
-  const numPosById = new Map(metrics.map((m) => [m.supplierExternalId, m.numPos]));
+  const numPosById = new Map(
+    poCounts.map((p) => [p.supplierExternalId, p._count._all]),
+  );
   const out: Record<string, { country: string; num_pos: number }> = {};
   for (const s of suppliers) {
     out[s.externalId] = {

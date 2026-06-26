@@ -456,7 +456,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.cPct,
       )}).${
         c.coreNonA > 0
-          ? ` Notably, ${c.coreNonA} Core-tier supplier(s) fell into non-A classes, indicating a tier/spend mismatch worth review.`
+          ? ` Notably, ${c.coreNonA} Core-tier supplier(s) fell into non-A classes — their assigned tier no longer tracks realised spend, worth a review.`
           : ""
       }`,
     kraljic: (c) =>

@@ -9,22 +9,40 @@ import route reads. The two files are committed separately:
     procurement_data_raw.xlsx   (input)  — raw operational inputs, source of truth
     procurement_data.xlsx       (output) — raw inputs + computed scores, imported
 
+PER-PERIOD scores (P2): the enriched SupplierMetrics sheet now carries ONE row
+per active supplier-period (a `period` column = invoice-year), not one row per
+supplier. The purchase-derived inputs (spend, #POs, avg PO value, lead/cycle
+time, OTD %, 3-way-match %) are RE-AGGREGATED per period from the actual
+per-period Purchase rows; the soft survey inputs (defect rate, complaints, RFx
+rate, response time, single-source) and identity are held CONSTANT across
+periods at the supplier's snapshot value (there is no per-period source for
+them). The five sub-scores + composite are then computed per period from those
+inputs, so delivery + process (45% of the composite) vary by year while the
+rest stays flat. This is fully deterministic (no rng) and fabricates nothing.
+A supplier-period with zero purchase activity gets NO row.
+
+Period grouping uses ``(invoice_date or pr_date).year`` — the same key the
+import route tags purchases with (COALESCE(invoiceDate, prDate)) — so the
+transformer's per-period groups line up exactly with the DB periods.
+
 Pipeline (fully deterministic — no rng):
   1. Tier rename (Strategic->Core, Preferred->Established, Approved->Standard);
      idempotent on already-renamed input.
-  2. Five sub-scores (quality/delivery/service/process) from raw inputs with
+  2. Expand metrics to one row per active supplier-period with per-period
+     purchase-derived inputs + constant soft inputs.
+  3. Five sub-scores (quality/delivery/service/process) from inputs with
      FIXED industry bounds.
-  3. risk_score: deterministic 100 - weighted(country, complaints, single-source),
+  4. risk_score: deterministic 100 - weighted(country, complaints, single-source),
      higher = safer.
-  4. composite_score (weights 0.25/0.25/0.15/0.20/0.15).
-  5. Drop the obsolete Purchases.automation_period column if present.
+  5. composite_score (weights 0.25/0.25/0.15/0.20/0.15).
+  6. Drop the obsolete Purchases.automation_period column if present.
 
 Strict input validation (Decision C): the raw workbook must NOT contain any of
 the derived score columns. If found, the run aborts with a clear message.
 
 The old-vs-new diff (scripts/score_rebuild_diff.json) compares the new output
-against the PREVIOUS enriched workbook if one exists; on a first run there is no
-baseline and the diff is skipped.
+against the PREVIOUS enriched workbook if one exists AND it already carries the
+per-period `period` column; otherwise (first per-period run) the diff is skipped.
 
 Usage:  python scripts/transform_dataset.py
 """
@@ -86,6 +104,106 @@ SCORE_COLS = [
     "process_score", "risk_score", "composite_score",
 ]
 
+# Identity + soft survey inputs carried CONSTANT across a supplier's periods
+# (no per-period source); the purchase-derived inputs are recomputed per period.
+IDENTITY_COLS = [
+    "supplier_id", "supplier_name", "country", "category",
+    "product_description", "tier",
+]
+SOFT_COLS = [
+    "defect_rate_pct", "complaint_count_annual", "rfx_response_rate_pct",
+    "avg_response_time_days", "single_source_risk",
+]
+# Output column order for the enriched SupplierMetrics sheet.
+OUT_COLS = (
+    IDENTITY_COLS
+    + ["period"]
+    + [
+        "total_spend_usd", "num_pos", "avg_po_value_usd", "avg_lead_time_days",
+        "avg_cycle_time_days", "on_time_delivery_pct", "three_way_match_pct",
+    ]
+    + SOFT_COLS
+    + SCORE_COLS
+)
+
+
+def build_period_metrics(metrics, purchases):
+    """Expand the per-supplier snapshot into one row per active supplier-period.
+
+    Purchase-derived inputs are re-aggregated per period (invoice-year, with a
+    pr_date fallback — mirrors the import route's period tag); soft + identity
+    inputs are carried constant from the supplier's snapshot row. Aggregation
+    formulas reproduce the snapshot definitions exactly, so summing across all
+    of a supplier's periods reconciles with the original snapshot."""
+    soft_by_sid = metrics.set_index("supplier_id")
+
+    pu = purchases.copy()
+    inv = pd.to_datetime(pu["invoice_date"], errors="coerce")
+    pr = pd.to_datetime(pu["pr_date"], errors="coerce")
+    pu["period"] = inv.fillna(pr).dt.year.astype("Int64")
+
+    rows = []
+    for (sid, year), g in pu.groupby(["supplier_id", "period"], sort=True):
+        if pd.isna(sid) or pd.isna(year) or sid not in soft_by_sid.index:
+            continue  # purchase with no matching supplier metric — skip
+        snap = soft_by_sid.loc[sid]  # supplier_id is now the index, not a column
+        npos = int(len(g))
+        spend = float(g["total_value_usd"].sum())
+        row = {"supplier_id": sid}
+        for c in IDENTITY_COLS:
+            if c != "supplier_id":
+                row[c] = snap[c]
+        row["period"] = int(year)
+        row["total_spend_usd"] = round(spend, 2)
+        row["num_pos"] = npos
+        row["avg_po_value_usd"] = round(spend / npos, 2) if npos else 0.0
+        row["avg_lead_time_days"] = round(float(g["po_to_delivery_days"].mean()), 2)
+        row["avg_cycle_time_days"] = round(float(g["total_cycle_days"].mean()), 2)
+        row["on_time_delivery_pct"] = round(float(g["on_time_delivery"].mean()) * 100, 2)
+        row["three_way_match_pct"] = round(float(g["three_way_match_pass"].mean()) * 100, 2)
+        for c in SOFT_COLS:
+            row[c] = snap[c]
+        rows.append(row)
+
+    out = pd.DataFrame(rows)
+    # Preserve original dtypes for the integer-ish columns.
+    out["complaint_count_annual"] = out["complaint_count_annual"].astype(int)
+    out["single_source_risk"] = out["single_source_risk"].astype(int)
+    return out
+
+
+def compute_scores(m):
+    """Add the six derived score columns IN PLACE-ish (returns m). Fixed bounds;
+    fully deterministic. Identical formulas to the snapshot rebuild — just now
+    applied to per-period inputs."""
+    m["quality_score"] = np.round([
+        (norm_low(r["defect_rate_pct"], 0, 10) + norm_low(r["complaint_count_annual"], 0, 10)) / 2
+        for _, r in m.iterrows()
+    ], 2)
+    m["delivery_score"] = np.round([
+        (norm_high(r["on_time_delivery_pct"], 0, 100) + norm_low(r["avg_lead_time_days"], 0, 60)) / 2
+        for _, r in m.iterrows()
+    ], 2)
+    m["service_score"] = np.round([
+        (norm_low(r["avg_response_time_days"], 0, 14) + norm_high(r["rfx_response_rate_pct"], 0, 100)) / 2
+        for _, r in m.iterrows()
+    ], 2)
+    m["process_score"] = np.round([
+        norm_high(r["three_way_match_pct"], 0, 100) for _, r in m.iterrows()
+    ], 2)
+    new_risk = []
+    for _, r in m.iterrows():
+        country = country_distance_score(r.get("country", ""))
+        complaint = min(float(r["complaint_count_annual"]) * 10.0, 100.0)
+        concentration = float(r["single_source_risk"]) * 100.0
+        risk = 100.0 - (0.4 * country + 0.3 * complaint + 0.3 * concentration)
+        new_risk.append(float(np.clip(risk, 0, 100)))
+    m["risk_score"] = np.round(new_risk, 2)
+    m["composite_score"] = np.round(
+        sum(m[col] * w for col, w in WEIGHTS.items()), 2
+    )
+    return m
+
 
 def _buckets(deltas):
     b = {"<1": 0, "1-5": 0, "5-10": 0, "10-25": 0, ">25": 0}
@@ -105,15 +223,26 @@ def _buckets(deltas):
 
 
 def build_diff(old, new):
-    """Per-supplier old-vs-new score diff for human review (Decision F)."""
-    oi, ni = old.set_index("supplier_id"), new.set_index("supplier_id")
+    """Per-(supplier, period) old-vs-new score diff for human review (Decision F).
+    Both frames carry a `period` column; the key is supplier_id + period."""
+    key = lambda df: df["supplier_id"].astype(str) + "@" + df["period"].astype(str)
+    oi = old.assign(_k=key(old)).set_index("_k")
+    ni = new.assign(_k=key(new)).set_index("_k")
     per = []
-    for sid in ni.index:
-        row = {"supplier_id": sid, "supplier_name": ni.loc[sid, "supplier_name"]}
+    for k in ni.index:
+        if k not in oi.index:
+            continue  # supplier-period new this run — no baseline to diff
+        row = {
+            "supplier_id": ni.loc[k, "supplier_id"],
+            "period": int(ni.loc[k, "period"]),
+            "supplier_name": ni.loc[k, "supplier_name"],
+        }
         for c in SCORE_COLS:
-            ov, nv = float(oi.loc[sid, c]), float(ni.loc[sid, c])
+            ov, nv = float(oi.loc[k, c]), float(ni.loc[k, c])
             row[c] = {"old": ov, "new": nv, "delta": round(nv - ov, 2)}
         per.append(row)
+    if not per:
+        return None
     summary, top5 = {}, {}
     for c in SCORE_COLS:
         deltas = [r[c]["delta"] for r in per]
@@ -173,8 +302,10 @@ def main():
     )
 
     # Diff baseline = the PREVIOUS enriched output, read BEFORE we overwrite it.
-    # On a first run (no prior output / missing columns) the diff is skipped.
-    need = ["supplier_id", "supplier_name", "tier", *SCORE_COLS]
+    # Requires the per-period `period` column; the first per-period run (whose
+    # baseline is the old one-row-per-supplier output) has no comparable key,
+    # so the diff is skipped.
+    need = ["supplier_id", "period", "supplier_name", "tier", *SCORE_COLS]
     old_scores = None
     if os.path.exists(XLSX):
         try:
@@ -188,47 +319,29 @@ def main():
     suppliers["tier"] = suppliers["tier"].map(lambda t: TIER_MAP.get(t, t))
     metrics["tier"] = metrics["tier"].map(lambda t: TIER_MAP.get(t, t))
 
-    # --- 2. Sub-scores from raw operational inputs, FIXED bounds (Decision B) #
+    # --- 2. Expand to one row per active supplier-period ------------------- #
+    # Purchase-derived inputs aggregated per period; soft + identity constant.
+    metrics = build_period_metrics(metrics, purchases)
+    print(
+        f"  expanded to {len(metrics)} supplier-period rows "
+        f"({metrics['supplier_id'].nunique()} suppliers x "
+        f"{sorted(metrics['period'].unique().tolist())})"
+    )
+
+    # --- 3-5. Sub-scores + risk + composite, FIXED bounds (Decision B/C) --- #
     # Bounds rationale (see methodology doc):
     #   defect_rate 0-10% (Toyota near-zero; >1% investigate; 10% unacceptable)
     #   complaint_count 0-10 (>10/yr = severe relationship issue)
     #   lead_time 0-60 days (60-day lead = poor); response_time 0-14 days (2-wk SLA)
     #   OTD / rfx_rate / 3-way-match are percentages (0-100) by definition.
-    metrics["quality_score"] = np.round([
-        (norm_low(r["defect_rate_pct"], 0, 10) + norm_low(r["complaint_count_annual"], 0, 10)) / 2
-        for _, r in metrics.iterrows()
-    ], 2)
-    metrics["delivery_score"] = np.round([
-        (norm_high(r["on_time_delivery_pct"], 0, 100) + norm_low(r["avg_lead_time_days"], 0, 60)) / 2
-        for _, r in metrics.iterrows()
-    ], 2)
-    metrics["service_score"] = np.round([
-        (norm_low(r["avg_response_time_days"], 0, 14) + norm_high(r["rfx_response_rate_pct"], 0, 100)) / 2
-        for _, r in metrics.iterrows()
-    ], 2)
-    metrics["process_score"] = np.round([
-        norm_high(r["three_way_match_pct"], 0, 100) for _, r in metrics.iterrows()
-    ], 2)
-
-    # --- 3. risk_score: deterministic composite, higher = safer (Decision C) #
-    # single_source_risk is read as an existing 0/1 data field (NOT regenerated).
-    new_risk = []
-    for _, r in metrics.iterrows():
-        country = country_distance_score(r.get("country", ""))
-        complaint = min(float(r["complaint_count_annual"]) * 10.0, 100.0)
-        concentration = float(r["single_source_risk"]) * 100.0
-        risk = 100.0 - (0.4 * country + 0.3 * complaint + 0.3 * concentration)
-        new_risk.append(float(np.clip(risk, 0, 100)))
-    metrics["risk_score"] = np.round(new_risk, 2)
-
-    # --- 4. composite_score (existing weights, now over derived sub-scores) - #
-    metrics["composite_score"] = np.round(
-        sum(metrics[col] * w for col, w in WEIGHTS.items()), 2
-    )
+    # risk_score: deterministic 100 - weighted(country, complaints, single-source),
+    # higher = safer; single_source_risk read as an existing 0/1 field.
+    metrics = compute_scores(metrics)
+    metrics = metrics[OUT_COLS].copy()
 
     # (tier_mismatch + calculated_tier removed — unreliable diagnostic, dropped.)
 
-    # --- 5. (Batch 5) Drop Purchases.automation_period -------------------- #
+    # --- 6. (Batch 5) Drop Purchases.automation_period -------------------- #
     if "automation_period" in purchases.columns:
         purchases = purchases.drop(columns=["automation_period"])
         print("  dropped Purchases.automation_period")
@@ -246,15 +359,15 @@ def main():
     summarize("composite_score", metrics["composite_score"])
 
     # --- Rebuild diff + review gate (Decision F) -------------------------- #
-    if old_scores is not None:
-        diff = build_diff(old_scores, metrics)
+    diff = build_diff(old_scores, metrics) if old_scores is not None else None
+    if diff is not None:
         print_diff_summary(diff)
         diff_path = os.path.join(HERE, "score_rebuild_diff.json")
         with open(diff_path, "w") as f:
             json.dump(diff, f, indent=2)
         print(f"\nFull diff saved to {diff_path} (new output vs previous enriched output)")
     else:
-        print("\nNo previous enriched output to diff against — fresh computation.")
+        print("\nNo comparable previous output to diff against — fresh computation.")
     # Confirmation gate: interactive prompt for humans; auto-proceed when piped.
     if sys.stdin.isatty():
         if input("\nContinue with overwrite? [y/N] ").strip().lower() != "y":

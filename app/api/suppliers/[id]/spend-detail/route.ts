@@ -7,6 +7,7 @@ import {
   type KraljicResult,
 } from "@/lib/analysis-types";
 import { getRangeAnalyses } from "@/lib/range-analyses";
+import { computeScores } from "@/lib/score-methodology";
 import type { SpendDetail } from "@/lib/spend-overview-types";
 
 export const runtime = "nodejs";
@@ -61,24 +62,57 @@ export async function GET(
     };
   }
 
-  // Identity first, so suppliers absent from the span still render.
-  const [metric, supplier] = await Promise.all([
-    prisma.supplierMetric.findFirst({
+  // Identity first, so suppliers absent from the span still render. Also load
+  // ALL periods + this supplier's per-period metric rows so performance can be
+  // scoped to the selected span (single-period composite / range composite).
+  const [metricRows, supplier, periods] = await Promise.all([
+    prisma.supplierMetric.findMany({
       where: { supplierExternalId: id },
-      orderBy: { periodId: "desc" },
-      select: { supplierName: true, category: true, tier: true, compositeScore: true },
+      select: {
+        periodId: true,
+        supplierName: true,
+        category: true,
+        tier: true,
+        compositeScore: true,
+        defectRatePct: true,
+        complaintCountAnnual: true,
+        onTimeDeliveryPct: true,
+        avgLeadTimeDays: true,
+        avgResponseTimeDays: true,
+        rfxResponseRatePct: true,
+        threeWayMatchPct: true,
+        singleSourceRisk: true,
+      },
     }),
     prisma.supplier.findFirst({
       where: { externalId: id },
       orderBy: { periodId: "desc" },
       select: { supplierName: true, country: true, category: true, tier: true },
     }),
+    prisma.reportingPeriod.findMany({
+      orderBy: { startDate: "asc" },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    }),
   ]);
 
   // Genuinely unknown supplier → 404. (Absence from a PERIOD is a 200 below.)
-  if (!metric && !supplier) {
+  if (metricRows.length === 0 && !supplier) {
     return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
   }
+
+  // periodId → composite, and the latest-period metric row (for identity + the
+  // constant soft inputs used by the range composite).
+  const periodOrder = new Map(periods.map((p, i) => [p.id, i]));
+  const compositeByPeriod = new Map(
+    metricRows.map((m) => [m.periodId, m.compositeScore]),
+  );
+  const latestMetric =
+    metricRows.length > 0
+      ? metricRows.reduce((a, b) =>
+          (periodOrder.get(b.periodId) ?? -1) > (periodOrder.get(a.periodId) ?? -1) ? b : a,
+        )
+      : null;
+  const metric = latestMetric;
 
   const purchases = await prisma.purchase.findMany({
     where: {
@@ -95,6 +129,11 @@ export async function GET(
       totalValueUsd: true,
       prDate: true,
       invoiceDate: true,
+      // Inputs for the range composite (A7): aggregated below into delivery /
+      // process means over the in-span POs.
+      poToDeliveryDays: true,
+      onTimeDelivery: true,
+      threeWayMatchPass: true,
     },
   });
 
@@ -129,9 +168,16 @@ export async function GET(
   let totalSpend = 0;
   let earliest: Date | null = null;
   let latest: Date | null = null;
+  // Accumulators for the range composite's delivery/process inputs.
+  let leadSum = 0;
+  let otdCount = 0;
+  let twmCount = 0;
   const byItemMap = new Map<string, { poCount: number; totalSpend: number }>();
   for (const p of purchases) {
     totalSpend += p.totalValueUsd;
+    leadSum += p.poToDeliveryDays;
+    if (p.onTimeDelivery) otdCount += 1;
+    if (p.threeWayMatchPass) twmCount += 1;
     const d = p.invoiceDate ?? p.prDate;
     if (d && (!earliest || d < earliest)) earliest = d;
     if (d && (!latest || d > latest)) latest = d;
@@ -162,6 +208,82 @@ export async function GET(
       ),
     );
 
+  // --- Period-scoped performance (A3/A7) ------------------------------------ #
+  // Which periods fall inside the selected span (same containment rule as the
+  // Python compute: period fully within [start, end]). Period dates are stored
+  // in UTC, so the window bounds must be UTC too — parsing "YYYY-MM-DDT…" without
+  // a Z would use the server's local zone and mis-bound the comparison.
+  const inWindow =
+    start && end
+      ? periods.filter(
+          (p) =>
+            p.startDate >= new Date(`${start}T00:00:00.000Z`) &&
+            p.endDate <= new Date(`${end}T23:59:59.999Z`),
+        )
+      : [];
+
+  const performance: SpendDetail["supplier"]["performance"] = {
+    score: null,
+    mode: "all",
+    periodLabel: null,
+    previousScore: null,
+    previousLabel: null,
+    latestScore: null,
+    latestLabel: null,
+  };
+
+  if (!dateFilter) {
+    // No span → latest snapshot (backward compat).
+    performance.mode = "all";
+    performance.score = latestMetric?.compositeScore ?? null;
+    performance.periodLabel = latestMetric
+      ? (periods.find((p) => p.id === latestMetric.periodId)?.name ?? null)
+      : null;
+  } else if (inWindow.length === 1) {
+    // Single-year → that period's composite + previous active period for delta.
+    performance.mode = "single";
+    const sel = inWindow[0];
+    performance.score = compositeByPeriod.get(sel.id) ?? null;
+    performance.periodLabel = sel.name;
+    const selIdx = periodOrder.get(sel.id) ?? -1;
+    // Nearest earlier period that the supplier actually has a metric row for.
+    const prev = [...periods]
+      .filter((p) => (periodOrder.get(p.id) ?? -1) < selIdx && compositeByPeriod.has(p.id))
+      .pop();
+    if (prev) {
+      performance.previousScore = compositeByPeriod.get(prev.id) ?? null;
+      performance.previousLabel = prev.name;
+    }
+  } else if (inWindow.length > 1) {
+    // Range → composite from raw inputs aggregated over the span + latest
+    // snapshot. "Latest" is the most recent in-window period the supplier is
+    // actually active in (skip trailing inactive years).
+    performance.mode = "range";
+    performance.periodLabel = `${inWindow[0].name}–${inWindow[inWindow.length - 1].name}`;
+    const lastActive = [...inWindow]
+      .filter((p) => compositeByPeriod.has(p.id))
+      .pop();
+    if (lastActive) {
+      performance.latestScore = compositeByPeriod.get(lastActive.id) ?? null;
+      performance.latestLabel = lastActive.name;
+    }
+    if (latestMetric && purchases.length > 0) {
+      const n = purchases.length;
+      const { compositeScore } = computeScores({
+        defectRatePct: latestMetric.defectRatePct,
+        complaintCountAnnual: latestMetric.complaintCountAnnual,
+        onTimeDeliveryPct: (otdCount / n) * 100,
+        avgLeadTimeDays: leadSum / n,
+        avgResponseTimeDays: latestMetric.avgResponseTimeDays,
+        rfxResponseRatePct: latestMetric.rfxResponseRatePct,
+        threeWayMatchPct: (twmCount / n) * 100,
+        singleSourceRisk: latestMetric.singleSourceRisk,
+        country: supplier?.country ?? "",
+      });
+      performance.score = compositeScore;
+    }
+  }
+
   const detail: SpendDetail = {
     supplier: {
       id,
@@ -171,7 +293,7 @@ export async function GET(
       country: supplier?.country ?? null,
       abcClass,
       kraljicQuadrant,
-      performanceScore: metric?.compositeScore ?? null,
+      performance,
     },
     stats: {
       totalSpend,
