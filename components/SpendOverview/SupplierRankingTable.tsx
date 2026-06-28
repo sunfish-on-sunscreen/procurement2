@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDown, ArrowUp } from "lucide-react";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import { ABC_COLORS } from "@/lib/chart-colors";
-import { formatCompactCurrency } from "@/lib/utils";
+import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { SortArrow, TierChip } from "@/components/RankingCells";
 
 const num0 = new Intl.NumberFormat("en-US");
 
@@ -23,17 +23,26 @@ type SortKey =
   | "avg_po_value"
   | "abc_class";
 
+type Align = "left" | "right" | "center";
+
 // The leading "#" column is a positional index (not in COLUMNS) — it reflects
 // the current sort order and is intentionally NOT sortable.
-const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
+const COLUMNS: { key: SortKey; label: string; align: Align; width?: string }[] = [
   { key: "supplier_name", label: "Supplier", align: "left" },
   { key: "category", label: "Category", align: "left" },
-  { key: "tier", label: "Tier", align: "left" },
-  { key: "total_spend", label: "Total spend", align: "right" },
+  { key: "tier", label: "Tier", align: "left", width: "w-[110px]" },
+  { key: "total_spend", label: "Spend", align: "right" },
   { key: "po_count", label: "Invoices", align: "right" },
   { key: "avg_po_value", label: "Avg invoice", align: "right" },
-  { key: "abc_class", label: "ABC", align: "left" },
+  { key: "abc_class", label: "ABC", align: "center", width: "w-[56px]" },
 ];
+
+const alignText: Record<Align, string> = { left: "text-left", right: "text-right", center: "text-center" };
+const alignJustify: Record<Align, string> = {
+  left: "",
+  right: "flex-row-reverse",
+  center: "justify-center",
+};
 
 function compare(a: SupplierRankingRow, b: SupplierRankingRow, key: SortKey) {
   const av = a[key];
@@ -72,7 +81,7 @@ export function SupplierRankingTable({
   return (
     // overflow-visible overrides Card's overflow-hidden so the sticky header can
     // pin to the viewport (an overflow:hidden ancestor would trap position:sticky).
-    <Card className="overflow-visible">
+    <Card className={`overflow-visible ${cardElevation}`}>
       <CardHeader>
         <CardTitle>All Suppliers</CardTitle>
       </CardHeader>
@@ -87,24 +96,15 @@ export function SupplierRankingTable({
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`sticky top-0 z-10 border-b bg-card py-2 font-medium text-muted-foreground ${
-                    col.align === "right" ? "text-right" : "text-left"
-                  } ${col.key === "avg_po_value" ? "pr-3" : ""}`}
+                  className={`sticky top-0 z-10 whitespace-nowrap border-b bg-card py-2 font-medium text-muted-foreground ${alignText[col.align]} ${col.width ?? ""}`}
                 >
                   <button
                     type="button"
                     onClick={() => toggleSort(col.key)}
-                    className={`inline-flex items-center gap-1 hover:text-foreground ${
-                      col.align === "right" ? "flex-row-reverse" : ""
-                    }`}
+                    className={`inline-flex items-center gap-1 hover:text-foreground ${alignJustify[col.align]}`}
                   >
                     {col.label}
-                    {sort.key === col.key &&
-                      (sort.dir === "asc" ? (
-                        <ArrowUp className="h-3 w-3" />
-                      ) : (
-                        <ArrowDown className="h-3 w-3" />
-                      ))}
+                    <SortArrow active={sort.key === col.key} dir={sort.dir} />
                   </button>
                 </th>
               ))}
@@ -124,13 +124,21 @@ export function SupplierRankingTable({
               >
                 {/* Positional index reflecting current sort order. */}
                 <td className="py-3 text-right tabular-nums text-muted-foreground">{i + 1}</td>
-                <td className="py-3 font-medium">{r.supplier_name}</td>
-                <td className="py-3">{r.category ?? "—"}</td>
-                <td className="py-3">{r.tier ?? "—"}</td>
-                <td className="py-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.total_spend)}</td>
-                <td className="py-3 text-right">{r.inactive ? "—" : num0.format(r.po_count)}</td>
-                <td className="py-3 pr-3 text-right">{r.inactive ? "—" : formatCompactCurrency(r.avg_po_value)}</td>
+                <td className="py-3 font-medium">
+                  <span className="block max-w-[200px] truncate" title={r.supplier_name}>
+                    {r.supplier_name}
+                  </span>
+                </td>
                 <td className="py-3">
+                  <span className="block max-w-[160px] truncate" title={r.category ?? undefined}>
+                    {r.category ?? "—"}
+                  </span>
+                </td>
+                <td className="py-3">{r.inactive ? <span className="text-muted-foreground">—</span> : <TierChip tier={r.tier} />}</td>
+                <td className="py-3 text-right tabular-nums">{r.inactive ? "—" : formatCompactCurrency(r.total_spend)}</td>
+                <td className="py-3 text-right tabular-nums">{r.inactive ? "—" : num0.format(r.po_count)}</td>
+                <td className="py-3 text-right tabular-nums">{r.inactive ? "—" : formatCompactCurrency(r.avg_po_value)}</td>
+                <td className="py-3 text-center">
                   {r.abc_class ? (
                     <span
                       className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"

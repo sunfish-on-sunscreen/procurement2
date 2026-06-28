@@ -33,14 +33,14 @@ const trendCls = (t: "up" | "down" | "flat") =>
 // Tiny inline-SVG sparkline (line + dots), inherits `currentColor`. Preserves
 // period gaps on the x-axis; renders a single dot for one point, nothing for 0.
 function CardSparkline({ values }: { values: Array<number | null> }) {
-  const w = 76;
-  const h = 32;
-  const pad = 4;
+  const w = 92;
+  const h = 46;
+  const pad = 5;
   const n = values.length;
   const pts = values
     .map((v, i) => ({ v, i }))
     .filter((p): p is { v: number; i: number } => p.v != null);
-  if (pts.length === 0) return <div className="h-8" />;
+  if (pts.length === 0) return <div style={{ height: h }} />;
 
   const vals = pts.map((p) => p.v);
   const min = Math.min(...vals);
@@ -58,7 +58,7 @@ function CardSparkline({ values }: { values: Array<number | null> }) {
         <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
       )}
       {pts.map((p) => (
-        <circle key={p.i} cx={x(p.i)} cy={y(p.v)} r={1.8} fill="currentColor" />
+        <circle key={p.i} cx={x(p.i)} cy={y(p.v)} r={2.5} fill="currentColor" />
       ))}
     </svg>
   );
@@ -90,8 +90,20 @@ function SubScoreCard({
       <div className={`-mx-0.5 ${trendCls(trend)}`}>
         <CardSparkline values={trajectory} />
       </div>
-      <div className="text-[11px] leading-snug text-muted-foreground">
-        <span className="font-medium text-foreground">{weight}%</span> of composite
+      {/* Weight indicator: label + thin filled bar (decision C). */}
+      <div className="flex flex-col gap-1">
+        <div className="text-[11px] leading-none text-muted-foreground">
+          <span className="font-medium text-foreground">{weight}%</span> weight
+        </div>
+        <div
+          className="h-[3px] w-full overflow-hidden rounded-full"
+          style={{ backgroundColor: "color-mix(in srgb, var(--muted-foreground) 18%, transparent)" }}
+        >
+          <div
+            className="h-full rounded-full"
+            style={{ width: `${weight}%`, backgroundColor: "var(--primary)" }}
+          />
+        </div>
       </div>
       {delta != null ? (
         <div className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums ${trendCls(deltaTrend)}`}>
@@ -121,13 +133,93 @@ function Chip({ color, label }: { color: string | null; label: string }) {
   );
 }
 
+// Classification history as a table (Spend Overview panel default).
+function HistoryTable({ periods }: { periods: SupplierEvolution["periods"] }) {
+  return (
+    <div className="overflow-hidden rounded-md border">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b bg-muted/40 text-left text-muted-foreground">
+            <th className="px-2 py-1.5 font-medium">Year</th>
+            <th className="px-2 py-1.5 text-right font-medium">Performance</th>
+            <th className="px-2 py-1.5 font-medium">ABC</th>
+            <th className="px-2 py-1.5 font-medium">Kraljic</th>
+            <th className="px-2 py-1.5 text-right font-medium">Spend</th>
+          </tr>
+        </thead>
+        <tbody>
+          {periods.map((p) => {
+            const inactive = p.spend <= 0 && p.invoiceCount <= 0;
+            return (
+              <tr key={p.year} className={`border-b last:border-0 ${inactive ? "opacity-50" : ""}`}>
+                <td className="px-2 py-1.5 font-medium">{p.year}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
+                </td>
+                <td className="px-2 py-1.5">
+                  <Chip color={p.abcClass ? ABC_COLORS[p.abcClass] : null} label={p.abcClass ?? "—"} />
+                </td>
+                <td className="px-2 py-1.5">
+                  <Chip color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null} label={p.kraljicQuadrant ?? "—"} />
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  {inactive ? "—" : formatCompactCurrency(p.spend)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Classification history as a horizontal node timeline (Supplier Classification
+// panel — decision D). One card per period with an arrow between nodes.
+function HistoryTimeline({ periods }: { periods: SupplierEvolution["periods"] }) {
+  return (
+    <div className="flex flex-wrap items-stretch gap-2">
+      {periods.map((p, i) => {
+        const inactive = p.spend <= 0 && p.invoiceCount <= 0;
+        return (
+          <div key={p.year} className="flex items-stretch gap-2">
+            <div className={`flex min-w-[92px] flex-col gap-1.5 rounded-lg border bg-muted/30 p-2.5 ${inactive ? "opacity-50" : ""}`}>
+              <div className="text-[11px] text-muted-foreground">{p.year}</div>
+              <div className="text-base font-medium leading-none tabular-nums">
+                {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
+              </div>
+              <div className="flex flex-col items-start gap-1">
+                <Chip color={p.abcClass ? ABC_COLORS[p.abcClass] : null} label={p.abcClass ?? "—"} />
+                <Chip color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null} label={p.kraljicQuadrant ?? "—"} />
+              </div>
+              <div className="text-[11px] tabular-nums text-muted-foreground">
+                {inactive ? "—" : formatCompactCurrency(p.spend)}
+              </div>
+            </div>
+            {i < periods.length - 1 && (
+              <span className="self-center text-muted-foreground">→</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
- * The performance expand content, shared by both detail panels (identical in
- * each): a composite line chart, a row of per-sub-score trajectory cards
- * (value + sparkline + weight + delta), and a classification-history table. All
- * derived from the supplier's all-years evolution data.
+ * The performance expand content, shared by both detail panels: a composite line
+ * chart, per-sub-score trajectory cards (value + sparkline + weight bar + delta),
+ * and a classification history. `historyLayout` switches the history between a
+ * compact table (Spend Overview) and a node timeline (Supplier Classification).
+ * All derived from the supplier's all-years evolution data.
  */
-export function PerformanceTrajectory({ data }: { data: SupplierEvolution }) {
+export function PerformanceTrajectory({
+  data,
+  historyLayout = "table",
+}: {
+  data: SupplierEvolution;
+  historyLayout?: "table" | "timeline";
+}) {
   const hasPerf = data.periods.some((p) => p.performanceScore != null);
 
   return (
@@ -155,7 +247,8 @@ export function PerformanceTrajectory({ data }: { data: SupplierEvolution }) {
       {/* 2. Sub-score trajectory cards */}
       <section>
         <h5 className="mb-2 text-xs font-medium text-muted-foreground">Score components</h5>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {/* auto-fit: 5 cols when wide, gracefully 3/2 as the panel narrows (Y). */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-2">
           {SUBS.map(({ key, label, weight }) => {
             const trajectory = data.periods.map((p) => p.subScores?.[key] ?? null);
             const active = trajectory.filter((v): v is number => v != null);
@@ -180,44 +273,14 @@ export function PerformanceTrajectory({ data }: { data: SupplierEvolution }) {
         </div>
       </section>
 
-      {/* 3. Classification history */}
+      {/* 3. Classification history (table or timeline per panel) */}
       <section>
         <h5 className="mb-2 text-xs font-medium text-muted-foreground">Classification history</h5>
-        <div className="overflow-hidden rounded-md border">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b bg-muted/40 text-left text-muted-foreground">
-                <th className="px-2 py-1.5 font-medium">Year</th>
-                <th className="px-2 py-1.5 text-right font-medium">Performance</th>
-                <th className="px-2 py-1.5 font-medium">ABC</th>
-                <th className="px-2 py-1.5 font-medium">Kraljic</th>
-                <th className="px-2 py-1.5 text-right font-medium">Spend</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.periods.map((p) => {
-                const inactive = p.spend <= 0 && p.invoiceCount <= 0;
-                return (
-                  <tr key={p.year} className={`border-b last:border-0 ${inactive ? "opacity-50" : ""}`}>
-                    <td className="px-2 py-1.5 font-medium">{p.year}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">
-                      {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Chip color={p.abcClass ? ABC_COLORS[p.abcClass] : null} label={p.abcClass ?? "—"} />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Chip color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null} label={p.kraljicQuadrant ?? "—"} />
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">
-                      {inactive ? "—" : formatCompactCurrency(p.spend)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {historyLayout === "timeline" ? (
+          <HistoryTimeline periods={data.periods} />
+        ) : (
+          <HistoryTable periods={data.periods} />
+        )}
       </section>
 
       {data.insights.length > 0 && (

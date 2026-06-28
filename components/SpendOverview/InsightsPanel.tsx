@@ -2,7 +2,7 @@
 
 import type { SpendOverviewResult, AbcResult } from "@/lib/analysis-types";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
-import { formatCompactCurrency } from "@/lib/utils";
+import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -108,7 +108,7 @@ export function InsightsPanel({
   const sup80 = suppliersToReach(activeRanking, total, 80);
 
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Spend at a glance</CardTitle>
       </CardHeader>

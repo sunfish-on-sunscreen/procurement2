@@ -35,10 +35,13 @@ export function PerformanceScoreCard({
   perf,
   open,
   onToggle,
+  showHint = false,
 }: {
   perf: SpendDetail["supplier"]["performance"];
   open: boolean;
   onToggle: () => void;
+  /** "Click for breakdown" hint — shown only while collapsed and never-expanded. */
+  showHint?: boolean;
 }) {
   const hasScore = perf.score != null;
   const delta =
@@ -97,6 +100,11 @@ export function PerformanceScoreCard({
         }
         sublabel={sublabel}
       />
+      {showHint && (
+        <p className="mt-1 px-1 text-[11px] italic text-muted-foreground">
+          Click for breakdown
+        </p>
+      )}
       <ChevronDown
         className={`pointer-events-none absolute right-3 top-3 h-4 w-4 text-muted-foreground transition-transform ${
           open ? "rotate-180" : ""

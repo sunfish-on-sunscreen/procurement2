@@ -55,6 +55,8 @@ const STAGES = [
 
 const d0 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(0));
 const d1 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
+// 2-decimal medians (precision audit AA — cycle-time medians show 2dp).
+const d2 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
 
 function StatCard({
   label,
@@ -143,7 +145,7 @@ function ComparisonResult({ c }: { c: PeriodComparison }) {
         />
         <StatCard
           label="Median A → B"
-          value={`${d0(c.median_a)} → ${d0(c.median_b)} d`}
+          value={`${d2(c.median_a)} → ${d2(c.median_b)} d`}
         />
       </div>
       <ChartFrame height={200}>
@@ -160,7 +162,7 @@ function ComparisonResult({ c }: { c: PeriodComparison }) {
               fontSize: 10,
             }}
           />
-          <Tooltip formatter={(v) => [`${Number(v).toFixed(1)} days`, "Median"]} />
+          <Tooltip formatter={(v) => [`${Number(v).toFixed(2)} days`, "Median"]} />
           <Bar dataKey="median" fill="#3b82f6" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ChartFrame>
@@ -380,7 +382,7 @@ export function CycleTimeView({
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Median cycle time"
-          value={`${d0(d.median)} days`}
+          value={`${d2(d.median)} days`}
           sub={`n = ${d.n} POs`}
           spark={
             embedded

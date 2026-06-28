@@ -9,8 +9,15 @@ import { Card } from "@/components/ui/card"
  * the previously divergent KPI cards, ABC class boxes, and panel header stats.
  *
  * `accent` draws a subtle left border in a semantic colour (theme tokens defined
- * in globals.css). `size="lg"` is for prominent KPIs; default is for secondary
- * stats. The primitive makes no page-specific assumptions and is reusable.
+ * in globals.css).
+ *
+ * Density tiers (`size`):
+ *   - `compact`     — tight padding/value, for sub-score and mini stats
+ *   - `default`     — most uses (detail-panel sections, secondary stats)
+ *   - `comfortable` — prominent padding/value, for top-of-page KPIs
+ *   - `lg`          — backwards-compatible alias of `comfortable`
+ * All variants are additive: untouched callers pass no `size` and render as
+ * `default`, exactly as before.
  */
 const ACCENT_COLORS: Record<string, string | undefined> = {
   default: undefined,
@@ -20,13 +27,29 @@ const ACCENT_COLORS: Record<string, string | undefined> = {
   success: "var(--success)",
 }
 
+export type StatBlockSize = "compact" | "default" | "comfortable" | "lg"
+
 export type StatBlockProps = {
   label: string
   value: React.ReactNode
   sublabel?: React.ReactNode
   accent?: "default" | "primary" | "destructive" | "warning" | "success"
-  size?: "default" | "lg"
+  size?: StatBlockSize
   className?: string
+}
+
+const PADDING: Record<StatBlockSize, string> = {
+  compact: "gap-0.5 px-2.5 py-2",
+  default: "gap-0.5 px-3.5 py-3",
+  comfortable: "gap-1 px-5 py-5",
+  lg: "gap-1 px-5 py-5",
+}
+
+const VALUE_SIZE: Record<StatBlockSize, string> = {
+  compact: "text-xl",
+  default: "text-2xl",
+  comfortable: "text-3xl",
+  lg: "text-3xl",
 }
 
 export function StatBlock({
@@ -40,26 +63,24 @@ export function StatBlock({
   const accentColor = ACCENT_COLORS[accent]
   return (
     <Card
-      data-size={size}
-      // Tight, top-aligned stack (label → value → sublabel) with explicit
-      // padding — `Card` only sets py, so without this the content is flush to
-      // the horizontal edges. `lg` is the same component a notch larger.
-      className={cn(
-        "gap-0.5 px-3 py-3",
-        size === "lg" && "gap-1 px-4 py-4",
-        className,
-      )}
+      data-size={size === "compact" ? "sm" : "default"}
+      // Explicit padding — `Card` only sets py, so without this the content is
+      // flush to the horizontal edges. Density tier picks the padding + value
+      // size.
+      className={cn(PADDING[size], className)}
       style={
         accentColor
           ? { borderLeft: `4px solid ${accentColor}` }
           : undefined
       }
     >
-      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className={cn("text-muted-foreground", size === "compact" ? "text-xs" : "text-sm")}>
+        {label}
+      </div>
       <div
         className={cn(
-          "font-semibold leading-tight tracking-tight",
-          size === "lg" ? "text-3xl" : "text-2xl",
+          "font-semibold leading-tight tracking-tight tabular-nums",
+          VALUE_SIZE[size],
         )}
       >
         {value}

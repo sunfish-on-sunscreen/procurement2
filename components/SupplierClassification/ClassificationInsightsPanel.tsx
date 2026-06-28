@@ -7,6 +7,8 @@ import type {
   KraljicQuadrant,
 } from "@/lib/analysis-types";
 import { computeSynthesis } from "@/lib/supplier-classification";
+import { cardElevation } from "@/lib/utils";
+import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import {
   Card,
   CardContent,
@@ -15,23 +17,24 @@ import {
 } from "@/components/ui/card";
 
 const num0 = new Intl.NumberFormat("en-US");
-const pct1 = (v: number) => `${v.toFixed(1)}%`;
 
 /** "from 2024 to 2026" (range) / "in 2025" (single year). */
 function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
-  if (!periodLabel) return "in this period";
+  if (!periodLabel) return "this period";
   if (isRangeMode) {
     const parts = periodLabel.split(/[–-]/).map((s) => s.trim());
-    if (parts.length === 2 && parts[0] && parts[1]) return `from ${parts[0]} to ${parts[1]}`;
-    return `over ${periodLabel}`;
+    if (parts.length === 2 && parts[0] && parts[1]) return `${parts[0]}–${parts[1]}`;
+    return periodLabel;
   }
-  return `in ${periodLabel}`;
+  return periodLabel;
 }
 
+const SEGMENTS: KraljicQuadrant[] = ["Strategic", "Leverage", "Bottleneck", "Routine"];
+
 /**
- * "Classification at a glance" — narrative summary of the combined Kraljic +
- * performance picture, mirroring Spend Overview's InsightsPanel. Computed
- * client-side from the already-loaded analyses; period-aware.
+ * "Classification at a glance" — scannable summary (decision O): big portfolio
+ * count, the quadrant split, the avg composite, and a callout for Strategic
+ * suppliers below the median. Period-aware, computed client-side.
  */
 export function ClassificationInsightsPanel({
   kraljic,
@@ -54,111 +57,65 @@ export function ClassificationInsightsPanel({
       ? perf.suppliers.reduce((s, x) => s + x.performance_score, 0) / total
       : 0;
 
-  const profileOf = (q: KraljicQuadrant) =>
-    kraljic?.quadrant_profiles.find((p) => p.quadrant === q);
-  const strategic = profileOf("Strategic");
-  const leverage = profileOf("Leverage");
+  const countOf = (q: KraljicQuadrant) =>
+    kraljic?.quadrant_profiles.find((p) => p.quadrant === q)?.n_suppliers ?? 0;
 
-  const groups = computeSynthesis(perf);
-  const strategicUnder = groups.strategic_under.length;
-  const workhorse = groups.leverage_workhorse.length;
-  const bottleneckCritical = groups.bottleneck_critical.length;
-
-  const zoneOf = (z: PerformanceSpendResult["zone_profiles"][number]["zone"]) =>
-    perf.zone_profiles.find((p) => p.zone === z);
-  const critical = zoneOf("Critical Issues");
-  const gems = zoneOf("Hidden Gems");
+  const strategicUnder = computeSynthesis(perf).strategic_under.length;
 
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Classification at a glance</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm leading-relaxed">
-        <p>
-          Of {num0.format(total)} suppliers active {phrase},{" "}
-          {strategic ? (
-            <>
-              <strong>{strategic.n_suppliers}</strong> sit in the{" "}
-              <strong>Strategic</strong> quadrant (
-              {pct1(strategic.pct_of_total_spend)} of spend) — high-spend,
-              hard-to-replace relationships that warrant senior-level management
-            </>
-          ) : (
-            <>the Kraljic split is unavailable for this period</>
-          )}
-          . Average composite performance is <strong>{avgPerf.toFixed(1)}</strong>,
-          against a period median of <strong>{median.toFixed(1)}</strong>.
-        </p>
-
-        <div className="space-y-1">
-          <h3 className="font-medium">Where the two lenses meet</h3>
-          <p>
-            {strategicUnder > 0 ? (
-              <>
-                <strong>{strategicUnder}</strong> Strategic supplier
-                {strategicUnder === 1 ? "" : "s"} sit below the median — the
-                highest-priority engagement target{strategicUnder === 1 ? "" : "s"},
-                where high dependence meets weak performance.
-              </>
-            ) : (
-              <>Every Strategic supplier performs at or above the median this period.</>
-            )}{" "}
-            {workhorse > 0 && (
-              <>
-                Conversely, <strong>{workhorse}</strong> Leverage workhorse
-                {workhorse === 1 ? "" : "s"} pair competitive spend with
-                above-median performance — dependable volume to consolidate around.
-              </>
-            )}
-          </p>
+      <CardContent className="space-y-5">
+        {/* 1. Portfolio size */}
+        <div>
+          <div className="text-3xl font-semibold leading-none tabular-nums">{num0.format(total)}</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            suppliers in portfolio · {phrase}
+          </div>
         </div>
 
-        <div className="space-y-1">
-          <h3 className="font-medium">Patterns worth noting</h3>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            {critical && (
-              <li>
-                {critical.n_suppliers} supplier
-                {critical.n_suppliers === 1 ? "" : "s"} fall in the Critical
-                Issues zone (high spend, low performance), absorbing{" "}
-                {pct1(critical.pct_of_total_spend)} of spend.
-              </li>
-            )}
-            {gems && gems.n_suppliers > 0 && (
-              <li>
-                {gems.n_suppliers} Hidden Gem
-                {gems.n_suppliers === 1 ? "" : "s"} perform above the median on
-                modest spend — promotion candidates worth a closer look.
-              </li>
-            )}
-            {bottleneckCritical > 0 && (
-              <li>
-                {bottleneckCritical} Bottleneck supplier
-                {bottleneckCritical === 1 ? "" : "s"} are both hard to replace and
-                underperforming — small dollars, outsized supply risk.
-              </li>
-            )}
-            {leverage && (
-              <li>
-                Leverage suppliers carry {pct1(leverage.pct_of_total_spend)} of
-                spend in competitive categories — the natural arena for negotiation
-                and RFx.
-              </li>
-            )}
-            {abc && (
-              <li>
-                ABC concentration: {abc.summary.A.n} Class-A suppliers account for{" "}
-                {pct1(abc.summary.A.pct_of_spend * 100)} of spend.
-              </li>
-            )}
-          </ul>
+        {/* 2. Quadrant segments */}
+        {kraljic && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            {SEGMENTS.map((q, i) => (
+              <span key={q} className="inline-flex items-center gap-1.5">
+                {i > 0 && <span className="text-muted-foreground/40">·</span>}
+                <span className="font-semibold tabular-nums">{countOf(q)}</span>
+                <span style={{ color: QUADRANT_COLORS[q] }}>{q}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* 3. Average composite */}
+        <div>
+          <div className="text-3xl font-semibold leading-none tabular-nums">{avgPerf.toFixed(2)}</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            avg composite performance · period median {median.toFixed(2)}
+            {abc ? ` · ${abc.summary.A.n} Class-A suppliers` : ""}
+          </div>
         </div>
 
-        <p className="text-xs italic text-muted-foreground">
-          Click a cross-classification card or any supplier row for detail. Use the
-          period selector above to change the window.
-        </p>
+        {/* 4. Callout — Strategic below median */}
+        {strategicUnder > 0 ? (
+          <div
+            className="rounded-lg border px-3 py-2.5 text-sm"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--destructive) 8%, transparent)",
+              borderColor: "color-mix(in srgb, var(--destructive) 35%, transparent)",
+            }}
+          >
+            <span className="font-semibold tabular-nums">{strategicUnder}</span> Strategic
+            supplier{strategicUnder === 1 ? "" : "s"} sit below the period median —
+            warrant attention.
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
+            All Strategic suppliers sit at or above the period median this period.
+          </div>
+        )}
       </CardContent>
     </Card>
   );

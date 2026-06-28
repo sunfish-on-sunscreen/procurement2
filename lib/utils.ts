@@ -5,6 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Subtle elevation classes (applied SELECTIVELY to in-scope cards, not the Card
+ * primitive, so untouched pages stay flat). `cardElevation` for inline page
+ * cards; `panelElevation` for the floating detail-panel dialog. Low-opacity
+ * black shadows degrade gracefully in dark mode (intentionally faint there).
+ */
+export const cardElevation =
+  "shadow-[0_1px_2px_rgba(0,0,0,0.05),0_4px_12px_rgba(0,0,0,0.04)]";
+export const panelElevation =
+  "shadow-[0_4px_12px_rgba(0,0,0,0.08),0_16px_32px_rgba(0,0,0,0.08)]";
+
 function trimDecimal(x: number): string {
   const s = x.toFixed(1);
   return s.endsWith(".0") ? s.slice(0, -2) : s;

@@ -8,6 +8,8 @@ import type {
   PerformanceZone,
 } from "@/lib/analysis-types";
 import { QUADRANT_COLORS, ZONE_COLORS } from "@/lib/chart-colors";
+import { cardElevation } from "@/lib/utils";
+import { PillTabs } from "@/components/PillTabs";
 import { KraljicScatterChart } from "@/components/charts/KraljicScatterChart";
 import { PerformanceSpendScatter } from "@/components/charts/PerformanceSpendScatter";
 import {
@@ -153,29 +155,17 @@ export function ClassificationTabs({
   const [tab, setTab] = useState<"kraljic" | "performance">("kraljic");
 
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader className="pb-2">
         <CardTitle>Classification views</CardTitle>
-        <div className="mt-2 flex gap-1 border-b">
-          {([["kraljic", "Kraljic matrix"], ["performance", "Performance vs spend"]] as const).map(
-            ([k, lbl]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setTab(k)}
-                className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${
-                  tab === k
-                    ? "border-primary font-medium"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {lbl}
-              </button>
-            ),
-          )}
-        </div>
+        <PillTabs
+          className="mt-2"
+          tabs={[["kraljic", "Kraljic matrix"], ["performance", "Performance vs spend"]] as const}
+          active={tab}
+          onChange={setTab}
+        />
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4">
         {tab === "kraljic" ? (
           <KraljicTab kraljic={kraljic} />
         ) : (

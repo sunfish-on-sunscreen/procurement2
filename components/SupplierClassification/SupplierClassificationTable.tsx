@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { ClassificationRankingRow } from "@/lib/supplier-classification-types";
 import { ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
-import { formatCompactCurrency } from "@/lib/utils";
+import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { PerfBar, SortArrow } from "@/components/RankingCells";
 
 type SortKey =
   | "supplier_name"
@@ -20,14 +21,19 @@ type SortKey =
   | "performance_score"
   | "total_spend";
 
-const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
+type Align = "left" | "right" | "center";
+
+const COLUMNS: { key: SortKey; label: string; align: Align; width?: string }[] = [
   { key: "supplier_name", label: "Supplier", align: "left" },
   { key: "category", label: "Category", align: "left" },
-  { key: "abc_class", label: "ABC", align: "left" },
-  { key: "kraljic_quadrant", label: "Kraljic", align: "left" },
-  { key: "performance_score", label: "Performance", align: "right" },
-  { key: "total_spend", label: "Total spend", align: "right" },
+  { key: "abc_class", label: "ABC", align: "center", width: "w-[56px]" },
+  { key: "kraljic_quadrant", label: "Kraljic", align: "center", width: "w-[120px]" },
+  { key: "performance_score", label: "Performance", align: "right", width: "w-[140px]" },
+  { key: "total_spend", label: "Spend", align: "right" },
 ];
+
+const alignText: Record<Align, string> = { left: "text-left", right: "text-right", center: "text-center" };
+const alignJustify: Record<Align, string> = { left: "", right: "flex-row-reverse", center: "justify-center" };
 
 function compare(a: ClassificationRankingRow, b: ClassificationRankingRow, key: SortKey) {
   const av = a[key];
@@ -37,8 +43,7 @@ function compare(a: ClassificationRankingRow, b: ClassificationRankingRow, key: 
   return String(av ?? "").localeCompare(String(bv ?? ""));
 }
 
-// Color-mix chip (12% tint + token text) — same treatment as the Spend Overview
-// ranking table; `value` null → muted placeholder.
+// Color-mix chip (12% tint + token text); null → muted placeholder.
 function Chip({ color, label }: { color: string | null; label: string | null }) {
   if (!color || !label) {
     return <span className="text-muted-foreground">—</span>;
@@ -85,21 +90,33 @@ export function SupplierClassificationTable({
 
   return (
     // overflow-visible so the sticky header can pin (Card defaults to overflow-hidden).
-    <Card className="overflow-visible">
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+    <Card className={`overflow-visible ${cardElevation}`}>
+      <CardHeader>
         <CardTitle>All Suppliers</CardTitle>
-        {filterLabel && (
-          <button
-            type="button"
-            onClick={onClearFilter}
-            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-          >
-            Filtered: {filterLabel} ({rows.length})
-            <X className="h-3 w-3" />
-          </button>
-        )}
       </CardHeader>
       <CardContent className="pt-1">
+        {/* Prominent filter banner (decision R) — destructive tint, above table. */}
+        {filterLabel && (
+          <div
+            className="mb-3 flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--destructive) 8%, transparent)",
+              borderColor: "color-mix(in srgb, var(--destructive) 35%, transparent)",
+            }}
+          >
+            <span>
+              Filtered to <span className="font-medium">{filterLabel}</span> ·{" "}
+              {rows.length} supplier{rows.length === 1 ? "" : "s"}
+            </span>
+            <button
+              type="button"
+              onClick={onClearFilter}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-foreground/5"
+            >
+              Clear <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
@@ -109,24 +126,15 @@ export function SupplierClassificationTable({
               {COLUMNS.map((col) => (
                 <th
                   key={col.key}
-                  className={`sticky top-0 z-10 border-b bg-card py-2 font-medium text-muted-foreground ${
-                    col.align === "right" ? "text-right" : "text-left"
-                  }`}
+                  className={`sticky top-0 z-10 whitespace-nowrap border-b bg-card py-2 font-medium text-muted-foreground ${alignText[col.align]} ${col.width ?? ""}`}
                 >
                   <button
                     type="button"
                     onClick={() => toggleSort(col.key)}
-                    className={`inline-flex items-center gap-1 hover:text-foreground ${
-                      col.align === "right" ? "flex-row-reverse" : ""
-                    }`}
+                    className={`inline-flex items-center gap-1 hover:text-foreground ${alignJustify[col.align]}`}
                   >
                     {col.label}
-                    {sort.key === col.key &&
-                      (sort.dir === "asc" ? (
-                        <ArrowUp className="h-3 w-3" />
-                      ) : (
-                        <ArrowDown className="h-3 w-3" />
-                      ))}
+                    <SortArrow active={sort.key === col.key} dir={sort.dir} />
                   </button>
                 </th>
               ))}
@@ -152,22 +160,27 @@ export function SupplierClassificationTable({
                   } ${r.inactive ? "opacity-50" : ""}`}
                 >
                   <td className="py-3 text-right tabular-nums text-muted-foreground">{i + 1}</td>
-                  <td className="py-3 font-medium">{r.supplier_name}</td>
-                  <td className="py-3">{r.category ?? "—"}</td>
-                  <td className="py-3">
-                    <Chip
-                      color={r.abc_class ? ABC_COLORS[r.abc_class] : null}
-                      label={r.abc_class}
-                    />
+                  <td className="py-3 font-medium">
+                    <span className="block max-w-[200px] truncate" title={r.supplier_name}>
+                      {r.supplier_name}
+                    </span>
                   </td>
                   <td className="py-3">
+                    <span className="block max-w-[160px] truncate" title={r.category ?? undefined}>
+                      {r.category ?? "—"}
+                    </span>
+                  </td>
+                  <td className="py-3 text-center">
+                    <Chip color={r.abc_class ? ABC_COLORS[r.abc_class] : null} label={r.abc_class} />
+                  </td>
+                  <td className="py-3 text-center">
                     <Chip
                       color={r.kraljic_quadrant ? QUADRANT_COLORS[r.kraljic_quadrant] : null}
                       label={r.kraljic_quadrant}
                     />
                   </td>
-                  <td className="py-3 text-right tabular-nums">
-                    {r.performance_score != null ? r.performance_score.toFixed(2) : "—"}
+                  <td className="py-3 text-right">
+                    <PerfBar score={r.performance_score} />
                   </td>
                   <td className="py-3 text-right tabular-nums">
                     {r.inactive ? "—" : formatCompactCurrency(r.total_spend)}

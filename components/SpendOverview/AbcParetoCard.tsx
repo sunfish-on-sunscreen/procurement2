@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cardElevation } from "@/lib/utils";
 import { StatBlock, type StatBlockProps } from "@/components/ui/stat-block";
 import { ParetoChart } from "@/components/charts/ParetoChart";
 
@@ -27,7 +28,7 @@ const pct1 = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
  */
 export function AbcParetoCard({ abc }: { abc: AbcResult }) {
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Pareto / ABC Analysis</CardTitle>
       </CardHeader>

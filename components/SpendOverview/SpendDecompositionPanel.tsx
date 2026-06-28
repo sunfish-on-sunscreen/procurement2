@@ -14,13 +14,16 @@ import {
 } from "recharts";
 import type { SpendDetail, SupplierEvolution } from "@/lib/spend-overview-types";
 import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
-import { formatCompactCurrency } from "@/lib/utils";
+import { formatCompactCurrency, panelElevation } from "@/lib/utils";
+import { periodSpanLabel } from "@/lib/panel-format";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { PerformanceScoreCard } from "@/components/PerformanceScoreCard";
 import { PerformanceTrajectory } from "@/components/PerformanceTrajectory";
+import { ActivityBar } from "@/components/ActivityBar";
+import { PillTabs } from "@/components/PillTabs";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -345,6 +348,7 @@ export function SpendDecompositionPanel({
   const [itemView, setItemView] = useState<View>("chart");
   const [posView, setPosView] = useState<View>("chart");
   const [perfOpen, setPerfOpen] = useState(false);
+  const [everExpanded, setEverExpanded] = useState(false);
 
   const detail = detailState?.key === detailKey ? detailState.detail : undefined;
   const detailErr = detailState?.key === detailKey ? detailState.err : undefined;
@@ -358,7 +362,9 @@ export function SpendDecompositionPanel({
     setItemView("chart");
     setPosView("chart");
     setPerfOpen(false);
+    setEverExpanded(false);
   }
+  const span = periodSpanLabel(startDate, endDate);
 
   // Period-scoped spend detail (refetch on supplier OR span change).
   useEffect(() => {
@@ -403,7 +409,7 @@ export function SpendDecompositionPanel({
       <DialogContent
         showCloseButton={false}
         aria-label="Spend decomposition"
-        className="flex max-h-[85vh] w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[680px]"
+        className={`flex max-h-[85vh] w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[680px] ${panelElevation}`}
       >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
@@ -413,8 +419,8 @@ export function SpendDecompositionPanel({
                 {[s.category, s.tier, s.country].filter(Boolean).join(" · ") || s.id}
               </p>
             )}
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              Showing {startDate} to {endDate}
+            <p className="mt-0.5 text-[11px] text-muted-foreground" title={span.full}>
+              Showing {span.short}
             </p>
           </div>
           <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label="Close" onClick={onClose}>
@@ -444,13 +450,15 @@ export function SpendDecompositionPanel({
             {/* Section 2: performance + classification */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Performance &amp; classification</h4>
-              <div className="grid grid-cols-3 gap-4">
+              {/* auto 1fr: score left, chips stacked vertically on the right (B). */}
+              <div className="grid grid-cols-[auto_1fr] items-start gap-4">
                 <PerformanceScoreCard
                   perf={s.performance}
                   open={perfOpen}
-                  onToggle={() => setPerfOpen((o) => !o)}
+                  onToggle={() => { setPerfOpen((o) => !o); setEverExpanded(true); }}
+                  showHint={!perfOpen && !everExpanded}
                 />
-                <div className="col-span-2 flex flex-wrap content-start items-start gap-2">
+                <div className="flex flex-col items-start gap-2 pt-1">
                   <Chip
                     color={s.abcClass ? ABC_COLORS[s.abcClass] : null}
                     label={s.abcClass ? `Class ${s.abcClass}` : "Class —"}
@@ -478,29 +486,24 @@ export function SpendDecompositionPanel({
               )}
             </div>
 
-            {/* Section 3: activity span */}
+            {/* Section 3: activity span — visual bar (F). */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity</h4>
-              <p className="text-xs text-muted-foreground">
-                {absent
-                  ? "No activity in this period"
-                  : st.earliestDate && st.latestDate
-                    ? `${st.earliestDate} → ${st.latestDate}`
-                    : "—"}
-              </p>
+              <ActivityBar
+                earliest={absent ? null : st.earliestDate}
+                latest={absent ? null : st.latestDate}
+                periodStart={startDate}
+                periodEnd={endDate}
+                descriptor={`within ${span.short}`}
+              />
             </div>
 
-            <div className="flex gap-1 border-b px-4 pt-3">
-              {([["byItem", "Spend by item"], ["pos", "All POs"], ["evolution", "Annual breakdown"]] as const).map(([k, lbl]) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setTab(k)}
-                  className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${tab === k ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-                >
-                  {lbl}
-                </button>
-              ))}
+            <div className="border-b px-4 pt-3 pb-1">
+              <PillTabs
+                tabs={[["byItem", "Spend by item"], ["pos", "All POs"], ["evolution", "Annual breakdown"]] as const}
+                active={tab}
+                onChange={setTab}
+              />
             </div>
 
             <div className="p-4">

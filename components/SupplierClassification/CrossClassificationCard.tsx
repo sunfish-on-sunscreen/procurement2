@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cardElevation, cn } from "@/lib/utils";
 
 const ICONS: Record<SynthesisKey, React.ComponentType<{ className?: string }>> = {
   strategic_under: AlertTriangle,
@@ -45,6 +45,24 @@ function SynthesisTile({
   onSelect: () => void;
 }) {
   const Icon = ICONS[meta.key];
+  // Empty category (Q): fully muted, non-clickable, explanatory message.
+  if (count === 0) {
+    return (
+      <div
+        className="flex cursor-not-allowed flex-col gap-2 rounded-lg border border-l-4 border-l-muted-foreground/30 bg-muted/30 p-4 text-left opacity-50"
+        aria-disabled="true"
+      >
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">{meta.title}</span>
+          <span className="ml-auto text-lg font-semibold tabular-nums text-muted-foreground">(0)</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          No suppliers in this category for the selected period.
+        </p>
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -67,14 +85,12 @@ function SynthesisTile({
         </span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {count === 0 ? (
-          <>No suppliers — {meta.blurb}</>
-        ) : (
-          <>
-            {meta.blurb} <span className="text-foreground">{nameList(names)}</span>.
-          </>
-        )}
+        {meta.blurb} <span className="text-foreground">{nameList(names)}</span>.
       </p>
+      {/* View-suppliers CTA (P). */}
+      <span className={cn("mt-auto pt-1 text-xs font-medium", meta.theme.text)}>
+        {active ? "Showing in table ↓" : "View suppliers →"}
+      </span>
     </button>
   );
 }
@@ -95,7 +111,7 @@ export function CrossClassificationCard({
   const groups = computeSynthesis(perf);
 
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Cross-classification insights</CardTitle>
         <p className="text-sm text-muted-foreground">
