@@ -86,7 +86,11 @@ export function Sidebar({ role }: { role: "ADMIN" | "VIEWER" }) {
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-in-out",
+        // `sticky top-0 h-screen self-start` keeps the sidebar pinned in the
+        // viewport while the page (window) scrolls — without introducing a new
+        // scroll container, so the page-level sticky table headers / report TOC
+        // still pin to the window as before.
+        "sticky top-0 flex h-screen shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-in-out",
         collapsed ? "w-16" : "w-60",
       )}
     >
@@ -113,7 +117,7 @@ export function Sidebar({ role }: { role: "ADMIN" | "VIEWER" }) {
           )}
         </button>
       </div>
-      <nav className="flex flex-1 flex-col gap-1 p-2">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
         {items.map((item) => {
           const active =
             item.href === "/"
