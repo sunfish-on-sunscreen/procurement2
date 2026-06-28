@@ -119,7 +119,7 @@ export function SupplierDetailPanel({
               Key metrics
             </h4>
             <Field label="Total spend" value={usd(d.total_spend_usd)} />
-            <Field label="PO count" value={d.num_pos ?? "—"} />
+            <Field label="Invoice count" value={d.num_pos ?? "—"} />
             <Field
               label="Performance score"
               value={

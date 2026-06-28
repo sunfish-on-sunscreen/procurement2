@@ -179,7 +179,7 @@ export function OverviewCharts({
   const summary = (
     <p className="text-sm text-muted-foreground">
       This period totaled {usd0.format(spend.total_spend)} across{" "}
-      {num0.format(spend.total_pos)} purchase orders from{" "}
+      {num0.format(spend.total_pos)} invoices from{" "}
       {num0.format(spend.active_suppliers)} active suppliers, with an average
       procure-to-pay cycle time of {spend.avg_cycle_time.toFixed(1)} days.
     </p>
@@ -189,7 +189,7 @@ export function OverviewCharts({
     <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Total Spend" value={usdCompact.format(spend.total_spend)} spark={spendSpark} />
-        <KpiCard label="Total POs" value={num0.format(spend.total_pos)} spark={poSpark} />
+        <KpiCard label="Total invoices" value={num0.format(spend.total_pos)} spark={poSpark} />
         <KpiCard label="Active Suppliers" value={num0.format(spend.active_suppliers)} />
         <KpiCard label="Avg Cycle Time" value={`${spend.avg_cycle_time.toFixed(1)} days`} />
       </div>

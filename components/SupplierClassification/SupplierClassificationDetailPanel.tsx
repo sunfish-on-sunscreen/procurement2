@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PerformanceScoreCard } from "@/components/PerformanceScoreCard";
 import { PerformanceTrajectory } from "@/components/PerformanceTrajectory";
-import { ActivityBar } from "@/components/ActivityBar";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -179,16 +178,16 @@ export function SupplierClassificationDetailPanel({
               )}
             </div>
 
-            {/* Section 3: Activity — visual bar (F). */}
+            {/* Section 3: Activity — first → last purchase dates (Fix 4). */}
             <div className="p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity</h4>
-              <ActivityBar
-                earliest={absent ? null : st.earliestDate}
-                latest={absent ? null : st.latestDate}
-                periodStart={startDate}
-                periodEnd={endDate}
-                descriptor={`within ${span.short}`}
-              />
+              {absent || !st.earliestDate || !st.latestDate ? (
+                <p className="text-sm text-muted-foreground">No activity in this period</p>
+              ) : (
+                <p className="text-sm tabular-nums text-muted-foreground">
+                  {st.earliestDate} → {st.latestDate}
+                </p>
+              )}
             </div>
           </>
         )}

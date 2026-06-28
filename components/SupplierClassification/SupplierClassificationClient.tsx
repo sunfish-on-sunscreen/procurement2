@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ClassificationPageData } from "@/lib/supplier-classification-types";
 import type { SynthesisKey } from "@/lib/supplier-classification-types";
@@ -32,6 +32,20 @@ export function SupplierClassificationClient({
   const [errored, setErrored] = useState<{ key: string; msg: string } | null>(null);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const [activeSynthesis, setActiveSynthesis] = useState<SynthesisKey | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  // Apply the cross-classification filter, then scroll the (now-filtered) table
+  // into view with a small offset so it isn't flush to the viewport top (Fix 2).
+  const handleSynthesisSelect = (key: SynthesisKey | null) => {
+    setActiveSynthesis(key);
+    if (key === null) return;
+    requestAnimationFrame(() => {
+      const el = tableRef.current;
+      if (!el) return;
+      const y = el.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top: y, behavior: "smooth" });
+    });
+  };
 
   const data = loaded?.key === spanKey ? loaded.data : null;
   const error = errored?.key === spanKey ? errored.msg : null;
@@ -103,18 +117,20 @@ export function SupplierClassificationClient({
       <CrossClassificationCard
         perf={data.performance_spend}
         activeKey={activeSynthesis}
-        onSelect={setActiveSynthesis}
+        onSelect={handleSynthesisSelect}
       />
 
       <ClassificationTabs kraljic={data.kraljic} perf={data.performance_spend} />
 
-      <SupplierClassificationTable
-        rows={filteredRanking}
-        onSupplierClick={setSelectedSupplierId}
-        selectedSupplierId={selectedSupplierId}
-        filterLabel={activeSynthesis ? SYNTHESIS_META[activeSynthesis].title : null}
-        onClearFilter={() => setActiveSynthesis(null)}
-      />
+      <div ref={tableRef} className="scroll-mt-20">
+        <SupplierClassificationTable
+          rows={filteredRanking}
+          onSupplierClick={setSelectedSupplierId}
+          selectedSupplierId={selectedSupplierId}
+          filterLabel={activeSynthesis ? SYNTHESIS_META[activeSynthesis].title : null}
+          onClearFilter={() => setActiveSynthesis(null)}
+        />
+      </div>
 
       <SupplierClassificationDetailPanel
         supplierId={selectedSupplierId}

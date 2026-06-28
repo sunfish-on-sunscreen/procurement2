@@ -22,7 +22,6 @@ import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { PerformanceScoreCard } from "@/components/PerformanceScoreCard";
 import { PerformanceTrajectory } from "@/components/PerformanceTrajectory";
-import { ActivityBar } from "@/components/ActivityBar";
 import { PillTabs } from "@/components/PillTabs";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -100,7 +99,7 @@ function SpendByItemChart({ detail }: { detail: SpendDetail }) {
   );
 }
 
-// ---- Tab 2: POs over time (bars) ------------------------------------------ #
+// ---- Tab 2: Invoices over time (bars) ------------------------------------- #
 type PoDatum = { date: string; value: number; poId: string; item: string };
 
 function PoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: PoDatum }> }) {
@@ -486,21 +485,21 @@ export function SpendDecompositionPanel({
               )}
             </div>
 
-            {/* Section 3: activity span — visual bar (F). */}
+            {/* Section 3: activity span — first → last purchase dates (Fix 4). */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity</h4>
-              <ActivityBar
-                earliest={absent ? null : st.earliestDate}
-                latest={absent ? null : st.latestDate}
-                periodStart={startDate}
-                periodEnd={endDate}
-                descriptor={`within ${span.short}`}
-              />
+              {absent || !st.earliestDate || !st.latestDate ? (
+                <p className="text-sm text-muted-foreground">No activity in this period</p>
+              ) : (
+                <p className="text-sm tabular-nums text-muted-foreground">
+                  {st.earliestDate} → {st.latestDate}
+                </p>
+              )}
             </div>
 
             <div className="border-b px-4 pt-3 pb-1">
               <PillTabs
-                tabs={[["byItem", "Spend by item"], ["pos", "All POs"], ["evolution", "Annual breakdown"]] as const}
+                tabs={[["byItem", "Spend by item"], ["pos", "All invoices"], ["evolution", "Annual breakdown"]] as const}
                 active={tab}
                 onChange={setTab}
               />
@@ -519,7 +518,7 @@ export function SpendDecompositionPanel({
               )}
               {tab === "pos" && (
                 absent ? (
-                  <p className="py-8 text-center text-sm text-muted-foreground">No purchase orders in this period.</p>
+                  <p className="py-8 text-center text-sm text-muted-foreground">No invoices in this period.</p>
                 ) : (
                   <>
                     <ViewToggle view={posView} setView={setPosView} />

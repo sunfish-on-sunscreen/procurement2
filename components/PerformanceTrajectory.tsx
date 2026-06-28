@@ -118,6 +118,28 @@ function SubScoreCard({
   );
 }
 
+// Composite-chart tooltip (Fix 5): year prominent on top, score below.
+function PerfTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ value: number | null }>;
+  label?: string | number;
+}) {
+  if (!active || !payload?.length) return null;
+  const v = payload[0].value;
+  return (
+    <div className="rounded-md border bg-background p-2 shadow-sm">
+      <div className="text-sm font-medium leading-none text-foreground">{label}</div>
+      <div className="mt-1 text-xs text-muted-foreground tabular-nums">
+        {v == null ? "—" : `${Number(v).toFixed(2)} / out of 100`}
+      </div>
+    </div>
+  );
+}
+
 // Classification chip — color-mix tint + token text; null → muted "—".
 function Chip({ color, label }: { color: string | null; label: string }) {
   if (!color) {
@@ -174,31 +196,47 @@ function HistoryTable({ periods }: { periods: SupplierEvolution["periods"] }) {
   );
 }
 
-// Classification history as a horizontal node timeline (Supplier Classification
-// panel — decision D). One card per period with an arrow between nodes.
+// Classification history as a row of substantial cards (Supplier Classification
+// panel — Fix 3). One card per period, sized to match the score-component cards;
+// no connector arrows. Inactive years are muted with "—" chips.
 function HistoryTimeline({ periods }: { periods: SupplierEvolution["periods"] }) {
   return (
-    <div className="flex flex-wrap items-stretch gap-2">
-      {periods.map((p, i) => {
+    <div className="grid grid-cols-3 gap-2">
+      {periods.map((p) => {
         const inactive = p.spend <= 0 && p.invoiceCount <= 0;
         return (
-          <div key={p.year} className="flex items-stretch gap-2">
-            <div className={`flex min-w-[92px] flex-col gap-1.5 rounded-lg border bg-muted/30 p-2.5 ${inactive ? "opacity-50" : ""}`}>
-              <div className="text-[11px] text-muted-foreground">{p.year}</div>
-              <div className="text-base font-medium leading-none tabular-nums">
-                {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
-              </div>
-              <div className="flex flex-col items-start gap-1">
-                <Chip color={p.abcClass ? ABC_COLORS[p.abcClass] : null} label={p.abcClass ?? "—"} />
-                <Chip color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null} label={p.kraljicQuadrant ?? "—"} />
-              </div>
-              <div className="text-[11px] tabular-nums text-muted-foreground">
-                {inactive ? "—" : formatCompactCurrency(p.spend)}
-              </div>
+          <div
+            key={p.year}
+            className={`flex flex-col rounded-[10px] border bg-muted/30 p-3.5 ${inactive ? "opacity-50" : ""}`}
+          >
+            <div className="mb-1 text-xs text-muted-foreground">{p.year}</div>
+            <div className="text-xl font-medium leading-[1.1] tabular-nums">
+              {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
             </div>
-            {i < periods.length - 1 && (
-              <span className="self-center text-muted-foreground">→</span>
-            )}
+            <div className="mt-2 flex flex-col items-start gap-1">
+              {inactive ? (
+                <>
+                  <Chip color={null} label="—" />
+                  <Chip color={null} label="—" />
+                </>
+              ) : (
+                <>
+                  <Chip
+                    color={p.abcClass ? ABC_COLORS[p.abcClass] : null}
+                    label={p.abcClass ? `Class ${p.abcClass}` : "—"}
+                  />
+                  <Chip
+                    color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null}
+                    label={p.kraljicQuadrant ?? "—"}
+                  />
+                </>
+              )}
+            </div>
+            <div className="mt-2 text-xs tabular-nums text-muted-foreground">
+              {inactive
+                ? "—"
+                : `${formatCompactCurrency(p.spend)} across ${p.invoiceCount} invoice${p.invoiceCount === 1 ? "" : "s"}`}
+            </div>
           </div>
         );
       })}
@@ -235,7 +273,7 @@ export function PerformanceTrajectory({
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={32} />
-              <Tooltip formatter={(v) => [v == null ? "—" : Number(v).toFixed(2), "Performance"]} />
+              <Tooltip content={<PerfTooltip />} />
               <Line type="monotone" dataKey="performanceScore" stroke={CHART_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
             </LineChart>
           </ChartFrame>
