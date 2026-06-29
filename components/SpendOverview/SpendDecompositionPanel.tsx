@@ -13,19 +13,26 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { SpendDetail, SupplierEvolution } from "@/lib/spend-overview-types";
-import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import { formatCompactCurrency, panelElevation } from "@/lib/utils";
 import { periodSpanLabel } from "@/lib/panel-format";
 import { Button } from "@/components/ui/button";
+import { CountryFlag } from "@/components/CountryFlag";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
-import { PerformanceScoreCard } from "@/components/PerformanceScoreCard";
-import { PerformanceTrajectory } from "@/components/PerformanceTrajectory";
-import { PerformanceInactiveNote } from "@/components/PerformanceInactiveNote";
 import { PillTabs } from "@/components/PillTabs";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Jan 1" (single-year mode) / "Jan 1, 2024" (range mode) from an ISO date. */
+function fmtActivityDate(iso: string, withYear: boolean): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!m || !d) return iso;
+  return withYear ? `${MONTHS[m - 1]} ${d}, ${y}` : `${MONTHS[m - 1]} ${d}`;
+}
 
 type Tab = "byItem" | "pos" | "evolution";
 type View = "chart" | "table";
@@ -193,7 +200,11 @@ function PosTable({ detail }: { detail: SpendDetail }) {
 // ---- Tab 3: evolution ----------------------------------------------------- #
 function EvolutionTab({ data }: { data: SupplierEvolution }) {
   const active = data.periods.filter((p) => p.spend > 0 || p.invoiceCount > 0);
-  const hasPerf = data.periods.some((p) => p.performanceScore != null);
+  // Spend-focused observations only — drop the classification insights (those
+  // live on the Supplier Classification panel now).
+  const spendInsights = data.insights.filter(
+    (t) => !t.startsWith("Consistently ") && !t.startsWith("Classification "),
+  );
 
   // Product mix: top-5 items across years + Others residual per year.
   const totalByItem = new Map<string, number>();
@@ -224,26 +235,6 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
         </p>
       )}
 
-      {/* A: classification trajectory */}
-      <section>
-        <h4 className="mb-2 text-xs font-medium text-muted-foreground">Classification</h4>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {data.periods.map((p, i) => (
-            <div key={p.year} className="flex items-center gap-1.5">
-              {i > 0 && <span className="text-muted-foreground">→</span>}
-              <span className="rounded-md border px-2 py-1 text-xs">
-                <span className="text-muted-foreground">{p.year}: </span>
-                <span style={{ color: p.abcClass ? ABC_COLORS[p.abcClass] : undefined }}>{p.abcClass ?? "—"}</span>
-                {" / "}
-                <span style={{ color: p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : undefined }}>
-                  {p.kraljicQuadrant ?? "—"}
-                </span>
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* B: spend trajectory */}
       <section>
         <h4 className="mb-2 text-xs font-medium text-muted-foreground">Annual spend</h4>
@@ -257,24 +248,6 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
           </LineChart>
         </ChartFrame>
       </section>
-
-      {/* C: performance trajectory (only if any data) */}
-      {hasPerf && (
-        <section>
-          <h4 className="mb-2 text-xs font-medium text-muted-foreground">Performance score</h4>
-          <ChartFrame height={180}>
-            <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={32} />
-              <Tooltip formatter={(v) => [v == null ? "—" : Number(v).toFixed(2), "Performance"]} />
-              {/* No connectNulls: an inactive year is a real gap, not a straight
-                  interpolation between the surrounding periods. */}
-              <Line type="monotone" dataKey="performanceScore" stroke={CHART_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
-            </LineChart>
-          </ChartFrame>
-        </section>
-      )}
 
       {/* D: product mix over time */}
       {mixKeys.length > 0 && (
@@ -294,38 +267,18 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
         </section>
       )}
 
-      {/* E: insights */}
-      {data.insights.length > 0 && (
+      {/* E: spend insights */}
+      {spendInsights.length > 0 && (
         <section>
           <h4 className="mb-1 text-xs font-medium text-muted-foreground">Insights</h4>
           <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
-            {data.insights.map((t, i) => (
+            {spendInsights.map((t, i) => (
               <li key={i}>{t}</li>
             ))}
           </ul>
         </section>
       )}
     </div>
-  );
-}
-
-// Classification chip — same style as the ranking table (color-mix tint + token
-// text). `color` null renders a neutral placeholder so the layout is preserved.
-function Chip({ color, label }: { color: string | null; label: string }) {
-  if (!color) {
-    return (
-      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-        {label}
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
-    >
-      {label}
-    </span>
   );
 }
 
@@ -347,8 +300,6 @@ export function SpendDecompositionPanel({
   const [tab, setTab] = useState<Tab>("byItem");
   const [itemView, setItemView] = useState<View>("chart");
   const [posView, setPosView] = useState<View>("chart");
-  const [perfOpen, setPerfOpen] = useState(false);
-  const [everExpanded, setEverExpanded] = useState(false);
 
   const detail = detailState?.key === detailKey ? detailState.detail : undefined;
   const detailErr = detailState?.key === detailKey ? detailState.err : undefined;
@@ -361,8 +312,6 @@ export function SpendDecompositionPanel({
     setTab("byItem");
     setItemView("chart");
     setPosView("chart");
-    setPerfOpen(false);
-    setEverExpanded(false);
   }
   const span = periodSpanLabel(startDate, endDate);
   // Single-year selection (slices the sub-score sparklines); null in range mode.
@@ -419,7 +368,22 @@ export function SpendDecompositionPanel({
             <DialogTitle className="truncate font-heading text-base font-medium leading-snug">{s?.name ?? "Loading…"}</DialogTitle>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
-                {[s.category, s.tier, s.country].filter(Boolean).join(" · ") || s.id}
+                {(() => {
+                  const parts = [s.category, s.tier, s.abcClass, s.kraljicQuadrant].filter(Boolean);
+                  if (parts.length === 0 && !s.country) return s.id;
+                  return (
+                    <>
+                      {parts.join(" · ")}
+                      {s.country && (
+                        <>
+                          {parts.length > 0 ? " · " : ""}
+                          <CountryFlag code={s.country} />
+                          {s.country}
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </p>
             )}
             <p className="mt-0.5 text-[11px] text-muted-foreground" title={span.full}>
@@ -440,75 +404,44 @@ export function SpendDecompositionPanel({
 
         {detail && st && s && (
           <>
-            {/* Section 1: spend stats */}
+            {/* Section 1: spend stats — 4-card grid incl. period composite. */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Spend at a glance</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <StatBlock label="Total spend" value={absent ? "—" : usd0.format(st.totalSpend)} />
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <StatBlock label="Total spend" value={absent ? "—" : formatCompactCurrency(st.totalSpend)} />
                 <StatBlock label="Invoices" value={absent ? "—" : String(st.poCount)} />
-                <StatBlock label="Avg invoice" value={absent ? "—" : usd0.format(st.avgPoValue)} />
-              </div>
-            </div>
-
-            {/* Section 2: performance + classification */}
-            <div className="border-b p-4">
-              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Performance &amp; classification</h4>
-              {/* auto 1fr: score left, chips stacked vertically on the right (B). */}
-              <div className="grid grid-cols-[auto_1fr] items-start gap-4">
-                <PerformanceScoreCard
-                  perf={s.performance}
-                  open={perfOpen}
-                  onToggle={() => { setPerfOpen((o) => !o); setEverExpanded(true); }}
-                  showHint={!perfOpen && !everExpanded}
+                <StatBlock label="Avg invoice" value={absent ? "—" : formatCompactCurrency(st.avgPoValue)} />
+                <StatBlock
+                  label="Performance"
+                  value={
+                    s.performance.score != null ? (
+                      <span>
+                        {s.performance.score.toFixed(2)}{" "}
+                        <span className="text-sm font-normal text-muted-foreground">/ 100</span>
+                      </span>
+                    ) : (
+                      "—"
+                    )
+                  }
                 />
-                <div className="flex flex-col items-start gap-2 pt-1">
-                  <Chip
-                    color={s.abcClass ? ABC_COLORS[s.abcClass] : null}
-                    label={s.abcClass ? `Class ${s.abcClass}` : "Class —"}
-                  />
-                  <Chip
-                    color={s.kraljicQuadrant ? QUADRANT_COLORS[s.kraljicQuadrant] : null}
-                    label={s.kraljicQuadrant ?? "—"}
-                  />
-                </div>
               </div>
-              {perfOpen && (
-                <div className="mt-4 border-t pt-3">
-                  {evo?.err ? (
-                    <p className="text-sm text-destructive">{evo.err}</p>
-                  ) : !evoData ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Loading trajectory…
-                    </div>
-                  ) : evoData.periods.some((p) => p.spend > 0 || p.invoiceCount > 0) ? (
-                    // Has historical activity → show the trajectory (Fix 5: even
-                    // when inactive THIS period, with a contextual note).
-                    <>
-                      {s.performance.score == null && (
-                        <PerformanceInactiveNote periodLabel={span.short} periods={evoData.periods} />
-                      )}
-                      <PerformanceTrajectory data={evoData} selectedYear={selectedYear} />
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No data for this period.</p>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* Section 3: activity span — first → last purchase dates (Fix 4). */}
+            {/* Section 2: activity period — first → last invoice dates. */}
             <div className="border-b p-4">
-              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity</h4>
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Activity period</h4>
               {absent || !st.earliestDate || !st.latestDate ? (
                 <p className="text-sm text-muted-foreground">No activity in this period</p>
               ) : (
-                <p className="text-sm tabular-nums text-muted-foreground">
-                  {st.earliestDate} → {st.latestDate}
+                <p className="text-sm text-muted-foreground">
+                  {span.short} · {fmtActivityDate(st.earliestDate, !selectedYear)} →{" "}
+                  {fmtActivityDate(st.latestDate, !selectedYear)}
                 </p>
               )}
             </div>
 
             <div className="border-b px-4 pt-3 pb-1">
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Spend detail</h4>
               <PillTabs
                 tabs={[["byItem", "Spend by item"], ["pos", "All invoices"], ["evolution", "Annual breakdown"]] as const}
                 active={tab}
