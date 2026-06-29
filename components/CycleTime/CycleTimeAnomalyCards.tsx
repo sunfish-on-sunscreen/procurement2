@@ -30,7 +30,7 @@ const CARDS: CardMeta[] = [
     title: "Inconsistent suppliers",
     color: "var(--primary)",
     icon: Activity,
-    desc: "Suppliers whose cycle times vary more than the portfolio median.",
+    desc: "Suppliers with significantly higher cycle time variability than the portfolio (IQR > 1.5× median).",
     cta: "View suppliers",
   },
   {

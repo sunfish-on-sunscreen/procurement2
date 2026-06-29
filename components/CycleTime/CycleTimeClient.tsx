@@ -113,7 +113,11 @@ export function CycleTimeClient({
   // ---- Anomaly counts + filter wiring (breakdown-dependent) --------------- #
   const slowPos = cycleTime.anomalies.length;
   const iqrMedian = breakdown ? median(breakdown.bySupplier.map((r) => r.iqr)) : 0;
-  const highIqr = breakdown ? breakdown.bySupplier.filter((r) => r.iqr > iqrMedian).length : 0;
+  // "Inconsistent" = IQR beyond 1.5× the portfolio median (Tukey 1.5×IQR
+  // convention), so only genuinely high-variability suppliers are flagged
+  // rather than the ~half that sit above the bare median.
+  const iqrCutoff = iqrMedian * 1.5;
+  const highIqr = breakdown ? breakdown.bySupplier.filter((r) => r.iqr > iqrCutoff).length : 0;
   const stageAnomalies = breakdown?.stageAnomalies ?? [];
 
   const clear = () => setActiveFilter(null);
@@ -127,7 +131,7 @@ export function CycleTimeClient({
 
   const rosterFilter: RosterFilter | null =
     activeFilter === "high_iqr"
-      ? { iqrThreshold: iqrMedian, label: `Inconsistent suppliers (IQR > ${iqrMedian.toFixed(1)}d)`, onClear: clear }
+      ? { iqrThreshold: iqrCutoff, label: `Inconsistent suppliers (IQR > ${iqrCutoff.toFixed(1)}d)`, onClear: clear }
       : null;
 
   const handleSelect = (k: CycleFilterKey) => {
