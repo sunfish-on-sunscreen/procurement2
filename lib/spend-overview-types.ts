@@ -61,6 +61,13 @@ export type SpendDetail = {
     earliestDate: string | null;
     latestDate: string | null;
     avgPoValue: number;
+    // Period-scoped portfolio context for the Spend insights cards. `rank` is the
+    // 1-based position by spend among active suppliers (null when absent);
+    // `percentOfTotal` is this supplier's share of period spend; `activeSupplierCount`
+    // is the number of suppliers with any spend in the period.
+    rank: number | null;
+    percentOfTotal: number | null;
+    activeSupplierCount: number;
   };
   byItem: { itemDescription: string; poCount: number; totalSpend: number }[];
   pos: {

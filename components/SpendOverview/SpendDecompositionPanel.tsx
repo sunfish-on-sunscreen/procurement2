@@ -377,8 +377,8 @@ export function SpendDecompositionPanel({
                       {s.country && (
                         <>
                           {parts.length > 0 ? " · " : ""}
-                          <CountryFlag code={s.country} />
                           {s.country}
+                          <CountryFlag code={s.country} />
                         </>
                       )}
                     </>
@@ -424,6 +424,86 @@ export function SpendDecompositionPanel({
                     )
                   }
                 />
+              </div>
+            </div>
+
+            {/* Section 1b: spend insights — portfolio rank + YoY change. */}
+            <div className="border-b p-4">
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Spend insights</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {/* Card 1: portfolio rank (period-scoped). */}
+                <div className="rounded-xl bg-card px-3.5 py-3 ring-1 ring-foreground/10">
+                  {absent || st.rank == null ? (
+                    <p className="text-sm text-muted-foreground">Not active in this period</p>
+                  ) : (
+                    <>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-semibold tabular-nums">#{st.rank}</span>
+                        <span className="text-[11px] leading-tight text-muted-foreground">
+                          {st.rank === 1 ? "top spend supplier" : "by spend"}{" "}
+                          {selectedYear ? "this period" : "overall"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[10px] tabular-nums text-muted-foreground">
+                        {st.percentOfTotal != null ? `${st.percentOfTotal.toFixed(1)}% of total` : "—"} · #
+                        {st.rank} of {st.activeSupplierCount} suppliers
+                      </div>
+                    </>
+                  )}
+                </div>
+                {/* Card 2: YoY spend change (single-year) / range context. */}
+                <div className="rounded-xl bg-card px-3.5 py-3 ring-1 ring-foreground/10">
+                  {(() => {
+                    if (!selectedYear) {
+                      return <p className="text-sm text-muted-foreground">Active {span.short}</p>;
+                    }
+                    if (!evoData) {
+                      return <p className="text-sm text-muted-foreground">—</p>;
+                    }
+                    const activeYears = evoData.periods.filter((p) => p.spend > 0 || p.invoiceCount > 0);
+                    const lastActive = activeYears[activeYears.length - 1];
+                    const cur = evoData.periods.find((p) => p.year === selectedYear);
+                    const prevYear = String(Number(selectedYear) - 1);
+                    const prev = evoData.periods.find((p) => p.year === prevYear);
+                    const curSpend = cur?.spend ?? 0;
+                    const prevSpend = prev?.spend ?? 0;
+                    if (curSpend <= 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          {lastActive ? `Most recent activity: ${lastActive.year}` : "No activity"}
+                        </p>
+                      );
+                    }
+                    if (prevSpend <= 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">
+                          First active in {activeYears[0]?.year ?? selectedYear}
+                        </p>
+                      );
+                    }
+                    const yoy = ((curSpend - prevSpend) / prevSpend) * 100;
+                    const up = yoy >= 0;
+                    const cls = up
+                      ? "text-green-600 dark:text-green-500"
+                      : "text-red-600 dark:text-red-500";
+                    return (
+                      <>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className={`text-lg font-semibold tabular-nums ${cls}`}>
+                            {up ? "↑ +" : "↓ -"}
+                            {Math.abs(yoy).toFixed(1)}%
+                          </span>
+                          <span className="text-[11px] leading-tight text-muted-foreground">
+                            spend {up ? "grew" : "fell"} vs {prevYear}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10px] tabular-nums text-muted-foreground">
+                          {formatCompactCurrency(prevSpend)} → {formatCompactCurrency(curSpend)} YoY
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
 

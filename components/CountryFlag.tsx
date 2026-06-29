@@ -17,7 +17,7 @@ export function CountryFlag({ code, size = 14 }: { code: string; size?: number }
         height: size * 0.75,
         display: "inline-block",
         verticalAlign: "-1px",
-        marginRight: 4,
+        marginLeft: 4,
         borderRadius: 1,
       }}
       title={upperCode}

@@ -315,6 +315,25 @@ export async function GET(
     }
   }
 
+  // Period-scoped portfolio context (Spend insights cards): rank by spend, share
+  // of the period total, and active-supplier count — one grouped aggregate over
+  // the same span. A supplier absent from the span isn't in the groups, so its
+  // rank/percent are null.
+  const spendBySupplier = await prisma.purchase.groupBy({
+    by: ["supplierExternalId"],
+    where: dateFilter ? { invoiceDate: dateFilter } : {},
+    _sum: { totalValueUsd: true },
+  });
+  const activeSupplierCount = spendBySupplier.length;
+  const periodTotal = spendBySupplier.reduce((acc, r) => acc + (r._sum.totalValueUsd ?? 0), 0);
+  const rankIdx = spendBySupplier
+    .map((r) => ({ id: r.supplierExternalId, spend: r._sum.totalValueUsd ?? 0 }))
+    .sort((a, b) => b.spend - a.spend)
+    .findIndex((r) => r.id === id);
+  const rank = rankIdx >= 0 && totalSpend > 0 ? rankIdx + 1 : null;
+  const percentOfTotal =
+    totalSpend > 0 && periodTotal > 0 ? (totalSpend / periodTotal) * 100 : null;
+
   const detail: SpendDetail = {
     supplier: {
       id,
@@ -333,6 +352,9 @@ export async function GET(
       earliestDate: iso(earliest),
       latestDate: iso(latest),
       avgPoValue: purchases.length > 0 ? totalSpend / purchases.length : 0,
+      rank,
+      percentOfTotal,
+      activeSupplierCount,
     },
     byItem,
     pos,
