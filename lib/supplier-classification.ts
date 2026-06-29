@@ -74,9 +74,9 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     below: true,
     blurb: "low-spend, low-risk suppliers underperforming — candidates to rationalize or move to catalog buys.",
     theme: {
-      border: "border-l-purple-500",
-      tint: "bg-purple-500/5",
-      text: "text-purple-600 dark:text-purple-400",
+      border: "border-l-blue-500",
+      tint: "bg-blue-500/5",
+      text: "text-blue-600 dark:text-blue-400",
     },
   },
 };

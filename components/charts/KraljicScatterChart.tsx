@@ -93,7 +93,9 @@ export function KraljicScatterChart({
           content={<ScatterTooltip />}
           cursor={{ strokeDasharray: "3 3" }}
         />
-        <Legend />
+        {/* Top-aligned so the 4 quadrant labels don't collide with the bottom
+            X-axis title (they previously overlapped/overflowed). */}
+        <Legend verticalAlign="top" height={32} wrapperStyle={{ fontSize: 12 }} />
         <ReferenceLine
           x={thresholds.spend_median}
           stroke="#94a3b8"

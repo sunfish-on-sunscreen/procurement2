@@ -94,7 +94,7 @@ function KraljicTab({ kraljic }: { kraljic: KraljicResult | null }) {
                 <TableCell className="text-right tabular-nums">{p?.n_suppliers ?? 0}</TableCell>
                 <TableCell className="text-right tabular-nums">{usd(p?.total_spend ?? 0)}</TableCell>
                 <TableCell className="text-right tabular-nums">{num(p?.pct_of_total_spend ?? 0)}%</TableCell>
-                <TableCell className="text-right tabular-nums">{num(p?.avg_performance_score ?? null)}</TableCell>
+                <TableCell className="text-right tabular-nums">{num(p?.avg_performance_score ?? null, 2)}</TableCell>
               </TableRow>
             );
           })}
@@ -134,7 +134,7 @@ function PerformanceTab({ perf }: { perf: PerformanceSpendResult }) {
                 <TableCell className="text-right tabular-nums">{p?.n_suppliers ?? 0}</TableCell>
                 <TableCell className="text-right tabular-nums">{usd(p?.total_spend_usd ?? 0)}</TableCell>
                 <TableCell className="text-right tabular-nums">{num(p?.pct_of_total_spend ?? 0)}%</TableCell>
-                <TableCell className="text-right tabular-nums">{num(p?.avg_performance ?? null)}</TableCell>
+                <TableCell className="text-right tabular-nums">{num(p?.avg_performance ?? null, 2)}</TableCell>
               </TableRow>
             );
           })}
