@@ -1,7 +1,7 @@
 /** Per-supplier + per-category cycle-time breakdown (period/range-scoped),
  * computed on demand from the Purchase table by /api/cycle-time/breakdown. */
 
-import type { KraljicQuadrant } from "@/lib/analysis-types";
+import type { KraljicQuadrant, CycleAnomaly } from "@/lib/analysis-types";
 
 /** The four procure-to-pay stages, in order, with display labels. */
 export const CYCLE_STAGES = [
@@ -12,6 +12,9 @@ export const CYCLE_STAGES = [
 ] as const;
 
 export type CycleStageKey = (typeof CYCLE_STAGES)[number]["key"];
+
+/** Anomaly-action-card filter keys (Cycle Time "at a glance" batch). */
+export type CycleFilterKey = "slow_pos" | "high_iqr" | "stage_anomaly";
 
 export type AbcClass = "A" | "B" | "C";
 
@@ -93,4 +96,8 @@ export type CycleCategoryRow = {
 export type CycleBreakdown = {
   bySupplier: CycleSupplierRow[];
   byCategory: CycleCategoryRow[];
+  // POs where one stage's share of total cycle exceeds 50% (stage-dominated
+  // outliers); z_score is over the in-span cycle population. Optional so any
+  // older cached/consumer shape stays valid.
+  stageAnomalies?: CycleAnomaly[];
 };

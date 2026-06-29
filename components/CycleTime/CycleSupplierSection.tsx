@@ -37,6 +37,10 @@ import { ChartFrame } from "@/components/charts/ChartFrame";
 import { PerfBar, SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { CycleTimeSupplierDetailPanel } from "@/components/CycleTime/CycleTimeSupplierDetailPanel";
+import { CycleFilterBanner } from "@/components/CycleTime/CycleFilterBanner";
+
+/** Roster filter from the "Inconsistent suppliers" anomaly card. */
+export type RosterFilter = { iqrThreshold: number; label: string; onClear: () => void };
 
 const truncate = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -122,10 +126,12 @@ function BySupplier({
   rows,
   onSupplierClick,
   selectedSupplierId,
+  rosterFilter,
 }: {
   rows: CycleBreakdown["bySupplier"];
   onSupplierClick: (id: string) => void;
   selectedSupplierId: string | null;
+  rosterFilter?: RosterFilter | null;
 }) {
   const top = rows.slice(0, 15).map((r) => ({
     name: truncate(r.supplier_name, 22),
@@ -142,8 +148,15 @@ function BySupplier({
     "desc",
   );
 
+  // When the "Inconsistent suppliers" card is active, show only high-IQR
+  // suppliers, ordered by IQR descending (decision C). Otherwise the normal
+  // user-sortable view.
+  const view = rosterFilter
+    ? rows.filter((r) => r.iqr > rosterFilter.iqrThreshold).sort((a, b) => b.iqr - a.iqr)
+    : sorted;
+
   return (
-    <Card className={cardElevation}>
+    <Card id="cycle-roster" className={cardElevation}>
       <CardHeader>
         <CardTitle>Cycle Time by Supplier</CardTitle>
         <CardDescription>
@@ -180,6 +193,14 @@ function BySupplier({
           </p>
         )}
 
+        {rosterFilter && (
+          <CycleFilterBanner
+            label={rosterFilter.label}
+            count={view.length}
+            onClear={rosterFilter.onClear}
+          />
+        )}
+
         {rows.length > 0 && (
           <Table>
             <TableHeader>
@@ -195,7 +216,7 @@ function BySupplier({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sorted.map((r) => (
+              {view.map((r) => (
                 <TableRow
                   key={r.supplier_id}
                   onClick={() => onSupplierClick(r.supplier_id)}
@@ -298,9 +319,15 @@ function ByCategory({ rows }: { rows: CycleBreakdown["byCategory"] }) {
 export function CycleSupplierSection({
   startDate,
   endDate,
+  data: dataProp,
+  rosterFilter,
 }: {
   startDate: string;
   endDate: string;
+  // When the parent supplies breakdown data (CycleTimeClient), this component is
+  // presentational and skips its own fetch. Omitted → it fetches (standalone).
+  data?: CycleBreakdown;
+  rosterFilter?: RosterFilter | null;
 }) {
   // Keyed state (no synchronous setState in the effect — matches the
   // SpendDecompositionPanel pattern the eslint config requires). The result is
@@ -308,7 +335,7 @@ export function CycleSupplierSection({
   // immediately shows the loading state without resetting state in the effect.
   const key = `${startDate}_${endDate}`;
   const [state, setState] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
-  const current = state?.key === key ? state : null;
+  const current = dataProp ? { data: dataProp, err: undefined } : state?.key === key ? state : null;
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
 
   // Clear the open drill-down when the span changes (render-time compare; no
@@ -320,6 +347,7 @@ export function CycleSupplierSection({
   }
 
   useEffect(() => {
+    if (dataProp) return; // parent supplies data — no self-fetch
     let cancelled = false;
     const k = `${startDate}_${endDate}`;
     fetch(`/api/cycle-time/breakdown?start=${startDate}&end=${endDate}`)
@@ -341,7 +369,7 @@ export function CycleSupplierSection({
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, dataProp]);
 
   if (current?.err) {
     return <p className="text-sm text-destructive">{current.err}</p>;
@@ -360,6 +388,7 @@ export function CycleSupplierSection({
         rows={current.data.bySupplier}
         onSupplierClick={setSelectedSupplierId}
         selectedSupplierId={selectedSupplierId}
+        rosterFilter={rosterFilter}
       />
       <ByCategory rows={current.data.byCategory} />
       <CycleTimeSupplierDetailPanel

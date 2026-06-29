@@ -43,6 +43,7 @@ import { StatBlock } from "@/components/ui/stat-block";
 import { SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { cardElevation } from "@/lib/utils";
+import { CycleFilterBanner } from "@/components/CycleTime/CycleFilterBanner";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -460,17 +461,32 @@ function ThreeWayMatchTable({ data }: { data: CycleTimeResult }) {
 }
 
 // ---- Anomalies table (sortable, top 10 + show all) ------------------------- #
-function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
+// Optional external filter (from the anomaly action cards): swaps in a filtered
+// row set + a banner. When omitted, renders the native z>2σ anomaly list.
+export type AnomalyFilter = {
+  rows: CycleTimeResult["anomalies"];
+  label: string;
+  onClear: () => void;
+};
+
+function AnomaliesTable({
+  data,
+  filter,
+}: {
+  data: CycleTimeResult["anomalies"];
+  filter?: AnomalyFilter | null;
+}) {
   const [showAll, setShowAll] = useState(false);
+  const source = filter ? filter.rows : data;
   const { sorted, sort, toggle } = useTableSort<CycleTimeResult["anomalies"][number], string>(
-    data,
+    source,
     (r, k) => (r as unknown as Record<string, number | string | null>)[k],
     "z_score",
     "desc",
   );
   const rows = showAll ? sorted : sorted.slice(0, 10);
   return (
-    <Card className={cardElevation}>
+    <Card id="cycle-anomalies" className={cardElevation}>
       <CardHeader>
         <CardTitle>Anomalies</CardTitle>
         <CardDescription>
@@ -479,9 +495,14 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {data.length === 0 ? (
+        {filter && (
+          <CycleFilterBanner label={filter.label} count={filter.rows.length} onClear={filter.onClear} />
+        )}
+        {source.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No POs exceeded the 2σ anomaly threshold this period.
+            {filter
+              ? "No POs match this filter."
+              : "No POs exceeded the 2σ anomaly threshold this period."}
           </p>
         ) : (
           <>
@@ -511,14 +532,14 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
                 ))}
               </TableBody>
             </Table>
-            {data.length > 10 && (
+            {source.length > 10 && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="mt-2"
                 onClick={() => setShowAll((s) => !s)}
               >
-                {showAll ? "Show top 10" : `View all ${data.length}`}
+                {showAll ? "Show top 10" : `View all ${source.length}`}
               </Button>
             )}
           </>
@@ -531,9 +552,13 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
 export function CycleTimeView({
   data,
   embedded = false,
+  anomalyFilter,
 }: {
   data: CycleTimeResult;
   embedded?: boolean;
+  // External anomaly filter from the action cards (page only; omitted in the
+  // report editor, so embedded usage is unchanged).
+  anomalyFilter?: AnomalyFilter | null;
 }) {
   const d = data.distribution;
 
@@ -607,7 +632,7 @@ export function CycleTimeView({
         <ThreeWayMatchTable data={data} />
       </div>
 
-      <AnomaliesTable data={data.anomalies} />
+      <AnomaliesTable data={data.anomalies} filter={anomalyFilter} />
 
       <PeriodComparisonSection initial={data.period_comparison} />
     </>

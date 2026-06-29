@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { getRangeAnalyses } from "@/lib/range-analyses";
+import type { CycleAnomaly } from "@/lib/analysis-types";
 import {
   CYCLE_STAGES,
   type AbcClass,
@@ -14,6 +15,7 @@ import {
 export const runtime = "nodejs";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
 /** Linear-interpolation quantile over a pre-sorted ascending array. */
 function quantile(sorted: number[], q: number): number {
@@ -63,6 +65,8 @@ export async function GET(request: Request) {
       },
     },
     select: {
+      poId: true,
+      invoiceDate: true,
       supplierExternalId: true,
       supplierName: true,
       category: true,
@@ -184,6 +188,41 @@ export async function GET(request: Request) {
     })
     .sort((a, b) => b.total_mean - a.total_mean);
 
-  const result: CycleBreakdown = { bySupplier, byCategory };
+  // ---- Stage anomalies: POs where one stage dominates the cycle ----------- #
+  // A PO is a "stage anomaly" when a single stage's share of its total cycle
+  // exceeds 60% (decision: surfacing existing per-PO stage shares — no new
+  // methodology). z_score is over the in-span cycle population (ddof=1), the
+  // same definition the cycle_time analysis uses, so the table can show it.
+  const allCycles = purchases.map((p) => p.totalCycleDays);
+  const cn = allCycles.length;
+  const cMean = cn ? allCycles.reduce((s, x) => s + x, 0) / cn : 0;
+  const cStd =
+    cn > 1
+      ? Math.sqrt(allCycles.reduce((s, x) => s + (x - cMean) ** 2, 0) / (cn - 1))
+      : 0;
+
+  const stageAnomalies: CycleAnomaly[] = purchases
+    .filter((p) => {
+      const total = p.totalCycleDays;
+      if (total <= 0) return false;
+      const maxStage = Math.max(
+        p.prToPoDays,
+        p.poToDeliveryDays,
+        p.deliveryToInvoiceDays,
+        p.invoiceToPaymentDays,
+      );
+      return maxStage / total > 0.6;
+    })
+    .map((p) => ({
+      po_id: p.poId,
+      supplier_id: p.supplierExternalId,
+      supplier_name: p.supplierName,
+      invoice_date: iso(p.invoiceDate),
+      cycle_days: p.totalCycleDays,
+      z_score: cStd > 0 ? Math.round(((p.totalCycleDays - cMean) / cStd) * 100) / 100 : 0,
+    }))
+    .sort((a, b) => (b.cycle_days ?? 0) - (a.cycle_days ?? 0));
+
+  const result: CycleBreakdown = { bySupplier, byCategory, stageAnomalies };
   return NextResponse.json(result);
 }

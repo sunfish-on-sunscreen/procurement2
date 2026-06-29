@@ -3,9 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentPeriodSelection, resolveAnalysisSource } from "@/lib/period";
 import { getAnalysisResult, type CycleTimeResult } from "@/lib/analysis-types";
 import { EmptyState } from "@/components/EmptyState";
-import { CycleTimeView } from "@/components/CycleTimeView";
-import { RangeCompute } from "@/components/analysis/RangeCompute";
-import { CycleSupplierSection } from "@/components/CycleTime/CycleSupplierSection";
+import { CycleTimeClient } from "@/components/CycleTime/CycleTimeClient";
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -16,16 +14,15 @@ export default async function CycleTimePage() {
   const selection = await getCurrentPeriodSelection();
   const source = await resolveAnalysisSource(selection);
 
-  let label = "";
-  let body: React.ReactNode;
-  // Resolved date span for the period-scoped per-supplier / per-category
-  // breakdown section (null in the empty state).
-  let span: { startDate: string; endDate: string } | null = null;
+  const title = "Cycle Time — Process Health Monitoring";
+  const subtitle = "Procure-to-pay timing across the supplier base";
+  const label = source.kind === "empty" ? "" : source.periodLabel;
+
+  let content: React.ReactNode;
 
   if (source.kind === "empty") {
-    body = <EmptyState />;
+    content = <EmptyState />;
   } else if (source.kind === "cached") {
-    label = source.periodLabel;
     const [cycleTime, period] = await Promise.all([
       getAnalysisResult<CycleTimeResult>(source.periodId, "cycle_time"),
       prisma.reportingPeriod.findUnique({
@@ -33,22 +30,47 @@ export default async function CycleTimePage() {
         select: { startDate: true, endDate: true },
       }),
     ]);
-    body = cycleTime ? <CycleTimeView data={cycleTime} /> : <EmptyState />;
-    if (period) {
-      span = {
-        startDate: toIsoDate(period.startDate),
-        endDate: toIsoDate(period.endDate),
-      };
+    if (!cycleTime || !period) {
+      content = <EmptyState />;
+    } else {
+      // Previous period's median cycle time, for the glance panel's trend line.
+      const prevPeriod = await prisma.reportingPeriod.findFirst({
+        where: { startDate: { lt: period.startDate } },
+        orderBy: { startDate: "desc" },
+        select: { id: true, name: true },
+      });
+      let previousMedian: number | null = null;
+      let previousLabel: string | null = null;
+      if (prevPeriod) {
+        const prevCt = await getAnalysisResult<CycleTimeResult>(prevPeriod.id, "cycle_time");
+        if (prevCt?.distribution.median != null) {
+          previousMedian = prevCt.distribution.median;
+          previousLabel = prevPeriod.name;
+        }
+      }
+      content = (
+        <CycleTimeClient
+          startDate={toIsoDate(period.startDate)}
+          endDate={toIsoDate(period.endDate)}
+          periodLabel={label}
+          isRangeMode={false}
+          cachedCycleTime={cycleTime}
+          previousMedian={previousMedian}
+          previousLabel={previousLabel}
+        />
+      );
     }
   } else {
-    label = source.periodLabel;
-    span = { startDate: source.startDate, endDate: source.endDate };
-    body = (
-      <RangeCompute
+    content = (
+      <CycleTimeClient
         key={`${source.startDate}_${source.endDate}`}
-        kind="cycle_time"
         startDate={source.startDate}
         endDate={source.endDate}
+        periodLabel={label}
+        isRangeMode={true}
+        cachedCycleTime={null}
+        previousMedian={null}
+        previousLabel={null}
       />
     );
   }
@@ -57,23 +79,12 @@ export default async function CycleTimePage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold">
-          Cycle Time — Process Health Monitoring{label ? ` — ${label}` : ""}
+          {title}
+          {label ? ` — ${label}` : ""}
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Procure-to-pay timing across the supplier base
-        </p>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
-      {/* Coal-mining framing (B4). */}
-      <p className="max-w-3xl text-sm text-muted-foreground">
-        In capital-intensive mining operations, procurement delays directly
-        impact equipment availability. Identifying slow-procurement suppliers and
-        bottleneck stages enables targeted improvements that keep critical spares
-        and services flowing to the pit.
-      </p>
-      {body}
-      {span && (
-        <CycleSupplierSection startDate={span.startDate} endDate={span.endDate} />
-      )}
+      {content}
     </div>
   );
 }
