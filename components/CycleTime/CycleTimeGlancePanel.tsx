@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { CycleTimeResult } from "@/lib/analysis-types";
 import type { CycleSupplierRow } from "@/lib/cycle-time-types";
@@ -80,6 +81,45 @@ export function CycleTimeGlancePanel({
     }
   }
 
+  // Observation segments — built as an array so " · " separators appear only
+  // between present segments (no leading/trailing), matching Classification at a
+  // glance. Plain inline flow (NOT flex) so the in-text whitespace renders.
+  const segments: ReactNode[] = [];
+  if (trend) {
+    const TrendIcon = trend.dir === "down" ? ArrowDown : ArrowUp;
+    segments.push(
+      <span key="trend">
+        <TrendIcon
+          className={`inline-block h-3.5 w-3.5 align-text-bottom ${
+            trend.dir === "down"
+              ? "text-green-600 dark:text-green-500"
+              : "text-red-600 dark:text-red-500"
+          }`}
+        />{" "}
+        Cycle {trend.dir === "down" ? "decreased" : "increased"}{" "}
+        <span className="font-medium text-foreground tabular-nums">{trend.pct.toFixed(0)}%</span> vs{" "}
+        {previousLabel}
+      </span>,
+    );
+  }
+  if (overThreshold > 0) {
+    segments.push(
+      <span key="threshold">
+        <span className="font-medium text-foreground tabular-nums">{overThreshold}</span>{" "}
+        supplier{overThreshold === 1 ? "" : "s"} exceed the 60-day threshold
+      </span>,
+    );
+  }
+  if (slowest.median > 0) {
+    segments.push(
+      <span key="slowest">
+        <span className="text-foreground">{slowest.label}</span> accounts for{" "}
+        <span className="font-medium text-foreground tabular-nums">{slowestPct}%</span> of total cycle
+        time
+      </span>,
+    );
+  }
+
   return (
     <Card className={cardElevation}>
       <CardHeader>
@@ -106,34 +146,16 @@ export function CycleTimeGlancePanel({
         </div>
 
         {/* 2. Observation segments */}
-        <div className="text-sm text-muted-foreground">
-          {trend && (
-            <span className="inline-flex items-center">
-              {trend.dir === "down" ? (
-                <ArrowDown className="mr-0.5 h-3.5 w-3.5 text-green-600 dark:text-green-500" />
-              ) : (
-                <ArrowUp className="mr-0.5 h-3.5 w-3.5 text-red-600 dark:text-red-500" />
-              )}
-              Cycle {trend.dir === "down" ? "decreased" : "increased"}{" "}
-              <span className="font-medium text-foreground tabular-nums">{trend.pct.toFixed(0)}%</span>{" "}
-              vs {previousLabel}
-              {(overThreshold > 0 || slowest.median > 0) && <span className="text-muted-foreground/40"> · </span>}
-            </span>
-          )}
-          {overThreshold > 0 && (
-            <span>
-              <span className="font-medium text-foreground tabular-nums">{overThreshold}</span>{" "}
-              supplier{overThreshold === 1 ? "" : "s"} exceed the 60-day threshold
-              {slowest.median > 0 && <span className="text-muted-foreground/40"> · </span>}
-            </span>
-          )}
-          {slowest.median > 0 && (
-            <span>
-              <span className="text-foreground">{slowest.label}</span> accounts for{" "}
-              <span className="font-medium text-foreground tabular-nums">{slowestPct}%</span> of total cycle time
-            </span>
-          )}
-        </div>
+        {segments.length > 0 && (
+          <div className="text-sm text-muted-foreground">
+            {segments.map((seg, i) => (
+              <span key={i}>
+                {i > 0 && <span className="text-muted-foreground/40"> · </span>}
+                {seg}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* 3. Outlier callout */}
         {outliers > 0 && (
