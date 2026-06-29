@@ -38,6 +38,11 @@ import { ChartFrame } from "@/components/charts/ChartFrame";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
 import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
 import { Sparkline } from "@/components/charts/Sparkline";
+import { CHART_COLORS } from "@/lib/chart-colors";
+import { StatBlock } from "@/components/ui/stat-block";
+import { SortArrow } from "@/components/RankingCells";
+import { useTableSort, type SortDir } from "@/lib/use-table-sort";
+import { cardElevation } from "@/lib/utils";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -58,48 +63,35 @@ const d1 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
 // 2-decimal medians (precision audit AA — cycle-time medians show 2dp).
 const d2 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
 
-function StatCard({
+// ---- Sortable column header (shadcn TableHead + shared SortArrow) ---------- #
+function SortHead({
   label,
-  value,
-  sub,
-  spark,
+  sortKey,
+  active,
+  dir,
+  onSort,
+  align = "left",
+  defaultDir = "desc",
 }: {
   label: string;
-  value: string;
-  sub?: string;
-  // Batch 6c: editor-only sparkline (omit to render a plain card).
-  spark?: Array<number | null | undefined>;
+  sortKey: string;
+  active: boolean;
+  dir: SortDir;
+  onSort: (key: string, defaultDir: SortDir) => void;
+  align?: "left" | "right";
+  defaultDir?: SortDir;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription>{label}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-end justify-between gap-2">
-          <div className="text-2xl font-semibold">{value}</div>
-          {spark && (
-            <div className="text-primary">
-              <Sparkline data={spark} />
-            </div>
-          )}
-        </div>
-        {sub && <div className="text-sm text-muted-foreground">{sub}</div>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function DescRow({ label, s }: { label: string; s: CycleDescriptive }) {
-  return (
-    <TableRow>
-      <TableCell className="font-medium">{label}</TableCell>
-      <TableCell className="text-right text-muted-foreground">{s.n}</TableCell>
-      <TableCell className="text-right">{d1(s.mean)}</TableCell>
-      <TableCell className="text-right">{d0(s.median)}</TableCell>
-      <TableCell className="text-right">{d0(s.p25)}</TableCell>
-      <TableCell className="text-right">{d0(s.p75)}</TableCell>
-    </TableRow>
+    <TableHead className={align === "right" ? "text-right" : ""}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey, defaultDir)}
+        className={`inline-flex items-center gap-1 hover:text-foreground ${align === "right" ? "flex-row-reverse" : ""}`}
+      >
+        {label}
+        <SortArrow active={active} dir={active ? dir : "desc"} />
+      </button>
+    </TableHead>
   );
 }
 
@@ -132,18 +124,18 @@ function ComparisonResult({ c }: { c: PeriodComparison }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard
+        <StatBlock
           label="Mann-Whitney U"
           value={c.mannwhitney_u != null ? c.mannwhitney_u.toFixed(0) : "—"}
-          sub={`n = ${c.period_a.n} vs ${c.period_b.n}`}
+          sublabel={`n = ${c.period_a.n} vs ${c.period_b.n}`}
         />
-        <StatCard label="p-value" value={formatP(c.p_value)} sub="α = 0.05" />
-        <StatCard
+        <StatBlock label="p-value" value={formatP(c.p_value)} sublabel="α = 0.05" />
+        <StatBlock
           label="Rank-biserial r"
           value={c.rank_biserial_r != null ? c.rank_biserial_r.toFixed(3) : "—"}
-          sub={c.effect_size_label ?? "—"}
+          sublabel={c.effect_size_label ?? "—"}
         />
-        <StatCard
+        <StatBlock
           label="Median A → B"
           value={`${d2(c.median_a)} → ${d2(c.median_b)} d`}
         />
@@ -163,7 +155,7 @@ function ComparisonResult({ c }: { c: PeriodComparison }) {
             }}
           />
           <Tooltip formatter={(v) => [`${Number(v).toFixed(2)} days`, "Median"]} />
-          <Bar dataKey="median" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="median" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
         </BarChart>
       </ChartFrame>
       <Alert variant={significant ? "default" : "destructive"}>
@@ -230,7 +222,7 @@ function PeriodComparisonSection({ initial }: { initial: PeriodComparison }) {
   }
 
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <button
           type="button"
@@ -305,12 +297,180 @@ function PeriodComparisonSection({ initial }: { initial: PeriodComparison }) {
   );
 }
 
-// ---- Anomalies table (top 10 + show all) ---------------------------------- #
+// ---- Stage decomposition (single-population descriptives, sortable) -------- #
+type StageRow = { order: number; key: string; label: string } & CycleDescriptive;
+
+function StageDecompositionTable({ data }: { data: CycleTimeResult }) {
+  const rows: StageRow[] = STAGES.map((s, i) => ({
+    order: i,
+    key: s.key,
+    label: s.label,
+    ...data.stage_breakdown[s.key],
+  }));
+  const { sorted, sort, toggle } = useTableSort<StageRow, string>(
+    rows,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "order",
+    "asc",
+  );
+  return (
+    <Card className={cardElevation}>
+      <CardHeader>
+        <CardTitle>Stage Decomposition</CardTitle>
+        <CardDescription>
+          Where time is spent across the four procure-to-pay sub-processes.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortHead label="Stage" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+              <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Mean" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Median" sortKey="median" active={sort.key === "median"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="P25" sortKey="p25" active={sort.key === "p25"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="P75" sortKey="p75" active={sort.key === "p75"} dir={sort.dir} onSort={toggle} align="right" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((s) => (
+              <TableRow key={s.key}>
+                <TableCell className="font-medium">{s.label}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{s.n}</TableCell>
+                <TableCell className="text-right tabular-nums">{d1(s.mean)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d0(s.median)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d0(s.p25)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d0(s.p75)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---- Cycle time by Kraljic quadrant (descriptives, sortable) --------------- #
+type QuadCycleRow = { order: number; quadrant: KraljicQuadrant } & CycleDescriptive;
+
+function CycleByQuadrantTable({ data }: { data: CycleTimeResult }) {
+  const rows: QuadCycleRow[] = QUAD_ORDER.map((q, i) => ({
+    order: i,
+    quadrant: q,
+    ...data.cycle_by_quadrant[q],
+  }));
+  const { sorted, sort, toggle } = useTableSort<QuadCycleRow, string>(
+    rows,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "order",
+    "asc",
+  );
+  return (
+    <Card className={cardElevation}>
+      <CardHeader>
+        <CardTitle>Cycle Time by Supplier Type</CardTitle>
+        <CardDescription>Total cycle days per Kraljic quadrant.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortHead label="Quadrant" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+              <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Mean" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Median" sortKey="median" active={sort.key === "median"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="P25" sortKey="p25" active={sort.key === "p25"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="P75" sortKey="p75" active={sort.key === "p75"} dir={sort.dir} onSort={toggle} align="right" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((q) => (
+              <TableRow key={q.quadrant}>
+                <TableCell className="font-medium">{q.quadrant}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{q.n}</TableCell>
+                <TableCell className="text-right tabular-nums">{d1(q.mean)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d0(q.median)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d0(q.p25)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d0(q.p75)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---- 3-way match by Kraljic quadrant (pass rate, sortable) ----------------- #
+type MatchRow = {
+  order: number;
+  quadrant: KraljicQuadrant;
+  n: number;
+  pass_rate_pct: number | null;
+  is_worst: boolean;
+};
+
+function ThreeWayMatchTable({ data }: { data: CycleTimeResult }) {
+  const rows: MatchRow[] = QUAD_ORDER.map((q, i) => ({
+    order: i,
+    quadrant: q,
+    ...data.three_way_match_by_quadrant[q],
+  }));
+  const { sorted, sort, toggle } = useTableSort<MatchRow, string>(
+    rows,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "order",
+    "asc",
+  );
+  return (
+    <Card className={cardElevation}>
+      <CardHeader>
+        <CardTitle>3-Way Match by Supplier Type</CardTitle>
+        <CardDescription>
+          Share of POs passing the 3-way match, by Kraljic quadrant.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortHead label="Quadrant" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+              <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Pass Rate" sortKey="pass_rate_pct" active={sort.key === "pass_rate_pct"} dir={sort.dir} onSort={toggle} align="right" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((m) => (
+              <TableRow key={m.quadrant}>
+                <TableCell className="font-medium">{m.quadrant}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{m.n}</TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${m.is_worst ? "font-semibold text-destructive" : ""}`}
+                >
+                  {m.pass_rate_pct != null ? `${m.pass_rate_pct.toFixed(1)}%` : "—"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---- Anomalies table (sortable, top 10 + show all) ------------------------- #
 function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
   const [showAll, setShowAll] = useState(false);
-  const rows = showAll ? data : data.slice(0, 10);
+  const { sorted, sort, toggle } = useTableSort<CycleTimeResult["anomalies"][number], string>(
+    data,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "z_score",
+    "desc",
+  );
+  const rows = showAll ? sorted : sorted.slice(0, 10);
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Anomalies</CardTitle>
         <CardDescription>
@@ -328,11 +488,11 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>PO ID</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Invoice Date</TableHead>
-                  <TableHead className="text-right">Cycle Days</TableHead>
-                  <TableHead className="text-right">Z-Score</TableHead>
+                  <SortHead label="PO ID" sortKey="po_id" active={sort.key === "po_id"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+                  <SortHead label="Supplier" sortKey="supplier_name" active={sort.key === "supplier_name"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+                  <SortHead label="Invoice Date" sortKey="invoice_date" active={sort.key === "invoice_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+                  <SortHead label="Cycle Days" sortKey="cycle_days" active={sort.key === "cycle_days"} dir={sort.dir} onSort={toggle} align="right" />
+                  <SortHead label="Z-Score" sortKey="z_score" active={sort.key === "z_score"} dir={sort.dir} onSort={toggle} align="right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -340,11 +500,11 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
                   <TableRow key={a.po_id}>
                     <TableCell className="font-medium">{a.po_id}</TableCell>
                     <TableCell>{a.supplier_name}</TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="tabular-nums text-muted-foreground">
                       {a.invoice_date ?? "—"}
                     </TableCell>
-                    <TableCell className="text-right">{a.cycle_days ?? "—"}</TableCell>
-                    <TableCell className="text-right font-medium text-destructive">
+                    <TableCell className="text-right tabular-nums">{a.cycle_days ?? "—"}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums text-destructive">
                       {a.z_score.toFixed(2)}
                     </TableCell>
                   </TableRow>
@@ -380,30 +540,39 @@ export function CycleTimeView({
   return (
     <>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard
+        <StatBlock
+          size="comfortable"
           label="Median cycle time"
-          value={`${d2(d.median)} days`}
-          sub={`n = ${d.n} POs`}
-          spark={
-            embedded
-              ? data.monthly_trend.map((m) => m.median_cycle_days)
-              : undefined
+          value={
+            embedded ? (
+              <span className="flex items-end justify-between gap-2">
+                {`${d2(d.median)} days`}
+                <span className="text-primary">
+                  <Sparkline data={data.monthly_trend.map((m) => m.median_cycle_days)} />
+                </span>
+              </span>
+            ) : (
+              `${d2(d.median)} days`
+            )
           }
+          sublabel={`n = ${d.n} POs`}
         />
-        <StatCard
+        <StatBlock
+          size="comfortable"
           label="IQR (P25–P75)"
           value={`${d0(d.p25)}–${d0(d.p75)} d`}
-          sub={`spread ${d0(d.iqr)} d`}
+          sublabel={`spread ${d0(d.iqr)} d`}
         />
-        <StatCard
+        <StatBlock
+          size="comfortable"
           label="Mean"
           value={`${d1(d.mean)} d`}
-          sub={d.std != null ? `σ = ${d1(d.std)}` : undefined}
+          sublabel={d.std != null ? `σ = ${d1(d.std)}` : undefined}
         />
-        <StatCard label="Range" value={`${d0(d.min)}–${d0(d.max)} d`} />
+        <StatBlock size="comfortable" label="Range" value={`${d0(d.min)}–${d0(d.max)} d`} />
       </div>
 
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>Monthly Cycle Time Trend</CardTitle>
           <CardDescription>
@@ -419,7 +588,7 @@ export function CycleTimeView({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>Cycle Time Distribution</CardTitle>
           <CardDescription>
@@ -427,110 +596,15 @@ export function CycleTimeView({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CycleTimeBoxPlot distribution={d} anomalies={data.anomalies} />
+          <CycleTimeBoxPlot distribution={d} anomalies={data.anomalies} interactive={embedded} />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Stage Decomposition</CardTitle>
-          <CardDescription>
-            Where time is spent across the four procure-to-pay sub-processes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Stage</TableHead>
-                <TableHead className="text-right">N</TableHead>
-                <TableHead className="text-right">Mean</TableHead>
-                <TableHead className="text-right">Median</TableHead>
-                <TableHead className="text-right">P25</TableHead>
-                <TableHead className="text-right">P75</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {STAGES.map((s) => (
-                <DescRow
-                  key={s.key}
-                  label={s.label}
-                  s={data.stage_breakdown[s.key]}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <StageDecompositionTable data={data} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Cycle Time by Supplier Type</CardTitle>
-            <CardDescription>
-              Total cycle days per Kraljic quadrant.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Quadrant</TableHead>
-                  <TableHead className="text-right">N</TableHead>
-                  <TableHead className="text-right">Mean</TableHead>
-                  <TableHead className="text-right">Median</TableHead>
-                  <TableHead className="text-right">P25</TableHead>
-                  <TableHead className="text-right">P75</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {QUAD_ORDER.map((q) => (
-                  <DescRow key={q} label={q} s={data.cycle_by_quadrant[q]} />
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>3-Way Match by Supplier Type</CardTitle>
-            <CardDescription>
-              Share of POs passing the 3-way match, by Kraljic quadrant.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Quadrant</TableHead>
-                  <TableHead className="text-right">N</TableHead>
-                  <TableHead className="text-right">Pass Rate</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {QUAD_ORDER.map((q) => {
-                  const m = data.three_way_match_by_quadrant[q];
-                  return (
-                    <TableRow key={q}>
-                      <TableCell className="font-medium">{q}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {m.n}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right ${m.is_worst ? "font-semibold text-destructive" : ""}`}
-                      >
-                        {m.pass_rate_pct != null
-                          ? `${m.pass_rate_pct.toFixed(1)}%`
-                          : "—"}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <CycleByQuadrantTable data={data} />
+        <ThreeWayMatchTable data={data} />
       </div>
 
       <AnomaliesTable data={data.anomalies} />

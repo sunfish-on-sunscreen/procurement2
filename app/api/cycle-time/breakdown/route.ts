@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { getRangeAnalyses } from "@/lib/range-analyses";
 import {
   CYCLE_STAGES,
+  type AbcClass,
   type CycleBreakdown,
   type CycleStageKey,
   type CycleSupplierRow,
@@ -100,6 +102,18 @@ export async function GET(request: Request) {
   const labelOf = (k: CycleStageKey) =>
     CYCLE_STAGES.find((s) => s.key === k)!.label;
 
+  // Classification context (ABC / Kraljic / composite), period-scoped via the
+  // same getRangeAnalyses source the ranking + spend-detail panel use, so the
+  // roster chips agree with the rest of the dashboard. Null on compute failure
+  // → chips render "—".
+  const analyses = await getRangeAnalyses(start, end);
+  const abcById = new Map(
+    (analyses?.abc?.classifications ?? []).map((c) => [c.supplier_id, c.abc_class as AbcClass]),
+  );
+  const perfById = new Map(
+    (analyses?.performance_spend?.suppliers ?? []).map((s) => [s.supplier_id, s]),
+  );
+
   const bySupplier: CycleSupplierRow[] = [...bySup.entries()]
     .map(([supplier_id, a]) => {
       const sorted = [...a.cycles].sort((x, y) => x - y);
@@ -114,6 +128,7 @@ export async function GET(request: Request) {
       }));
       const totalStageMean = means.reduce((s, m) => s + m.mean, 0) || 1;
       const slowest = means.reduce((m, c) => (c.mean > m.mean ? c : m));
+      const perf = perfById.get(supplier_id);
       return {
         supplier_id,
         supplier_name: a.name,
@@ -125,6 +140,9 @@ export async function GET(request: Request) {
         slowest_stage: slowest.key,
         slowest_stage_label: labelOf(slowest.key),
         slowest_stage_pct: Math.round((slowest.mean / totalStageMean) * 100),
+        abc_class: abcById.get(supplier_id) ?? null,
+        kraljic_quadrant: perf?.kraljic_quadrant ?? null,
+        composite: perf?.performance_score ?? null,
       };
     })
     .sort((a, b) => b.median_cycle - a.median_cycle);

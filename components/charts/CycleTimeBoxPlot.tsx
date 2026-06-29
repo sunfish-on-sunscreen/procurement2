@@ -13,9 +13,15 @@ import { usePortalTooltip, PortalTooltip } from "./PortalTooltip";
 export function CycleTimeBoxPlot({
   distribution: d,
   anomalies = [],
+  interactive = false,
 }: {
   distribution: CycleDistribution;
   anomalies?: CycleAnomaly[];
+  // Outlier-dot pinning is meaningful only inside the report editor (which mounts
+  // a PinProvider). On the standalone Cycle Time page it's off, so the dots are
+  // plain non-interactive markers (no dead click). usePin() is still called
+  // unconditionally (no-op without a provider) to keep hook order stable.
+  interactive?: boolean;
 }) {
   const { pinnedSupplierId, pin } = usePin();
   const tooltip = usePortalTooltip<CycleAnomaly>();
@@ -55,7 +61,10 @@ export function CycleTimeBoxPlot({
   const boxH = 54;
   const x = (v: number) => ml + plotW * ((v - xmin) / (xmax - xmin));
   const ticks = Array.from({ length: 6 }, (_, i) => xmin + ((xmax - xmin) * i) / 5);
-  const color = "#3b82f6";
+  // Theme-aware tokens (resolve in SVG fill/stroke, same as the codebase's other
+  // charts). Box = primary chart colour; outliers = destructive.
+  const color = "var(--chart-1)";
+  const outlierColor = "var(--destructive)";
 
   return (
     <div className="w-full">
@@ -119,17 +128,17 @@ export function CycleTimeBoxPlot({
         {/* outlier dots (slightly jittered around the axis) — hover to
             identify, click to pin the supplier (Batch 6b) */}
         {outlierAnoms.map((a, i) => {
-          const pinned =
-            a.supplier_id != null && a.supplier_id === pinnedSupplierId;
+          const canPin = interactive && a.supplier_id != null;
+          const pinned = canPin && a.supplier_id === pinnedSupplierId;
           const dotCy = cy + (i % 2 === 0 ? -1 : 1) * (boxH / 2 + 8);
           return (
             <g
               key={a.po_id}
-              style={{ cursor: a.supplier_id ? "pointer" : "default" }}
+              style={{ cursor: canPin ? "pointer" : "default" }}
               onMouseEnter={(e) => tooltip.show(e, a)}
               onMouseMove={(e) => tooltip.move(e)}
               onMouseLeave={tooltip.hide}
-              onClick={() => a.supplier_id && pin(a.supplier_id)}
+              onClick={canPin ? () => pin(a.supplier_id) : undefined}
             >
               {pinned && (
                 <circle
@@ -145,7 +154,7 @@ export function CycleTimeBoxPlot({
                 cx={x(a.cycle_days)}
                 cy={dotCy}
                 r={pinned ? 4.5 : 3}
-                fill="#ef4444"
+                fill={outlierColor}
                 fillOpacity={0.7}
               />
             </g>

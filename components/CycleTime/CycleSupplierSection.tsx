@@ -14,8 +14,10 @@ import {
 import {
   CYCLE_STAGES,
   type CycleBreakdown,
+  type CycleSupplierRow,
 } from "@/lib/cycle-time-types";
-import { CHART_COLORS } from "@/lib/chart-colors";
+import { CHART_COLORS, ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
+import { cardElevation } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -32,6 +34,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChartFrame } from "@/components/charts/ChartFrame";
+import { PerfBar, SortArrow } from "@/components/RankingCells";
+import { useTableSort, type SortDir } from "@/lib/use-table-sort";
+import { CycleTimeSupplierDetailPanel } from "@/components/CycleTime/CycleTimeSupplierDetailPanel";
 
 const truncate = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -44,6 +49,19 @@ const STAGE_COLOR: Record<string, string> = {
   delivery_to_invoice: CHART_COLORS[2],
   invoice_to_payment: CHART_COLORS[3],
 };
+
+// Chip — color-mix tint + token text; null → muted "—".
+function Chip({ color, label }: { color: string | null; label: string | null }) {
+  if (!color || !label) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span
+      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
+    >
+      {label}
+    </span>
+  );
+}
 
 function SupplierBarTooltip({
   active,
@@ -64,7 +82,51 @@ function SupplierBarTooltip({
   );
 }
 
-function BySupplier({ rows }: { rows: CycleBreakdown["bySupplier"] }) {
+// Sortable shadcn TableHead + shared SortArrow.
+function SortHead({
+  label,
+  sortKey,
+  active,
+  dir,
+  onSort,
+  align = "left",
+  defaultDir = "desc",
+  width,
+}: {
+  label: string;
+  sortKey: string;
+  active: boolean;
+  dir: SortDir;
+  onSort: (key: string, defaultDir: SortDir) => void;
+  align?: "left" | "right" | "center";
+  defaultDir?: SortDir;
+  width?: string;
+}) {
+  const alignText = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  const alignJustify = align === "right" ? "flex-row-reverse" : align === "center" ? "justify-center" : "";
+  return (
+    <TableHead className={`${alignText} ${width ?? ""}`}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey, defaultDir)}
+        className={`inline-flex items-center gap-1 hover:text-foreground ${alignJustify}`}
+      >
+        {label}
+        <SortArrow active={active} dir={active ? dir : "desc"} />
+      </button>
+    </TableHead>
+  );
+}
+
+function BySupplier({
+  rows,
+  onSupplierClick,
+  selectedSupplierId,
+}: {
+  rows: CycleBreakdown["bySupplier"];
+  onSupplierClick: (id: string) => void;
+  selectedSupplierId: string | null;
+}) {
   const top = rows.slice(0, 15).map((r) => ({
     name: truncate(r.supplier_name, 22),
     full: r.supplier_name,
@@ -73,14 +135,22 @@ function BySupplier({ rows }: { rows: CycleBreakdown["bySupplier"] }) {
     po_count: r.po_count,
   }));
 
+  const { sorted, sort, toggle } = useTableSort<CycleSupplierRow, string>(
+    rows,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "median_cycle",
+    "desc",
+  );
+
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Cycle Time by Supplier</CardTitle>
         <CardDescription>
           Median procure-to-pay days per supplier in the selected period. The 15
-          slowest are charted; the full roster is in the table below. Slow
-          suppliers are the targets for cycle-time improvement.
+          slowest are charted; the full roster is in the table below. Click a row
+          for the per-supplier drill-down. Slow suppliers are the targets for
+          cycle-time improvement.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
@@ -111,42 +181,60 @@ function BySupplier({ rows }: { rows: CycleBreakdown["bySupplier"] }) {
         )}
 
         {rows.length > 0 && (
-          <div className="max-h-[420px] overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead className="text-right">Median (d)</TableHead>
-                  <TableHead className="text-right">IQR (d)</TableHead>
-                  <TableHead className="text-right">POs</TableHead>
-                  <TableHead>Slowest stage</TableHead>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortHead label="Supplier" sortKey="supplier_name" active={sort.key === "supplier_name"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+                <SortHead label="Median (d)" sortKey="median_cycle" active={sort.key === "median_cycle"} dir={sort.dir} onSort={toggle} align="right" />
+                <SortHead label="IQR (d)" sortKey="iqr" active={sort.key === "iqr"} dir={sort.dir} onSort={toggle} align="right" />
+                <SortHead label="POs" sortKey="po_count" active={sort.key === "po_count"} dir={sort.dir} onSort={toggle} align="right" />
+                <SortHead label="ABC" sortKey="abc_class" active={sort.key === "abc_class"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[64px]" />
+                <SortHead label="Kraljic" sortKey="kraljic_quadrant" active={sort.key === "kraljic_quadrant"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[120px]" />
+                <SortHead label="Composite" sortKey="composite" active={sort.key === "composite"} dir={sort.dir} onSort={toggle} align="right" width="w-[140px]" />
+                <TableHead>Slowest stage</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((r) => (
+                <TableRow
+                  key={r.supplier_id}
+                  onClick={() => onSupplierClick(r.supplier_id)}
+                  className={`cursor-pointer ${
+                    r.supplier_id === selectedSupplierId
+                      ? "bg-foreground/5 ring-1 ring-inset ring-foreground/30"
+                      : "hover:bg-muted/40"
+                  }`}
+                >
+                  <TableCell className="font-medium">{r.supplier_name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.median_cycle.toFixed(1)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {r.p25.toFixed(0)}–{r.p75.toFixed(0)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">{r.po_count}</TableCell>
+                  <TableCell className="text-center">
+                    <Chip color={r.abc_class ? ABC_COLORS[r.abc_class] : null} label={r.abc_class} />
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Chip color={r.kraljic_quadrant ? QUADRANT_COLORS[r.kraljic_quadrant] : null} label={r.kraljic_quadrant} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <PerfBar score={r.composite} />
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${STAGE_COLOR[r.slowest_stage]} 12%, transparent)`,
+                        color: STAGE_COLOR[r.slowest_stage],
+                      }}
+                    >
+                      {r.slowest_stage_label} ({r.slowest_stage_pct}%)
+                    </span>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.supplier_id}>
-                    <TableCell className="font-medium">{r.supplier_name}</TableCell>
-                    <TableCell className="text-right">{r.median_cycle.toFixed(1)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {r.p25.toFixed(0)}–{r.p75.toFixed(0)}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">{r.po_count}</TableCell>
-                    <TableCell>
-                      <span
-                        className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                        style={{
-                          backgroundColor: `color-mix(in srgb, ${STAGE_COLOR[r.slowest_stage]} 12%, transparent)`,
-                          color: STAGE_COLOR[r.slowest_stage],
-                        }}
-                      >
-                        {r.slowest_stage_label} ({r.slowest_stage_pct}%)
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
@@ -164,7 +252,7 @@ function ByCategory({ rows }: { rows: CycleBreakdown["byCategory"] }) {
   }));
 
   return (
-    <Card>
+    <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Stage Breakdown by Category</CardTitle>
         <CardDescription>
@@ -221,6 +309,15 @@ export function CycleSupplierSection({
   const key = `${startDate}_${endDate}`;
   const [state, setState] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
   const current = state?.key === key ? state : null;
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+
+  // Clear the open drill-down when the span changes (render-time compare; no
+  // set-state-in-effect, matching the codebase's eslint rule).
+  const [prevKey, setPrevKey] = useState(key);
+  if (prevKey !== key) {
+    setPrevKey(key);
+    if (selectedSupplierId !== null) setSelectedSupplierId(null);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -259,8 +356,18 @@ export function CycleSupplierSection({
 
   return (
     <>
-      <BySupplier rows={current.data.bySupplier} />
+      <BySupplier
+        rows={current.data.bySupplier}
+        onSupplierClick={setSelectedSupplierId}
+        selectedSupplierId={selectedSupplierId}
+      />
       <ByCategory rows={current.data.byCategory} />
+      <CycleTimeSupplierDetailPanel
+        supplierId={selectedSupplierId}
+        startDate={startDate}
+        endDate={endDate}
+        onClose={() => setSelectedSupplierId(null)}
+      />
     </>
   );
 }

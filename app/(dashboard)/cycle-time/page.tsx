@@ -55,9 +55,14 @@ export default async function CycleTimePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">
-        Cycle Time — Process Health Monitoring{label ? ` — ${label}` : ""}
-      </h1>
+      <div>
+        <h1 className="text-2xl font-semibold">
+          Cycle Time — Process Health Monitoring{label ? ` — ${label}` : ""}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Procure-to-pay timing across the supplier base
+        </p>
+      </div>
       {/* Coal-mining framing (B4). */}
       <p className="max-w-3xl text-sm text-muted-foreground">
         In capital-intensive mining operations, procurement delays directly

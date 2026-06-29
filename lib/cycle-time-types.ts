@@ -1,6 +1,8 @@
 /** Per-supplier + per-category cycle-time breakdown (period/range-scoped),
  * computed on demand from the Purchase table by /api/cycle-time/breakdown. */
 
+import type { KraljicQuadrant } from "@/lib/analysis-types";
+
 /** The four procure-to-pay stages, in order, with display labels. */
 export const CYCLE_STAGES = [
   { key: "pr_to_po", label: "PR → PO" },
@@ -10,6 +12,8 @@ export const CYCLE_STAGES = [
 ] as const;
 
 export type CycleStageKey = (typeof CYCLE_STAGES)[number]["key"];
+
+export type AbcClass = "A" | "B" | "C";
 
 export type CycleSupplierRow = {
   supplier_id: string;
@@ -23,6 +27,56 @@ export type CycleSupplierRow = {
   slowest_stage: CycleStageKey;
   slowest_stage_label: string;
   slowest_stage_pct: number; // share of mean total cycle (0–100)
+  // Classification context (period-scoped, from getRangeAnalyses) — null when
+  // the supplier isn't classified in the selected span.
+  abc_class: AbcClass | null;
+  kraljic_quadrant: KraljicQuadrant | null;
+  composite: number | null;
+};
+
+// --- Per-supplier drill-down (GET /api/cycle-time/supplier-detail) ---------- #
+/** One stage's median for a supplier vs the portfolio median, for the panel's
+ * per-stage comparison. */
+export type CycleStageMedian = {
+  key: CycleStageKey;
+  label: string;
+  supplier_median: number;
+  portfolio_median: number;
+};
+
+/** One PO in the supplier's selected-span history. `is_anomaly` mirrors the
+ * cycle_time analysis flag (total cycle > 2σ above the span mean). */
+export type CyclePoRow = {
+  po_id: string;
+  invoice_date: string | null;
+  total_cycle_days: number;
+  slowest_stage: CycleStageKey;
+  slowest_stage_label: string;
+  is_anomaly: boolean;
+};
+
+export type CycleSupplierDetail = {
+  supplier: {
+    id: string;
+    name: string;
+    category: string | null;
+    tier: string | null;
+    country: string | null;
+    abc_class: AbcClass | null;
+    kraljic_quadrant: KraljicQuadrant | null;
+    composite: number | null;
+  };
+  cycle: {
+    median_cycle: number;
+    p25: number;
+    p75: number;
+    iqr: number;
+    po_count: number;
+    slowest_stage: CycleStageKey;
+    slowest_stage_label: string;
+  };
+  stages: CycleStageMedian[];
+  pos: CyclePoRow[];
 };
 
 export type CycleCategoryRow = {
