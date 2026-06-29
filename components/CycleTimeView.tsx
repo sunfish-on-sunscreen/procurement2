@@ -339,10 +339,10 @@ function StageDecompositionTable({ data }: { data: CycleTimeResult }) {
               <TableRow key={s.key}>
                 <TableCell className="font-medium">{s.label}</TableCell>
                 <TableCell className="text-right tabular-nums text-muted-foreground">{s.n}</TableCell>
-                <TableCell className="text-right tabular-nums">{d1(s.mean)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d0(s.median)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d0(s.p25)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d0(s.p75)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(s.mean)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(s.median)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(s.p25)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(s.p75)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -390,10 +390,10 @@ function CycleByQuadrantTable({ data }: { data: CycleTimeResult }) {
               <TableRow key={q.quadrant}>
                 <TableCell className="font-medium">{q.quadrant}</TableCell>
                 <TableCell className="text-right tabular-nums text-muted-foreground">{q.n}</TableCell>
-                <TableCell className="text-right tabular-nums">{d1(q.mean)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d0(q.median)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d0(q.p25)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d0(q.p75)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(q.mean)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(q.median)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(q.p25)}</TableCell>
+                <TableCell className="text-right tabular-nums">{d2(q.p75)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
