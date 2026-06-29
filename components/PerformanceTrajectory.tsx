@@ -13,6 +13,7 @@ import type { SupplierEvolution } from "@/lib/spend-overview-types";
 import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
 import { formatCompactCurrency } from "@/lib/utils";
 import { ChartFrame } from "@/components/charts/ChartFrame";
+import { usePortalTooltip, PortalTooltip } from "@/components/charts/PortalTooltip";
 
 type SubKey = "quality" | "delivery" | "service" | "process" | "risk";
 const SUBS: { key: SubKey; label: string; weight: number }[] = [
@@ -32,7 +33,10 @@ const trendCls = (t: "up" | "down" | "flat") =>
 
 // Tiny inline-SVG sparkline (line + dots), inherits `currentColor`. Preserves
 // period gaps on the x-axis; renders a single dot for one point, nothing for 0.
-function CardSparkline({ values }: { values: Array<number | null> }) {
+// Each dot is hoverable + keyboard-focusable and shows a "{year}: {value}"
+// tooltip (Fix 3); `years` is index-aligned with `values`.
+function CardSparkline({ values, years }: { values: Array<number | null>; years: string[] }) {
+  const tooltip = usePortalTooltip<{ year: string; value: number }>();
   const w = 92;
   const h = 46;
   const pad = 5;
@@ -53,14 +57,44 @@ function CardSparkline({ values }: { values: Array<number | null> }) {
     .join(" ");
 
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
-      {pts.length >= 2 && (
-        <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+    <>
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="group" aria-label="Sub-score trajectory">
+        {pts.length >= 2 && (
+          <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+        )}
+        {pts.map((p) => {
+          const year = years[p.i] ?? "";
+          return (
+            <g
+              key={p.i}
+              tabIndex={0}
+              role="img"
+              aria-label={`${year}: ${p.v.toFixed(2)}`}
+              style={{ cursor: "pointer" }}
+              onMouseEnter={(e) => tooltip.show(e, { year, value: p.v })}
+              onMouseMove={(e) => tooltip.move(e)}
+              onMouseLeave={tooltip.hide}
+              onFocus={(e) => {
+                const r = (e.currentTarget as SVGGElement).getBoundingClientRect();
+                tooltip.show({ clientX: r.left + r.width / 2, clientY: r.top }, { year, value: p.v });
+              }}
+              onBlur={tooltip.hide}
+            >
+              {/* Transparent hit target for a comfortable hover/focus area. */}
+              <circle cx={x(p.i)} cy={y(p.v)} r={7} fill="transparent" />
+              <circle cx={x(p.i)} cy={y(p.v)} r={2.5} fill="currentColor" />
+            </g>
+          );
+        })}
+      </svg>
+      {tooltip.tip && (
+        <PortalTooltip x={tooltip.tip.x} y={tooltip.tip.y}>
+          <span className="font-medium tabular-nums">
+            {tooltip.tip.data.year}: {tooltip.tip.data.value.toFixed(2)}
+          </span>
+        </PortalTooltip>
       )}
-      {pts.map((p) => (
-        <circle key={p.i} cx={x(p.i)} cy={y(p.v)} r={2.5} fill="currentColor" />
-      ))}
-    </svg>
+    </>
   );
 }
 
@@ -69,6 +103,7 @@ function SubScoreCard({
   value,
   weight,
   trajectory,
+  years,
   trend,
   delta,
 }: {
@@ -76,6 +111,7 @@ function SubScoreCard({
   value: number | null;
   weight: number;
   trajectory: Array<number | null>;
+  years: string[];
   trend: "up" | "down" | "flat";
   delta: number | null;
 }) {
@@ -88,7 +124,7 @@ function SubScoreCard({
         {value != null ? value.toFixed(2) : "—"}
       </div>
       <div className={`-mx-0.5 ${trendCls(trend)}`}>
-        <CardSparkline values={trajectory} />
+        <CardSparkline values={trajectory} years={years} />
       </div>
       {/* Weight indicator: label + thin filled bar (decision C). */}
       <div className="flex flex-col gap-1">
@@ -105,14 +141,20 @@ function SubScoreCard({
           />
         </div>
       </div>
-      {delta != null ? (
+      {delta == null ? (
+        <div className="text-[11px] text-muted-foreground">first year on record</div>
+      ) : delta === 0 ? (
+        // Zero-delta (Fix 2): "stable" instead of "0.00 vs prev".
+        <div className={`inline-flex items-center gap-0.5 text-[11px] ${trendCls("flat")}`}>
+          <Minus className="h-3 w-3" />
+          stable
+        </div>
+      ) : (
         <div className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums ${trendCls(deltaTrend)}`}>
           <DeltaIcon className="h-3 w-3" />
           {delta > 0 ? "+" : ""}
           {delta.toFixed(2)} vs prev
         </div>
-      ) : (
-        <div className="text-[11px] text-muted-foreground">first year on record</div>
       )}
     </div>
   );
@@ -196,69 +238,28 @@ function HistoryTable({ periods }: { periods: SupplierEvolution["periods"] }) {
   );
 }
 
-// Classification history as a row of substantial cards (Supplier Classification
-// panel — Fix 3). One card per period, sized to match the score-component cards;
-// no connector arrows. Inactive years are muted with "—" chips.
-function HistoryTimeline({ periods }: { periods: SupplierEvolution["periods"] }) {
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      {periods.map((p) => {
-        const inactive = p.spend <= 0 && p.invoiceCount <= 0;
-        return (
-          <div
-            key={p.year}
-            className={`flex flex-col rounded-[10px] border bg-muted/30 p-3.5 ${inactive ? "opacity-50" : ""}`}
-          >
-            <div className="mb-1 text-xs text-muted-foreground">{p.year}</div>
-            <div className="text-xl font-medium leading-[1.1] tabular-nums">
-              {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
-            </div>
-            <div className="mt-2 flex flex-col items-start gap-1">
-              {inactive ? (
-                <>
-                  <Chip color={null} label="—" />
-                  <Chip color={null} label="—" />
-                </>
-              ) : (
-                <>
-                  <Chip
-                    color={p.abcClass ? ABC_COLORS[p.abcClass] : null}
-                    label={p.abcClass ? `Class ${p.abcClass}` : "—"}
-                  />
-                  <Chip
-                    color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null}
-                    label={p.kraljicQuadrant ?? "—"}
-                  />
-                </>
-              )}
-            </div>
-            <div className="mt-2 text-xs tabular-nums text-muted-foreground">
-              {inactive
-                ? "—"
-                : `${formatCompactCurrency(p.spend)} across ${p.invoiceCount} invoice${p.invoiceCount === 1 ? "" : "s"}`}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 /**
  * The performance expand content, shared by both detail panels: a composite line
  * chart, per-sub-score trajectory cards (value + sparkline + weight bar + delta),
- * and a classification history. `historyLayout` switches the history between a
- * compact table (Spend Overview) and a node timeline (Supplier Classification).
- * All derived from the supplier's all-years evolution data.
+ * and a classification history (compact table). All derived from the supplier's
+ * all-years evolution data. `selectedYear` period-scopes ONLY the sub-score
+ * sparklines (Fix 1): single-year → points up to & including that year; null
+ * (range) → all years. The value/delta and the composite chart stay all-years.
  */
 export function PerformanceTrajectory({
   data,
-  historyLayout = "table",
+  selectedYear = null,
 }: {
   data: SupplierEvolution;
-  historyLayout?: "table" | "timeline";
+  selectedYear?: string | null;
 }) {
   const hasPerf = data.periods.some((p) => p.performanceScore != null);
+  const years = data.periods.map((p) => p.year);
+  // Which periods feed the sparkline: all in range mode; up to & including the
+  // selected year in single-year mode.
+  const sparkKeep = selectedYear
+    ? data.periods.map((p) => p.year <= selectedYear)
+    : data.periods.map(() => true);
 
   return (
     <div className="flex flex-col gap-5">
@@ -290,19 +291,24 @@ export function PerformanceTrajectory({
           {SUBS.map(({ key, label, weight }) => {
             const trajectory = data.periods.map((p) => p.subScores?.[key] ?? null);
             const active = trajectory.filter((v): v is number => v != null);
+            // value/delta/trend stay all-years (the card number is the latest).
             const value = active.length ? active[active.length - 1] : null;
             const first = active[0];
             const last = active[active.length - 1];
             const trend: "up" | "down" | "flat" =
               active.length >= 2 ? (last > first ? "up" : last < first ? "down" : "flat") : "flat";
             const delta = active.length >= 2 ? last - active[active.length - 2] : null;
+            // Period-scoped sparkline series (Fix 1).
+            const sparkValues = trajectory.filter((_, i) => sparkKeep[i]);
+            const sparkYears = years.filter((_, i) => sparkKeep[i]);
             return (
               <SubScoreCard
                 key={key}
                 label={label}
                 value={value}
                 weight={weight}
-                trajectory={trajectory}
+                trajectory={sparkValues}
+                years={sparkYears}
                 trend={trend}
                 delta={delta}
               />
@@ -311,14 +317,10 @@ export function PerformanceTrajectory({
         </div>
       </section>
 
-      {/* 3. Classification history (table or timeline per panel) */}
+      {/* 3. Classification history (compact table, both panels — Fix 4). */}
       <section>
         <h5 className="mb-2 text-xs font-medium text-muted-foreground">Classification history</h5>
-        {historyLayout === "timeline" ? (
-          <HistoryTimeline periods={data.periods} />
-        ) : (
-          <HistoryTable periods={data.periods} />
-        )}
+        <HistoryTable periods={data.periods} />
       </section>
 
       {data.insights.length > 0 && (

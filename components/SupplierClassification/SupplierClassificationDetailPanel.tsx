@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PerformanceScoreCard } from "@/components/PerformanceScoreCard";
 import { PerformanceTrajectory } from "@/components/PerformanceTrajectory";
+import { PerformanceInactiveNote } from "@/components/PerformanceInactiveNote";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -61,6 +62,9 @@ export function SupplierClassificationDetailPanel({
     setEverExpanded(false);
   }
   const span = periodSpanLabel(startDate, endDate);
+  // Single-year selection (slices the sub-score sparklines); null in range mode.
+  const selectedYear =
+    startDate.slice(0, 4) === endDate.slice(0, 4) ? startDate.slice(0, 4) : null;
 
   useEffect(() => {
     if (!supplierId) return;
@@ -149,16 +153,23 @@ export function SupplierClassificationDetailPanel({
               </div>
               {perfOpen && (
                 <div className="mt-4 border-t pt-3">
-                  {s.performance.score == null ? (
-                    <p className="text-xs text-muted-foreground">No data for this period.</p>
-                  ) : evo?.err ? (
+                  {evo?.err ? (
                     <p className="text-sm text-destructive">{evo.err}</p>
-                  ) : evoData ? (
-                    <PerformanceTrajectory data={evoData} historyLayout="timeline" />
-                  ) : (
+                  ) : !evoData ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" /> Loading trajectory…
                     </div>
+                  ) : evoData.periods.some((p) => p.spend > 0 || p.invoiceCount > 0) ? (
+                    // Has historical activity → show the trajectory (Fix 5: even
+                    // when inactive THIS period, with a contextual note).
+                    <>
+                      {s.performance.score == null && (
+                        <PerformanceInactiveNote periodLabel={span.short} periods={evoData.periods} />
+                      )}
+                      <PerformanceTrajectory data={evoData} selectedYear={selectedYear} />
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No data for this period.</p>
                   )}
                 </div>
               )}
