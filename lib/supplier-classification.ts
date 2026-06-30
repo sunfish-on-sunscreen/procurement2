@@ -19,6 +19,8 @@ export type SynthesisMeta = {
   below: boolean;
   /** Short descriptor of what the bucket means. */
   blurb: string;
+  /** One-line recommended action shown on the cross-classification card. */
+  action: string;
   /** Tailwind theme classes (border + tint + text) for the card. */
   theme: { border: string; tint: string; text: string };
 };
@@ -37,6 +39,7 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     quadrant: "Strategic",
     below: true,
     blurb: "high-spend, hard-to-replace suppliers performing below the median — the highest-priority engagement targets.",
+    action: "Prioritize engagement & risk mitigation.",
     theme: {
       border: "border-l-red-500",
       tint: "bg-red-500/5",
@@ -49,6 +52,7 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     quadrant: "Bottleneck",
     below: true,
     blurb: "low-spend but hard-to-replace suppliers underperforming — small dollars, outsized supply risk.",
+    action: "Secure supply or qualify alternates.",
     theme: {
       border: "border-l-amber-500",
       tint: "bg-amber-500/5",
@@ -61,6 +65,7 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     quadrant: "Leverage",
     below: false,
     blurb: "high-spend, competitive-category suppliers performing above the median — dependable volume to consolidate around.",
+    action: "Consolidate volume to negotiate.",
     theme: {
       border: "border-l-green-500",
       tint: "bg-green-500/5",
@@ -73,6 +78,7 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     quadrant: "Routine",
     below: true,
     blurb: "low-spend, low-risk suppliers underperforming — candidates to rationalize or move to catalog buys.",
+    action: "Rationalize or move to catalog buys.",
     theme: {
       border: "border-l-blue-500",
       tint: "bg-blue-500/5",

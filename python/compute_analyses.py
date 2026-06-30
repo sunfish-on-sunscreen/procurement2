@@ -459,7 +459,7 @@ def cycle_time_analysis(
     # --- per-Kraljic-quadrant descriptives (single population) ---------- #
     quad_map = {}
     if suppliers is not None and metrics is not None and len(suppliers):
-        risk_map, _c = compute_supply_risk(suppliers, metrics)
+        risk_map, _c, _components = compute_supply_risk(p, suppliers, metrics)
         spend_raw = p.groupby("supplierExternalId")["totalValueUsd"].sum()
         log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
         krj_sids = [s for s in log_spend_map if s in risk_map]
@@ -518,7 +518,7 @@ def performance_spend_analysis(purchases, suppliers, metrics):
     log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
 
     # Period-accurate Kraljic quadrant (mirrors kraljic_analysis's setup).
-    risk_map, _comp = compute_supply_risk(suppliers, metrics)
+    risk_map, _comp, _components = compute_supply_risk(purchases, suppliers, metrics)
     krj_sids = [s for s in log_spend_map if s in risk_map]
     quad_map, _sm, _rm = assign_kraljic_quadrants(
         {s: log_spend_map[s] for s in krj_sids},
@@ -673,67 +673,140 @@ ANALYSES = [
 # d) Kraljic matrix  (supply-risk score + quadrant assignment)
 # --------------------------------------------------------------------------- #
 # ASEAN ISO alpha-2 codes (data stores codes, not names).
-ASEAN_CODES = {"SG", "MY", "TH", "VN", "PH", "BN", "MM", "LA", "KH"}
-ASEAN_NAMES = {
-    "Singapore", "Malaysia", "Thailand", "Vietnam", "Philippines",
-    "Brunei", "Myanmar", "Laos", "Cambodia",
-}
+# Import-friction tiers reflect Indonesia's TRADE-AGREEMENT coverage (AFTA, RCEP)
+# — i.e. how easy/cheap it is to import from that origin — NOT geographic distance.
+AFTA_CODES = {"MY", "SG", "TH", "VN", "PH", "BN", "MM", "LA", "KH"}  # ASEAN free-trade area
+RCEP_NON_ASEAN = {"JP", "KR", "CN", "AU", "NZ"}  # RCEP partners outside ASEAN
 
 
-def _country_distance_points(country):
-    c = str(country).strip()
-    if c in ("ID", "Indonesia"):
+def _import_friction_points(country):
+    """Import friction (0..25) by trade-agreement coverage. Complete + robust: any
+    unmapped / unknown / empty code falls through to the explicit safe default (25)
+    so this can never error or return None — it feeds the Kraljic supply-risk Y-axis.
+      ID                     -> 0   (domestic)
+      AFTA / ASEAN           -> 8
+      RCEP non-ASEAN         -> 16
+      everything else / unknown -> 25
+    """
+    c = str(country).strip().upper()
+    if c in ("ID", "IDN", "INDONESIA"):
         return 0.0
-    if c in ASEAN_CODES or c in ASEAN_NAMES:
-        return 10.0
-    return 20.0
+    if c in AFTA_CODES:
+        return 8.0
+    if c in RCEP_NON_ASEAN:
+        return 16.0
+    return 25.0
 
 
-def compute_supply_risk(suppliers, metrics):
-    """Return (risk_map, competition_map) over the given supplier set.
+def _cost_premium_points(purchases):
+    """Period-scoped cost premium (0..25) per supplier, from Purchase prices.
 
-    risk = single_source(0/30) + category_competition(0-30)
-         + country_distance(0/10/20) + switching_cost(0-20), clipped to [0,100].
+    For each item, the benchmark is the spend-weighted average unit price across
+    ALL suppliers selling it within the period (item_avg = sum(price*qty)/sum(qty)).
+    A supplier's premium on an item = its own spend-weighted avg unit price / item_avg
+    - 1, COUNTED only when that supplier x item has >= 2 POs (n=1 excluded as noise)
+    AND the item has >= 2 suppliers (single-source items have no benchmark -> neutral).
+    The supplier's overall premium is the spend-weighted average of its qualifying
+    item premiums (weight = the supplier's spend on each item); points =
+    clip(premium * 62.5, 0, 25) (+8% -> 5, +20% -> 12.5, +40%+ -> 25; at/below market
+    -> 0, never negative). Suppliers with no qualifying items -> 0 (returned absent).
+    """
+    if purchases is None or len(purchases) == 0:
+        return {}
+    p = purchases[["supplierExternalId", "itemDescription", "unitPriceUsd", "quantity"]].copy()
+    p["spend"] = p["unitPriceUsd"].astype(float) * p["quantity"].astype(float)
+    p["qty"] = p["quantity"].astype(float)
+
+    # supplier x item: total spend, qty, PO count, spend-weighted avg unit price.
+    g = (
+        p.groupby(["itemDescription", "supplierExternalId"])
+        .agg(spend=("spend", "sum"), qty=("qty", "sum"), po=("unitPriceUsd", "size"))
+        .reset_index()
+    )
+    g = g[g["qty"] > 0].copy()
+    g["avg_price"] = g["spend"] / g["qty"]
+
+    # item benchmark: spend-weighted avg unit price across all suppliers of the item.
+    item = (
+        g.groupby("itemDescription")
+        .agg(item_spend=("spend", "sum"), item_qty=("qty", "sum"), n_sup=("supplierExternalId", "nunique"))
+        .reset_index()
+    )
+    item = item[item["item_qty"] > 0].copy()
+    item["item_avg"] = item["item_spend"] / item["item_qty"]
+    g = g.merge(item[["itemDescription", "item_avg", "n_sup"]], on="itemDescription", how="inner")
+
+    g["premium"] = g["avg_price"] / g["item_avg"] - 1.0
+    # qualifying rows: supplier has >=2 POs of the item AND the item is benchmarkable.
+    qual = g[(g["po"] >= 2) & (g["n_sup"] >= 2)]
+
+    out = {}
+    for sid, grp in qual.groupby("supplierExternalId"):
+        wsum = float(grp["spend"].sum())
+        if wsum <= 0:
+            continue
+        prem = float((grp["premium"] * grp["spend"]).sum() / wsum)
+        out[sid] = float(np.clip(prem * 62.5, 0.0, 25.0))
+    return out
+
+
+def compute_supply_risk(purchases, suppliers, metrics):
+    """Return (risk_map, competition_map, components_map) over the supplier set.
+
+    risk = supply_concentration(0-50) + cost_premium(0-25)
+         + import_friction(0/8/16/25), clipped to [0,100].
+    `purchases` is the period/range-scoped Purchase frame — it drives the
+    period-scoped cost_premium benchmark. supply_concentration MERGES the former
+    single_source (a stored flag that contradicted the roster for ~91% of flagged
+    suppliers) and category_competition into ONE roster-derived component, so it
+    can never disagree with the actual supplier set. `metrics` is no longer read
+    here (the singleSourceRisk flag is dropped from supply risk; its use in the
+    performance composite's risk_score is separate and unchanged).
     """
     sup = suppliers.rename(columns={"externalId": "supplierExternalId"}).drop_duplicates(
         "supplierExternalId"
     )
     df = sup[["supplierExternalId", "category", "country"]].copy()
 
-    # category competition: OTHER suppliers in the same category (this supplier set)
+    # OTHER suppliers in the same category (this period-scoped supplier set).
     cat_size = df.groupby("category")["supplierExternalId"].transform("size")
     df["other_in_category"] = (cat_size - 1).astype(int)
 
-    m = (
-        metrics[["supplierExternalId", "singleSourceRisk", "avgLeadTimeDays"]]
-        .drop_duplicates("supplierExternalId")
-        if len(metrics)
-        else pd.DataFrame(
-            columns=["supplierExternalId", "singleSourceRisk", "avgLeadTimeDays"]
-        )
-    )
-    df = df.merge(m, on="supplierExternalId", how="left")
+    # 1. supply concentration (0-50): step curve on the # of category alternatives,
+    #    merging single-source status + competition into one roster-derived measure.
+    #    0 other (true single source) -> 50, 1 -> 35, 2 -> 22, 3 -> 12, 4 -> 5, >=5 -> 0.
+    _CONC = {0: 50.0, 1: 35.0, 2: 22.0, 3: 12.0, 4: 5.0}
+    c_conc = df["other_in_category"].map(lambda o: _CONC.get(int(o), 0.0)).astype(float)
+    # 2. cost premium (0-25): period-scoped, benchmarked vs item spend-weighted avg.
+    prem_map = _cost_premium_points(purchases)
+    c_premium = df["supplierExternalId"].map(prem_map).fillna(0.0).astype(float)
+    # 3. import friction (0/8/16/25): Indonesia trade-agreement coverage.
+    c_friction = df["country"].apply(_import_friction_points).astype(float)
 
-    # 1. single source (0 or 30)
-    c_single = np.where(df["singleSourceRisk"].fillna(0).astype(float) >= 1, 30.0, 0.0)
-    # 2. category competition (0-30): (5 - other) * 7.5, clipped
-    c_category = ((5 - df["other_in_category"]) * 7.5).clip(0, 30).astype(float)
-    # 3. country distance (0/10/20)
-    c_country = df["country"].apply(_country_distance_points).astype(float)
-    # 4. switching cost (0-20): min-max normalized lead time
-    lead = df["avgLeadTimeDays"].astype(float)
-    lead = lead.fillna(lead.mean())
-    lmin, lmax = float(lead.min()), float(lead.max())
-    lead_norm = (lead - lmin) / (lmax - lmin) if lmax > lmin else lead * 0.0
-    c_switch = lead_norm * 20.0
-
-    risk = np.clip(c_single + c_category.values + c_country.values + c_switch.values, 0, 100)
+    risk = np.clip(c_conc.values + c_premium.values + c_friction.values, 0, 100)
 
     risk_map = {sid: float(r) for sid, r in zip(df["supplierExternalId"], risk)}
     competition_map = {
         sid: int(o) for sid, o in zip(df["supplierExternalId"], df["other_in_category"])
     }
-    return risk_map, competition_map
+    # Per-supplier breakdown of the three risk components (raw, unrounded). The
+    # supply-risk score is exactly their sum — the clip above is a no-op since the
+    # components max at 50 + 25 + 25 = 100 — so a 2dp display total reconciles with
+    # the 2dp component bars (see kraljic_analysis's emit).
+    components_map = {
+        sid: {
+            "supply_concentration": float(cc),
+            "cost_premium": float(cp),
+            "import_friction": float(cf),
+        }
+        for sid, cc, cp, cf in zip(
+            df["supplierExternalId"],
+            c_conc.values,
+            c_premium.values,
+            c_friction.values,
+        )
+    }
+    return risk_map, competition_map, components_map
 
 
 def assign_kraljic_quadrants(spend_map, risk_map):
@@ -762,7 +835,7 @@ def kraljic_analysis(purchases, suppliers, metrics):
     total_spend_map = {sid: float(v) for sid, v in spend_raw.items()}
     spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
 
-    risk_map, comp_map = compute_supply_risk(suppliers, metrics)
+    risk_map, comp_map, components_map = compute_supply_risk(purchases, suppliers, metrics)
 
     # Only suppliers with both spend (purchases) and a computed risk.
     sids = [s for s in spend_map if s in risk_map]
@@ -795,17 +868,34 @@ def kraljic_analysis(purchases, suppliers, metrics):
             return float(v) if pd.notna(v) else None
         return None
 
-    quadrant_assignments = [
-        {
-            "supplier_id": s,
-            "supplier_name": name_of(s),
-            "tier": tier_of(s),
-            "log_spend": num(spend_map[s]),
-            "supply_risk_score": num(risk_map[s]),
-            "quadrant": quad_map[s],
+    def risk_breakdown(s):
+        """4 components + their 2dp sum. The total IS the sum of the rounded
+        components, so the detail panel's Supply-risk breakdown bars reconcile
+        exactly with the supply_risk_score plotted on the scatter (no drift)."""
+        c = components_map.get(s, {})
+        cc = round(float(c.get("supply_concentration", 0.0)), 2)
+        cp = round(float(c.get("cost_premium", 0.0)), 2)
+        cf = round(float(c.get("import_friction", 0.0)), 2)
+        return round(cc + cp + cf, 2), {
+            "supply_concentration": cc,
+            "cost_premium": cp,
+            "import_friction": cf,
         }
-        for s in sids
-    ]
+
+    quadrant_assignments = []
+    for s in sids:
+        risk_total, risk_components = risk_breakdown(s)
+        quadrant_assignments.append(
+            {
+                "supplier_id": s,
+                "supplier_name": name_of(s),
+                "tier": tier_of(s),
+                "log_spend": num(spend_map[s]),
+                "supply_risk_score": risk_total,
+                "risk_components": risk_components,
+                "quadrant": quad_map[s],
+            }
+        )
 
     grand_total = sum(total_spend_map[s] for s in sids) or 1.0
     quadrant_profiles = []
@@ -855,7 +945,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
     max_log = max(log_spend_map.values()) if log_spend_map else 1.0
 
-    risk_map, comp_map = compute_supply_risk(suppliers, metrics)
+    risk_map, comp_map, _components = compute_supply_risk(purchases, suppliers, metrics)
     krj_sids = [s for s in log_spend_map if s in risk_map]
     if krj_sids:
         quad_map, _sm, _rm = assign_kraljic_quadrants(

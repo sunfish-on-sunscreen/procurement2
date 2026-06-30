@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import type { ClassificationPageData } from "@/lib/supplier-classification-types";
-import type { SynthesisKey } from "@/lib/supplier-classification-types";
+import type { ClassificationPageData, SynthesisKey } from "@/lib/supplier-classification-types";
 import { computeSynthesis, SYNTHESIS_META } from "@/lib/supplier-classification";
 import { ClassificationInsightsPanel } from "./ClassificationInsightsPanel";
 import { CrossClassificationCard } from "./CrossClassificationCard";
@@ -35,7 +34,7 @@ export function SupplierClassificationClient({
   const tableRef = useRef<HTMLDivElement>(null);
 
   // Apply the cross-classification filter, then scroll the (now-filtered) table
-  // into view with a small offset so it isn't flush to the viewport top (Fix 2).
+  // into view with a small offset so it isn't flush to the viewport top.
   const handleSynthesisSelect = (key: SynthesisKey | null) => {
     setActiveSynthesis(key);
     if (key === null) return;
@@ -110,12 +109,15 @@ export function SupplierClassificationClient({
         kraljic={data.kraljic}
         perf={data.performance_spend}
         abc={data.abc}
+        previous={data.previous}
         periodLabel={periodLabel}
         isRangeMode={isRangeMode}
       />
 
       <CrossClassificationCard
         perf={data.performance_spend}
+        selectedSupplierId={selectedSupplierId}
+        onSupplierClick={setSelectedSupplierId}
         activeKey={activeSynthesis}
         onSelect={handleSynthesisSelect}
       />
@@ -136,7 +138,10 @@ export function SupplierClassificationClient({
         supplierId={selectedSupplierId}
         startDate={startDate}
         endDate={endDate}
+        kraljic={data.kraljic}
+        perf={data.performance_spend}
         onClose={() => setSelectedSupplierId(null)}
+        onSupplierClick={setSelectedSupplierId}
       />
     </>
   );

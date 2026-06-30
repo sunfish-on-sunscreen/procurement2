@@ -10,8 +10,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { SupplierEvolution } from "@/lib/spend-overview-types";
-import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
-import { formatCompactCurrency } from "@/lib/utils";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { usePortalTooltip, PortalTooltip } from "@/components/charts/PortalTooltip";
 
@@ -24,12 +23,11 @@ const SUBS: { key: SubKey; label: string; weight: number }[] = [
   { key: "risk", label: "Risk", weight: 15 },
 ];
 
+const upCls = "text-green-600 dark:text-green-500";
+const downCls = "text-red-600 dark:text-red-500";
+
 const trendCls = (t: "up" | "down" | "flat") =>
-  t === "up"
-    ? "text-green-600 dark:text-green-500"
-    : t === "down"
-      ? "text-red-600 dark:text-red-500"
-      : "text-muted-foreground";
+  t === "up" ? upCls : t === "down" ? downCls : "text-muted-foreground";
 
 // Tiny inline-SVG sparkline (line + dots), inherits `currentColor`. Preserves
 // period gaps on the x-axis; renders a single dot for one point, nothing for 0.
@@ -182,81 +180,98 @@ function PerfTooltip({
   );
 }
 
-// Classification chip — color-mix tint + token text; null → muted "—".
-function Chip({ color, label }: { color: string | null; label: string }) {
-  if (!color) {
-    return <span className="text-muted-foreground">—</span>;
-  }
+function DeltaBadge({ delta }: { delta: number }) {
+  const r = Math.round(delta * 100) / 100;
+  const cls = r > 0 ? upCls : r < 0 ? downCls : "text-muted-foreground";
+  const Icon = r > 0 ? ArrowUp : r < 0 ? ArrowDown : Minus;
   return (
-    <span
-      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
-    >
-      {label}
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium tabular-nums ${cls}`}>
+      <Icon className="h-3 w-3" />
+      {r > 0 ? "+" : ""}
+      {r.toFixed(2)}
     </span>
   );
 }
 
-// Classification history as a table (Spend Overview panel default).
-function HistoryTable({ periods }: { periods: SupplierEvolution["periods"] }) {
+/**
+ * Composite performance over time. Reads cleanly for sparse data: 0–1 active
+ * years → a single value; 2 → a compact "before → after" with a delta badge;
+ * 3+ → a short line chart with the Y-axis tightened to the data range (with a
+ * little padding, clamped to [0,100]) so a near-flat series doesn't float in a
+ * full 0–100 axis.
+ */
+function CompositeTrajectory({ data }: { data: SupplierEvolution }) {
+  const pts = data.periods.filter(
+    (p): p is SupplierEvolution["periods"][number] & { performanceScore: number } =>
+      p.performanceScore != null,
+  );
+  if (pts.length === 0) {
+    return <p className="text-sm text-muted-foreground">No performance history available.</p>;
+  }
+  if (pts.length < 3) {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <span className="font-medium tabular-nums">{first.performanceScore.toFixed(2)}</span>
+        <span className="text-xs text-muted-foreground">{first.year}</span>
+        {pts.length === 2 && (
+          <>
+            <span className="text-muted-foreground">→</span>
+            <span className="font-medium tabular-nums">{last.performanceScore.toFixed(2)}</span>
+            <span className="text-xs text-muted-foreground">{last.year}</span>
+            <DeltaBadge delta={last.performanceScore - first.performanceScore} />
+          </>
+        )}
+        <span className="text-[11px] text-muted-foreground">
+          composite{pts.length === 1 ? " · single active year" : ""}
+        </span>
+      </div>
+    );
+  }
+  // 3+ active years → tight-domain line chart.
+  const vals = pts.map((p) => p.performanceScore);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = Math.max(2, (max - min) * 0.25);
+  const lo = Math.max(0, Math.floor(min - pad));
+  const hi = Math.min(100, Math.ceil(max + pad));
   return (
-    <div className="overflow-hidden rounded-md border">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b bg-muted/40 text-left text-muted-foreground">
-            <th className="px-2 py-1.5 font-medium">Year</th>
-            <th className="px-2 py-1.5 text-right font-medium">Performance</th>
-            <th className="px-2 py-1.5 font-medium">ABC</th>
-            <th className="px-2 py-1.5 font-medium">Kraljic</th>
-            <th className="px-2 py-1.5 text-right font-medium">Spend</th>
-          </tr>
-        </thead>
-        <tbody>
-          {periods.map((p) => {
-            const inactive = p.spend <= 0 && p.invoiceCount <= 0;
-            return (
-              <tr key={p.year} className={`border-b last:border-0 ${inactive ? "opacity-50" : ""}`}>
-                <td className="px-2 py-1.5 font-medium">{p.year}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">
-                  {p.performanceScore != null ? p.performanceScore.toFixed(2) : "—"}
-                </td>
-                <td className="px-2 py-1.5">
-                  <Chip color={p.abcClass ? ABC_COLORS[p.abcClass] : null} label={p.abcClass ?? "—"} />
-                </td>
-                <td className="px-2 py-1.5">
-                  <Chip color={p.kraljicQuadrant ? QUADRANT_COLORS[p.kraljicQuadrant] : null} label={p.kraljicQuadrant ?? "—"} />
-                </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">
-                  {inactive ? "—" : formatCompactCurrency(p.spend)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <ChartFrame height={130}>
+      <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+        <YAxis domain={[lo, hi]} tick={{ fontSize: 10 }} width={32} allowDecimals={false} />
+        <Tooltip content={<PerfTooltip />} />
+        <Line
+          type="monotone"
+          dataKey="performanceScore"
+          stroke={CHART_COLORS[1]}
+          strokeWidth={2}
+          dot={{ r: 3 }}
+          connectNulls
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ChartFrame>
   );
 }
 
 /**
- * The performance expand content, shared by both detail panels: a composite line
- * chart, per-sub-score trajectory cards (value + sparkline + weight bar + delta),
- * and a classification history (compact table). All derived from the supplier's
- * all-years evolution data. `selectedYear` period-scopes ONLY the sub-score
- * sparklines (Fix 1): single-year → points up to & including that year; null
- * (range) → all years. The value/delta and the composite chart stay all-years.
+ * "Score components" — the composite trajectory + the five per-sub-score cards
+ * (value + sparkline + weight bar + delta). Lives inside the detail panel's
+ * expandable Classification-insights card. `selectedYear` period-scopes ONLY the
+ * sub-score sparklines (Fix 1): single-year → points up to & including that year;
+ * null (range) → all years. The value/delta stay all-years.
  */
-export function PerformanceTrajectory({
+export function ScoreComponents({
   data,
   selectedYear = null,
 }: {
   data: SupplierEvolution;
   selectedYear?: string | null;
 }) {
-  const hasPerf = data.periods.some((p) => p.performanceScore != null);
   const years = data.periods.map((p) => p.year);
-  // Which periods feed the sparkline: all in range mode; up to & including the
-  // selected year in single-year mode.
   const sparkKeep = selectedYear
     ? data.periods.map((p) => p.year <= selectedYear)
     : data.periods.map(() => true);
@@ -265,25 +280,11 @@ export function PerformanceTrajectory({
     <div className="flex flex-col gap-5">
       <p className="text-[11px] text-muted-foreground">All years (not period-scoped).</p>
 
-      {/* 1. Composite performance line */}
-      {hasPerf ? (
-        <section>
-          <h5 className="mb-2 text-xs font-medium text-muted-foreground">Performance score</h5>
-          <ChartFrame height={180}>
-            <LineChart data={data.periods} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={32} />
-              <Tooltip content={<PerfTooltip />} />
-              <Line type="monotone" dataKey="performanceScore" stroke={CHART_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
-            </LineChart>
-          </ChartFrame>
-        </section>
-      ) : (
-        <p className="text-sm text-muted-foreground">No performance history available.</p>
-      )}
+      <section>
+        <h5 className="mb-2 text-xs font-medium text-muted-foreground">Composite trajectory</h5>
+        <CompositeTrajectory data={data} />
+      </section>
 
-      {/* 2. Sub-score trajectory cards */}
       <section>
         <h5 className="mb-2 text-xs font-medium text-muted-foreground">Score components</h5>
         {/* auto-fit: 5 cols when wide, gracefully 3/2 as the panel narrows (Y). */}
@@ -291,14 +292,12 @@ export function PerformanceTrajectory({
           {SUBS.map(({ key, label, weight }) => {
             const trajectory = data.periods.map((p) => p.subScores?.[key] ?? null);
             const active = trajectory.filter((v): v is number => v != null);
-            // value/delta/trend stay all-years (the card number is the latest).
             const value = active.length ? active[active.length - 1] : null;
             const first = active[0];
             const last = active[active.length - 1];
             const trend: "up" | "down" | "flat" =
               active.length >= 2 ? (last > first ? "up" : last < first ? "down" : "flat") : "flat";
             const delta = active.length >= 2 ? last - active[active.length - 2] : null;
-            // Period-scoped sparkline series (Fix 1).
             const sparkValues = trajectory.filter((_, i) => sparkKeep[i]);
             const sparkYears = years.filter((_, i) => sparkKeep[i]);
             return (
@@ -316,23 +315,6 @@ export function PerformanceTrajectory({
           })}
         </div>
       </section>
-
-      {/* 3. Classification history (compact table, both panels — Fix 4). */}
-      <section>
-        <h5 className="mb-2 text-xs font-medium text-muted-foreground">Classification history</h5>
-        <HistoryTable periods={data.periods} />
-      </section>
-
-      {data.insights.length > 0 && (
-        <section>
-          <h5 className="mb-1 text-xs font-medium text-muted-foreground">Insights</h5>
-          <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground">
-            {data.insights.map((t, i) => (
-              <li key={i}>{t}</li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }

@@ -151,11 +151,50 @@ export default async function MethodologyPage() {
                 volume, measured as <code>log_spend</code>.
               </li>
               <li>
-                <strong>Supply Risk</strong> (Y-axis) — a composite of
-                single-source status, category competition, country distance, and
-                switching cost (lead-time proxy).
+                <strong>Supply Risk</strong> (Y-axis) — a 0–100 composite of three
+                capped components (defined below), summed and clipped to 100.
               </li>
             </ul>
+            <p className="font-medium text-foreground">Supply-risk components</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>Supply concentration</strong> (≤50) — a step curve on the
+                number of <em>other</em> suppliers in the same category within the
+                period: <code>0 → 50</code> (true single source), <code>1 → 35</code>,{" "}
+                <code>2 → 22</code>, <code>3 → 12</code>, <code>4 → 5</code>,{" "}
+                <code>≥5 → 0</code>. This <em>merges</em> the former single-source and
+                category-competition components into one measure derived purely from
+                the live roster — so it can never contradict the actual supplier set
+                (the prior stored single-source flag disagreed with the roster for
+                ~91% of flagged suppliers and double-counted with competition).
+              </li>
+              <li>
+                <strong>Cost premium</strong> (≤25) — <em>period-scoped</em>, from
+                purchase prices. For each item the benchmark is the spend-weighted
+                average unit price across <em>all</em> suppliers selling it in the
+                period. A supplier&apos;s item premium ={" "}
+                <code>supplier_avg_unit_price / item_avg − 1</code>, counted only
+                when that supplier×item has <strong>≥2 POs</strong> (n=1 excluded as
+                noise) and the item has ≥2 suppliers (single-source items have no
+                benchmark → neutral). The supplier&apos;s overall premium is the
+                spend-weighted average of its qualifying item premiums; points ={" "}
+                <code>clip(premium × 62.5, 0, 25)</code> — so +8% → 5, +20% → 12.5,
+                +40%+ → 25; at or below market → <code>0</code> (never negative).
+                Suppliers with no qualifying items score <code>0</code>.
+              </li>
+              <li>
+                <strong>Import friction</strong> (≤25) — reflects Indonesia&apos;s{" "}
+                <em>trade-agreement coverage</em> (AFTA, RCEP), i.e. how easy/cheap
+                an origin is to import from — <em>not</em> geographic distance:{" "}
+                <code>ID → 0</code> (domestic), <code>AFTA/ASEAN → 8</code>,{" "}
+                <code>RCEP non-ASEAN (JP, KR, CN, AU, NZ) → 16</code>, everything
+                else / unknown → <code>25</code> (explicit safe default).
+              </li>
+            </ul>
+            <p className="text-xs">
+              The dataset is synthetic but realistic — prices, origins, and
+              category structure mirror Indonesian mining-procurement patterns.
+            </p>
             <p>
               A <strong>median split</strong> on each axis divides the supplier
               set into four quadrants, each mapping to a distinct management

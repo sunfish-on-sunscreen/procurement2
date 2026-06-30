@@ -6,9 +6,9 @@ import type {
   AbcResult,
   KraljicQuadrant,
 } from "@/lib/analysis-types";
+import type { ClassificationPrevSummary } from "@/lib/supplier-classification-types";
 import { computeSynthesis } from "@/lib/supplier-classification";
 import { cardElevation } from "@/lib/utils";
-import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import {
   Card,
   CardContent,
@@ -31,6 +31,24 @@ function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
 
 const SEGMENTS: KraljicQuadrant[] = ["Strategic", "Leverage", "Bottleneck", "Routine"];
 
+/** "Strategic + Routine each ↓6, Leverage + Bottleneck each ↑4" from per-quadrant deltas. */
+function quadShiftPhrase(changed: { q: KraljicQuadrant; d: number }[]): string {
+  const groups = new Map<number, KraljicQuadrant[]>();
+  for (const { q, d } of changed) {
+    const arr = groups.get(d) ?? [];
+    arr.push(q);
+    groups.set(d, arr);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => Math.abs(b[0]) - Math.abs(a[0]))
+    .map(([d, qs]) => {
+      const arrow = d > 0 ? "↑" : "↓";
+      const each = qs.length > 1 ? " each" : "";
+      return `${qs.join(" + ")}${each} ${arrow}${Math.abs(d)}`;
+    })
+    .join(", ");
+}
+
 /** Mini KPI card — surface tint, sentence-case label, prominent tabular value. */
 function KpiCell({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -52,12 +70,14 @@ export function ClassificationInsightsPanel({
   kraljic,
   perf,
   abc,
+  previous,
   periodLabel,
   isRangeMode,
 }: {
   kraljic: KraljicResult | null;
   perf: PerformanceSpendResult;
   abc: AbcResult | null;
+  previous: ClassificationPrevSummary | null;
   periodLabel: string;
   isRangeMode: boolean;
 }) {
@@ -73,6 +93,40 @@ export function ClassificationInsightsPanel({
     kraljic?.quadrant_profiles.find((p) => p.quadrant === q)?.n_suppliers ?? 0;
 
   const strategicUnder = computeSynthesis(perf).strategic_under.length;
+
+  // Portfolio-level finding line (decision D). Single-year-with-prior → a YoY
+  // read (avg composite + quadrant shifts); range → a static distribution note.
+  let finding: React.ReactNode = null;
+  if (!isRangeMode && previous) {
+    const dir =
+      avgPerf > previous.avg_performance ? "up" : avgPerf < previous.avg_performance ? "down" : "flat";
+    const changed = SEGMENTS.map((q) => ({ q, d: countOf(q) - (previous.quadrant_counts[q] ?? 0) })).filter(
+      (x) => x.d !== 0,
+    );
+    const shift = quadShiftPhrase(changed);
+    finding = (
+      <>
+        Avg composite {dir}{" "}
+        <span className="font-semibold tabular-nums text-foreground">
+          {previous.avg_performance.toFixed(2)}
+        </span>{" "}
+        →{" "}
+        <span className="font-semibold tabular-nums text-foreground">{avgPerf.toFixed(2)}</span>
+        {shift ? <> — {shift}.</> : "."}
+      </>
+    );
+  } else if (total > 0) {
+    const largest = SEGMENTS.map((q) => ({ q, n: countOf(q) })).sort((a, b) => b.n - a.n)[0];
+    finding = (
+      <>
+        Across {phrase}, <span className="font-medium text-foreground">{largest.q}</span> is the
+        largest quadrant (
+        <span className="font-semibold tabular-nums text-foreground">{largest.n}</span>); portfolio
+        avg composite{" "}
+        <span className="font-semibold tabular-nums text-foreground">{avgPerf.toFixed(2)}</span>.
+      </>
+    );
+  }
 
   return (
     <Card className={cardElevation}>
@@ -99,19 +153,9 @@ export function ClassificationInsightsPanel({
           />
         </div>
 
-        {/* 2. Quadrant breakdown — one line, bold counts */}
-        {kraljic && (
-          <div className="text-sm text-muted-foreground">
-            Quadrant breakdown:{" "}
-            {SEGMENTS.map((q, i) => (
-              <span key={q}>
-                {i > 0 && <span className="text-muted-foreground/40"> · </span>}
-                <span className="font-semibold tabular-nums text-foreground">{countOf(q)}</span>{" "}
-                <span style={{ color: QUADRANT_COLORS[q] }}>{q}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Portfolio finding — one line (YoY single-year / static range). The
+            per-quadrant counts live in the quadrant summary table, not here. */}
+        {finding && <p className="text-sm text-muted-foreground">{finding}</p>}
 
         {/* 3. Callout — Strategic below median */}
         {strategicUnder > 0 ? (

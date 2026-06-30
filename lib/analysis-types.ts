@@ -153,12 +153,29 @@ export type LegacyHypothesisResult = {
 
 export type KraljicQuadrant = "Strategic" | "Leverage" | "Bottleneck" | "Routine";
 
+/**
+ * The three components of the Kraljic supply-risk score (each clipped to its own
+ * cap: supply_concentration ≤50, cost_premium ≤25, import_friction ≤25). They sum
+ * to `supply_risk_score` at 2dp — the Python emit defines the total AS the sum of
+ * these rounded components, so the detail-panel breakdown reconciles with the
+ * scatter point exactly. `supply_concentration` merges the former single_source +
+ * category_competition into one roster-derived measure.
+ */
+export interface RiskComponents {
+  supply_concentration: number;
+  cost_premium: number;
+  import_friction: number;
+}
+
 export interface QuadrantAssignment {
   supplier_id: string;
   supplier_name: string;
   tier: string;
   log_spend: number;
   supply_risk_score: number;
+  // Optional: pre-emit cached rows (before this batch) lack it — the breakdown
+  // tab guards on its presence. The range cache is cleared on this batch's run.
+  risk_components?: RiskComponents;
   quadrant: KraljicQuadrant;
 }
 

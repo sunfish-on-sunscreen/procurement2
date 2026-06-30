@@ -29,10 +29,23 @@ export type SynthesisKey =
   | "leverage_workhorse"
   | "routine_risk";
 
+/**
+ * Prior-period portfolio summary for the glance panel's YoY finding (single-year
+ * mode only). `null` in range mode or when there is no prior period / no cached
+ * analyses for it. Computed server-side from the immediately-earlier period's
+ * cached kraljic + performance analyses.
+ */
+export type ClassificationPrevSummary = {
+  periodLabel: string;
+  avg_performance: number;
+  quadrant_counts: Record<KraljicQuadrant, number>;
+};
+
 /** Combined page payload for a date span. */
 export type ClassificationPageData = {
   kraljic: KraljicResult | null;
   performance_spend: PerformanceSpendResult;
   abc: AbcResult | null;
   ranking: ClassificationRankingRow[];
+  previous: ClassificationPrevSummary | null;
 };

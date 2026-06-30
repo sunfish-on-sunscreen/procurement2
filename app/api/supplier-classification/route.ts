@@ -3,9 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { getRangeAnalyses } from "@/lib/range-analyses";
 import { getSupplierCategoryMap } from "@/lib/suppliers";
-import type { AbcResult } from "@/lib/analysis-types";
+import {
+  getAnalysisResult,
+  type AbcResult,
+  type KraljicResult,
+  type KraljicQuadrant,
+  type PerformanceSpendResult,
+} from "@/lib/analysis-types";
 import type {
   ClassificationPageData,
+  ClassificationPrevSummary,
   ClassificationRankingRow,
 } from "@/lib/supplier-classification-types";
 
@@ -84,11 +91,44 @@ export async function POST(request: Request) {
     })
     .sort((a, b) => b.total_spend - a.total_spend);
 
+  // Prior-period summary for the glance YoY finding (single-year mode only).
+  // The span matches a single reporting period iff its start/end equal that
+  // period's dates; otherwise it's a multi-period range and there is no YoY.
+  const periods = await prisma.reportingPeriod.findMany({
+    orderBy: { startDate: "asc" },
+    select: { id: true, name: true, startDate: true, endDate: true },
+  });
+  const toIso = (d: Date) => d.toISOString().slice(0, 10);
+  const selIdx = periods.findIndex(
+    (p) => toIso(p.startDate) === startDate && toIso(p.endDate) === endDate,
+  );
+  let previous: ClassificationPrevSummary | null = null;
+  if (selIdx > 0) {
+    const prior = periods[selIdx - 1];
+    const [pk, pp] = await Promise.all([
+      getAnalysisResult<KraljicResult>(prior.id, "kraljic"),
+      getAnalysisResult<PerformanceSpendResult>(prior.id, "performance_spend"),
+    ]);
+    if (pp && pp.suppliers.length > 0) {
+      const avg =
+        pp.suppliers.reduce((acc, x) => acc + x.performance_score, 0) / pp.suppliers.length;
+      const counts: Record<KraljicQuadrant, number> = {
+        Strategic: 0,
+        Leverage: 0,
+        Bottleneck: 0,
+        Routine: 0,
+      };
+      for (const qp of pk?.quadrant_profiles ?? []) counts[qp.quadrant] = qp.n_suppliers;
+      previous = { periodLabel: prior.name, avg_performance: avg, quadrant_counts: counts };
+    }
+  }
+
   const data: ClassificationPageData = {
     kraljic: analyses.kraljic ?? null,
     performance_spend: perf,
     abc,
     ranking,
+    previous,
   };
   return NextResponse.json(data);
 }
