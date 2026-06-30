@@ -106,7 +106,7 @@ export function ClassificationInsightsPanel({
     const shift = quadShiftPhrase(changed);
     finding = (
       <>
-        Avg composite {dir}{" "}
+        Avg performance {dir}{" "}
         <span className="font-semibold tabular-nums text-foreground">
           {previous.avg_performance.toFixed(2)}
         </span>{" "}
@@ -122,7 +122,7 @@ export function ClassificationInsightsPanel({
         Across {phrase}, <span className="font-medium text-foreground">{largest.q}</span> is the
         largest quadrant (
         <span className="font-semibold tabular-nums text-foreground">{largest.n}</span>); portfolio
-        avg composite{" "}
+        avg performance{" "}
         <span className="font-semibold tabular-nums text-foreground">{avgPerf.toFixed(2)}</span>.
       </>
     );
@@ -142,7 +142,7 @@ export function ClassificationInsightsPanel({
             sub={`active suppliers · ${phrase}`}
           />
           <KpiCell
-            label="Avg composite"
+            label="Avg performance"
             value={avgPerf.toFixed(2)}
             sub={`period median ${median.toFixed(2)}`}
           />

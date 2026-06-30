@@ -523,7 +523,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           : ""
       }`,
     methodology: () =>
-      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned composite score against spend. Cycle time is monitored on total procure-to-pay days, with Z-score outlier detection and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendation impact scores are normalized to 0–100 per category. Use the named actions directly; each maps to a specific supplier or process stage.`,
+      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned performance score against spend. Cycle time is monitored on total procure-to-pay days, with Z-score outlier detection and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendation impact scores are normalized to 0–100 per category. Use the named actions directly; each maps to a specific supplier or process stage.`,
   },
 
   // ---- ANALYTICAL: analyst. Data-heavy, statistical framing, caveats, methodology.
@@ -569,7 +569,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.stratPct + c.levPct,
       )} of spend here); the risk axis then separates the difficult-to-replace suppliers within each spend band. Boundaries are sample-relative and shift with the supplier set under analysis.`,
     performanceSpend: (c) =>
-      `Suppliers are placed in four zones by a median × median cross of total spend against the CIPS-aligned composite score (performance median ≈ ${c.perfMedian.toFixed(
+      `Suppliers are placed in four zones by a median × median cross of total spend against the CIPS-aligned performance score (performance median ≈ ${c.perfMedian.toFixed(
         1,
       )}). The result is ${c.starsN} Stars, ${c.criticalN} Critical Issues (${pct(
         c.criticalPct,
@@ -637,7 +637,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           : ""
       } Treat the ranking as a triage aid; the underlying reasoning strings carry the supporting evidence.`,
     methodology: (c) =>
-      `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (single-source, category competition, country distance, switching cost); performance-vs-spend via a median × median cross of spend against the composite score; cycle-time process-health monitoring on total procure-to-pay days (median/IQR distribution, trailing 3-month rolling trend, Z-score outliers at > 2σ) with an optional two-sided Mann-Whitney U comparison (α = 0.05) and rank-biserial effect size between two date windows (current comparison n_a = ${intl.format(
+      `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (single-source, category competition, country distance, switching cost); performance-vs-spend via a median × median cross of spend against the performance score; cycle-time process-health monitoring on total procure-to-pay days (median/IQR distribution, trailing 3-month rolling trend, Z-score outliers at > 2σ) with an optional two-sided Mann-Whitney U comparison (α = 0.05) and rank-biserial effect size between two date windows (current comparison n_a = ${intl.format(
         c.cmpNA,
       )}, n_b = ${intl.format(
         c.cmpNB,

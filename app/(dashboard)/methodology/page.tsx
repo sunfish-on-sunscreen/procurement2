@@ -382,8 +382,13 @@ export default async function MethodologyPage() {
 
           <section className="space-y-2">
             <h3 className="text-base font-semibold text-foreground">
-              4.2 Composite score
+              4.2 Performance score
             </h3>
+            <p>
+              The <strong>Performance score</strong> shown across the dashboard is a{" "}
+              <strong>composite</strong> of the five weighted sub-scores (quality 25%,
+              delivery 25%, process 20%, service 15%, risk 15%).
+            </p>
             <p className="rounded-md bg-muted/50 p-2 text-xs">
               <code>
                 composite = 0.25·quality + 0.25·delivery + 0.20·process + 0.15·service

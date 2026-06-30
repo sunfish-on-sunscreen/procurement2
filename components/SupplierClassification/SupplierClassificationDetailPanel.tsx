@@ -157,7 +157,7 @@ function PerfSummaryButton({
             {Math.abs(dRounded).toFixed(2)}
           </span>
         )}
-        <span className="text-[11px] text-muted-foreground">composite</span>
+        <span className="text-[11px] text-muted-foreground">performance</span>
       </div>
       <div className="mt-0.5 text-[11px] text-muted-foreground">{context}</div>
     </button>

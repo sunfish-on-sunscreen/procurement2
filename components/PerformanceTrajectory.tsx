@@ -224,7 +224,7 @@ function CompositeTrajectory({ data }: { data: SupplierEvolution }) {
           </>
         )}
         <span className="text-[11px] text-muted-foreground">
-          composite{pts.length === 1 ? " · single active year" : ""}
+          performance{pts.length === 1 ? " · single active year" : ""}
         </span>
       </div>
     );
@@ -281,7 +281,7 @@ export function ScoreComponents({
       <p className="text-[11px] text-muted-foreground">All years (not period-scoped).</p>
 
       <section>
-        <h5 className="mb-2 text-xs font-medium text-muted-foreground">Composite trajectory</h5>
+        <h5 className="mb-2 text-xs font-medium text-muted-foreground">Performance score</h5>
         <CompositeTrajectory data={data} />
       </section>
 
