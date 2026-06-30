@@ -5,16 +5,54 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 ## Current Work
 
-Phase 11F + Batch 6 (6a–6d: report editor sidebar, chart interactions,
-navigation/section polish, pills + presets) are fully shipped. **On top of that:
-Spend Overview redesign + polish + Supplier Evolution, and ABC merged into Spend
-Overview.** **Next: Phase 10 polish** (loading states, error boundaries, mobile
-responsive, README, smoke test) → **v1.0 tag**.
+> **Current state of record = `git log`.** This file holds DURABLE architecture +
+> decisions, NOT commit-by-commit progress. For "where are we", read the commits —
+> do not trust this section for the latest state. **HEAD as of last doc update:
+> `3d0757a`.**
 
-5 analytical pages live (ABC merged into Spend Overview): Spend Overview,
-Supplier Quadrant (Kraljic), Performance vs Spend, Cycle Time (process-health
-monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview`;
-`/abc-analysis` → `/spend-overview` (both redirects).
+4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
+Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
+Classification, Cycle Time (process-health monitoring), Action Dashboard
+(+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
+`/spend-overview` (both redirects).
+
+### Recent work (post-Batch-6, through `3d0757a`)
+- **Cycle Time modernization** (`478fc69`, `39c73b2`, `6da0708`, `ff46c9a`,
+  `48366b3`): data-driven "Cycle at a glance" panel replacing the generic intro;
+  3 anomaly action cards (Slow POs / Inconsistent suppliers / Stage anomalies) that
+  filter + smooth-scroll to the Anomalies table or supplier roster; per-supplier
+  drill-down panel with classification context; sort arrows, StatBlock density,
+  card elevation, styled header; theme-aware chart colours. Thresholds: **stage
+  anomaly = one stage > 60% of total cycle**; **inconsistent supplier = IQR > 1.5×
+  portfolio-median IQR (Tukey)**. Stage Decomposition + per-quadrant tables at 2dp.
+- **Detail-panel period-aware fixes** (`7009df1`): sub-score sparklines sliced to
+  the selected year (range = all years); zero-delta renders "stable" (not "0.00 vs
+  prev"); classification history is the compact TABLE on BOTH panels
+  (`HistoryTimeline` DELETED); inactive-but-has-history suppliers show the
+  trajectory + a `PerformanceInactiveNote` instead of "No data".
+- **Spend Overview detail-panel restructure** (`45b0812`, `788fcfc`): the
+  performance expand is REMOVED from this panel (performance depth lives on the
+  Classification panel); 4-card KPI grid (Total spend / Invoices / Avg invoice /
+  period composite, compact currency); "Spend insights" section (portfolio-rank +
+  YoY-change cards, green ↑ / red ↓); identity header = plain-text classification +
+  SVG `CountryFlag` (`components/CountryFlag.tsx`, `country-flag-icons`) after the
+  country code; "Activity period" + "Spend detail" tabs; Annual breakdown
+  deduplicated (classification arrows + perf chart dropped; spend-only insights).
+- **Supplier Classification page fixes** (`3d0757a`): Recharts scatter legends
+  `verticalAlign="top"` (no collision with the bottom axis label); quadrant + zone
+  tables Avg performance at 2dp; `routine_risk` synthesis card harmonized to blue
+  to match `--quadrant-routine`.
+
+### Next / parked
+- **Supplier Classification detail-panel parity** (next): port the rich Spend
+  Overview treatment onto it — identity-header parity (plain-text ABC/Kraljic +
+  `CountryFlag`), classification-specific insight cards, and the 4-card KPI grid /
+  "Spend insights" / "Activity period" formatting. Data is already in scope (the
+  panel fetches the same `spend-detail` + `evolution`), so it is a pure
+  presentation port — no API/data change.
+- **Action Dashboard period-awareness** — separate batch; do not retrofit ad-hoc.
+- **Phase 10 polish → v1.0**: loading states, error boundaries, mobile responsive,
+  README, smoke test.
 
 ### Spend Overview redesign + polish + Supplier Evolution + ABC merge
 - **`/` and `/abc-analysis` both redirect to `/spend-overview`** (renamed from
@@ -402,6 +440,12 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
 - **Kraljic quadrants** = median split on `log_spend` × `supply_risk_score` (Strategic = hi/hi, Leverage = hi-spend/lo-risk, Bottleneck = lo-spend/hi-risk, Routine = lo/lo).
 - **Performance score** = `SupplierMetric.compositeScore` (used as-is; not recomputed per range).
 - Per-period quadrant data lives in `AnalysisResult.kraljic`; `SupplierMetric.kraljicQuadrant` is a last-period-wins convenience snapshot (not period-accurate).
+- **Quadrant colours** (anti-drift — resolved from `app/globals.css`, light / dark):
+  Strategic `#ef4444` / `#f87171` (red), Leverage `#10b981` / `#34d399` (green),
+  Bottleneck `#f59e0b` / `#fbbf24` (amber), Routine `#3b82f6` / `#60a5fa` (blue).
+  ⚠️ The `routine_risk` synthesis card (`lib/supplier-classification.ts`, Tailwind
+  classes) matches `--quadrant-routine` (blue) as of `3d0757a` — the other 3
+  synthesis cards already echo their quadrant hues; keep all four aligned.
 
 ### Key files added in 11F
 - `scripts/transform_dataset.py` — one-off dataset transformer (tier rename + DQ fixes, seed 42).
@@ -479,8 +523,10 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
 ## Critical scope rules — DO NOT VIOLATE
 - ALL analyses use FIXED methodology — no parameter sliders
 - ABC thresholds FIXED at 80%/95%
-- Clustering k FIXED at 4
-- Hypothesis test FIXED to Mann-Whitney U
+- Hypothesis test FIXED to Mann-Whitney U (now within `cycle_time`'s `period_comparison`)
+- 2-decimal precision on ALL scores EVERYWHERE (composite, sub-scores, quadrant/zone table averages)
+- Theme-aware tokens only — NO hardcoded hex; tints via `color-mix()`
+- Period selector behavior preserved — period-scoped surfaces stay period-scoped across Range / 2024 / 2025 / 2026
 - Reporting periods are metadata; data is filterable but analyses don't change
 - Single organization (no multi-tenancy)
 - No signup flow — all accounts seeded
@@ -502,7 +548,7 @@ monitoring), Action Dashboard (+ Reports, Methodology). `/` → `/spend-overview
 4. Saves each sheet's rows to the corresponding Postgres table
 5. After successful insert, API spawns Python script via child_process
 6. Python reads data from Postgres, computes analyses
-7. Python writes AnalysisResult rows back to Postgres (4 rows: spend_overview, abc, clustering, hypothesis)
+7. Python writes AnalysisResult rows back to Postgres (6 types: spend_overview, abc, performance_spend, kraljic, recommendations, cycle_time)
 8. Frontend pages read AnalysisResult and display via Recharts
 
 ## Excel file schema
