@@ -16,16 +16,9 @@ import { buildSpendAxis, spendMoneyAndShare } from "@/lib/spend-axis";
 import { QUADRANT_COLORS, ZONE_COLORS } from "@/lib/chart-colors";
 import type {
   PerformanceSpendSupplier,
-  KraljicQuadrant,
   PerformanceZone,
 } from "@/lib/analysis-types";
 
-const QUADRANT_ORDER: KraljicQuadrant[] = [
-  "Strategic",
-  "Leverage",
-  "Bottleneck",
-  "Routine",
-];
 const ZONE_ORDER: PerformanceZone[] = [
   "Stars",
   "Critical Issues",
@@ -47,16 +40,17 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
     <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="font-medium">{d.supplier_name}</div>
       <div className="text-muted-foreground">{d.tier}</div>
+      <div className="mt-1">
+        <span className="text-muted-foreground">Zone: </span>
+        <span className="font-medium" style={{ color: ZONE_COLORS[d.zone] }}>{d.zone}</span>
+      </div>
+      <div className="text-muted-foreground">
+        Kraljic:{" "}
+        <span style={{ color: QUADRANT_COLORS[d.kraljic_quadrant] }}>{d.kraljic_quadrant}</span>
+      </div>
       <div className="mt-1 text-muted-foreground">
         Spend {spendMoneyAndShare(d.total_spend_usd, total)} &middot; Performance{" "}
         {d.performance_score.toFixed(1)}
-      </div>
-      <div className="mt-1">
-        <span style={{ color: ZONE_COLORS[d.zone] }}>{d.zone}</span>{" "}
-        <span className="text-muted-foreground">&middot;</span>{" "}
-        <span style={{ color: QUADRANT_COLORS[d.kraljic_quadrant] }}>
-          {d.kraljic_quadrant}
-        </span>
       </div>
     </div>
   );
@@ -65,24 +59,18 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
 export function PerformanceSpendScatter({
   suppliers,
   thresholds,
-  colorBy = "quadrant",
 }: {
   suppliers: PerformanceSpendSupplier[];
   thresholds: { spend_median: number; performance_median: number };
-  colorBy?: "zone" | "quadrant";
 }) {
-  const series =
-    colorBy === "quadrant"
-      ? QUADRANT_ORDER.map((q) => ({
-          key: q,
-          color: QUADRANT_COLORS[q],
-          data: suppliers.filter((s) => s.kraljic_quadrant === q),
-        }))
-      : ZONE_ORDER.map((z) => ({
-          key: z,
-          color: ZONE_COLORS[z],
-          data: suppliers.filter((s) => s.zone === z),
-        }));
+  // This chart owns its OWN colour system: dots coloured by Performance-vs-Spend
+  // ZONE (deliberately distinct from the Kraljic matrix's quadrant palette so the
+  // two scatters read apart). The Kraljic quadrant is a tooltip cross-ref only.
+  const series = ZONE_ORDER.map((z) => ({
+    key: z,
+    color: ZONE_COLORS[z],
+    data: suppliers.filter((s) => s.zone === z),
+  }));
   const present = series.filter((s) => s.data.length > 0);
 
   // VIZ-ONLY %-of-spend axis: positions stay at log_spend; only the labels change.
@@ -105,7 +93,7 @@ export function PerformanceSpendScatter({
           tickFormatter={axis.tickFormatter}
           tick={{ fontSize: 11 }}
           label={{
-            value: "% of total spend →",
+            value: "Profit impact (% of total spend) →",
             position: "insideBottom",
             offset: -12,
             fontSize: 12,

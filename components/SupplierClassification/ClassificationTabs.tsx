@@ -111,7 +111,6 @@ function PerformanceTab({ perf }: { perf: PerformanceSpendResult }) {
       <PerformanceSpendScatter
         suppliers={perf.suppliers}
         thresholds={perf.axis_thresholds}
-        colorBy="quadrant"
       />
       <Table>
         <TableHeader>
