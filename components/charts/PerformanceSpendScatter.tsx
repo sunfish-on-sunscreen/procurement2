@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { ChartFrame } from "./ChartFrame";
 import { PinnableDot } from "./PinnableDot";
+import { buildSpendAxis, spendMoneyAndShare } from "@/lib/spend-axis";
 import { QUADRANT_COLORS, ZONE_COLORS } from "@/lib/chart-colors";
 import type {
   PerformanceSpendSupplier,
@@ -32,20 +33,14 @@ const ZONE_ORDER: PerformanceZone[] = [
   "Long Tail",
 ];
 
-const usd = (n: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(n);
-
 type ScatterTooltipProps = {
   active?: boolean;
   payload?: Array<{ payload: PerformanceSpendSupplier }>;
+  // Injected by Recharts via cloneElement from the <Tooltip content> prop.
+  total?: number;
 };
 
-function ScatterTooltip({ active, payload }: ScatterTooltipProps) {
+function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
@@ -53,7 +48,7 @@ function ScatterTooltip({ active, payload }: ScatterTooltipProps) {
       <div className="font-medium">{d.supplier_name}</div>
       <div className="text-muted-foreground">{d.tier}</div>
       <div className="mt-1 text-muted-foreground">
-        Spend {usd(d.total_spend_usd)} &middot; Performance{" "}
+        Spend {spendMoneyAndShare(d.total_spend_usd, total)} &middot; Performance{" "}
         {d.performance_score.toFixed(1)}
       </div>
       <div className="mt-1">
@@ -90,6 +85,13 @@ export function PerformanceSpendScatter({
         }));
   const present = series.filter((s) => s.data.length > 0);
 
+  // VIZ-ONLY %-of-spend axis: positions stay at log_spend; only the labels change.
+  const total = suppliers.reduce((sum, s) => sum + s.total_spend_usd, 0);
+  const axis = buildSpendAxis(
+    suppliers.map((s) => s.log_spend),
+    total,
+  );
+
   return (
     <ChartFrame height={450}>
       <ScatterChart margin={{ left: 24, right: 24, top: 16, bottom: 28 }}>
@@ -98,10 +100,12 @@ export function PerformanceSpendScatter({
           type="number"
           dataKey="log_spend"
           name="Total Spend"
-          domain={["auto", "auto"]}
+          domain={axis.domain ?? ["auto", "auto"]}
+          ticks={axis.ticks}
+          tickFormatter={axis.tickFormatter}
           tick={{ fontSize: 11 }}
           label={{
-            value: "Total Spend (log USD) →",
+            value: "% of total spend →",
             position: "insideBottom",
             offset: -12,
             fontSize: 12,
@@ -123,7 +127,7 @@ export function PerformanceSpendScatter({
           }}
         />
         <Tooltip
-          content={<ScatterTooltip />}
+          content={<ScatterTooltip total={total} />}
           cursor={{ strokeDasharray: "3 3" }}
         />
         {/* Top-aligned so the legend labels don't collide with the bottom

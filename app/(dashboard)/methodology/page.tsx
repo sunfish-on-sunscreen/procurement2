@@ -147,8 +147,9 @@ export default async function MethodologyPage() {
             </p>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <strong>Profit Impact</strong> (X-axis) — the supplier&apos;s spend
-                volume, measured as <code>log_spend</code>.
+                <strong>Profit Impact</strong> (X-axis) — supplier share of total
+                spend (%), shown on a log scale so suppliers spread readably;
+                high/low split at the median.
               </li>
               <li>
                 <strong>Supply Risk</strong> (Y-axis) — a 0–100 composite of three
