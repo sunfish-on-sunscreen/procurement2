@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   BarChart,
@@ -15,9 +15,11 @@ import {
   CYCLE_STAGES,
   type CycleBreakdown,
   type CycleSupplierRow,
+  type CycleFlagKey,
+  type SupplierFlagState,
 } from "@/lib/cycle-time-types";
 import { CHART_COLORS, ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
-import { cardElevation } from "@/lib/utils";
+import { cardElevation, cn } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -37,22 +39,31 @@ import { ChartFrame } from "@/components/charts/ChartFrame";
 import { PerfBar, SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { CycleTimeSupplierDetailPanel } from "@/components/CycleTime/CycleTimeSupplierDetailPanel";
-import { CycleFilterBanner } from "@/components/CycleTime/CycleFilterBanner";
-
-/** Roster filter from the "Inconsistent suppliers" anomaly card. */
-export type RosterFilter = { iqrThreshold: number; label: string; onClear: () => void };
 
 const truncate = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
 
-// Slowest-stage colour family — reuse the shared chart palette so the stacked
-// category chart and the per-supplier slowest-stage tags stay consistent.
+// Stacked-category colour family (still used by the per-category chart).
 const STAGE_COLOR: Record<string, string> = {
   pr_to_po: CHART_COLORS[0],
   po_to_delivery: CHART_COLORS[1],
   delivery_to_invoice: CHART_COLORS[2],
   invoice_to_payment: CHART_COLORS[3],
 };
+
+// Supplier-flag identity — small colour dot + text label (never colour alone).
+const FLAG_META: Record<CycleFlagKey, { label: string; color: string }> = {
+  has_outlier: { label: "Outlier", color: "var(--warning)" },
+  inconsistent: { label: "Inconsistent", color: "var(--primary)" },
+  has_stage_dom: { label: "Stage-dom", color: "var(--destructive)" },
+};
+const FLAG_ORDER: CycleFlagKey[] = ["has_outlier", "inconsistent", "has_stage_dom"];
+
+const CHIPS: { key: CycleFlagKey; label: string }[] = [
+  { key: "has_outlier", label: "Has outlier POs" },
+  { key: "inconsistent", label: "Inconsistent" },
+  { key: "has_stage_dom", label: "Has stage-dominated POs" },
+];
 
 // Chip — color-mix tint + token text; null → muted "—".
 function Chip({ color, label }: { color: string | null; label: string | null }) {
@@ -64,6 +75,63 @@ function Chip({ color, label }: { color: string | null; label: string | null }) 
     >
       {label}
     </span>
+  );
+}
+
+/** Per-supplier flag pills (muted bg + colour dot + label), or "—" if none. */
+function FlagPills({ flags }: { flags?: SupplierFlagState }) {
+  const on = flags ? FLAG_ORDER.filter((k) => flags[k]) : [];
+  if (on.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {on.map((k) => (
+        <span
+          key={k}
+          className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: FLAG_META[k].color }} />
+          {FLAG_META[k].label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Filter chips above the roster ([All] + one per flag). Synced with the flag
+ * cards via the shared active-flag state owned by CycleTimeClient. */
+function FilterChips({
+  active,
+  counts,
+  onSelect,
+}: {
+  active: CycleFlagKey | null;
+  counts: Record<CycleFlagKey, number>;
+  onSelect: (k: CycleFlagKey | null) => void;
+}) {
+  const chip = (isActive: boolean) =>
+    cn(
+      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+      isActive
+        ? "border-foreground/30 bg-foreground/10 text-foreground"
+        : "bg-muted/30 text-muted-foreground hover:bg-muted/50",
+    );
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" onClick={() => onSelect(null)} aria-pressed={active === null} className={chip(active === null)}>
+        All
+      </button>
+      {CHIPS.map((c) => (
+        <button
+          key={c.key}
+          type="button"
+          onClick={() => onSelect(c.key)}
+          aria-pressed={active === c.key}
+          className={chip(active === c.key)}
+        >
+          {c.label} ({counts[c.key]})
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -124,16 +192,29 @@ function SortHead({
 
 function BySupplier({
   rows,
+  flagsBySupplier,
+  flagCounts,
+  activeFlag,
+  onSelectFlag,
   onSupplierClick,
   selectedSupplierId,
-  rosterFilter,
 }: {
   rows: CycleBreakdown["bySupplier"];
+  flagsBySupplier: Map<string, SupplierFlagState>;
+  flagCounts: Record<CycleFlagKey, number>;
+  activeFlag: CycleFlagKey | null;
+  onSelectFlag: (k: CycleFlagKey | null) => void;
   onSupplierClick: (id: string) => void;
   selectedSupplierId: string | null;
-  rosterFilter?: RosterFilter | null;
 }) {
-  const top = rows.slice(0, 15).map((r) => ({
+  // Single filter drives BOTH the chart and the table (fixes the prior split
+  // where the chart stayed unfiltered). `rows` arrives median-desc from the API,
+  // so the filtered slice stays "the slowest N among the flagged set".
+  const filteredRows = activeFlag
+    ? rows.filter((r) => flagsBySupplier.get(r.supplier_id)?.[activeFlag])
+    : rows;
+
+  const top = filteredRows.slice(0, 15).map((r) => ({
     name: truncate(r.supplier_name, 22),
     full: r.supplier_name,
     median: r.median_cycle,
@@ -142,18 +223,11 @@ function BySupplier({
   }));
 
   const { sorted, sort, toggle } = useTableSort<CycleSupplierRow, string>(
-    rows,
+    filteredRows,
     (r, k) => (r as unknown as Record<string, number | string | null>)[k],
     "median_cycle",
     "desc",
   );
-
-  // When the "Inconsistent suppliers" card is active, show only high-IQR
-  // suppliers, ordered by IQR descending (decision C). Otherwise the normal
-  // user-sortable view.
-  const view = rosterFilter
-    ? rows.filter((r) => r.iqr > rosterFilter.iqrThreshold).sort((a, b) => b.iqr - a.iqr)
-    : sorted;
 
   return (
     <Card id="cycle-roster" className={cardElevation}>
@@ -162,11 +236,20 @@ function BySupplier({
         <CardDescription>
           Median procure-to-pay days per supplier in the selected period. The 15
           slowest are charted; the full roster is in the table below. Click a row
-          for the per-supplier drill-down. Slow suppliers are the targets for
-          cycle-time improvement.
+          for the per-supplier drill-down. Use the flags to focus on suppliers with
+          outlier, inconsistent, or stage-dominated cycles.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-6">
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <FilterChips active={activeFlag} counts={flagCounts} onSelect={onSelectFlag} />
+          {activeFlag && (
+            <span className="text-xs text-muted-foreground">
+              Showing {filteredRows.length} of {rows.length} suppliers
+            </span>
+          )}
+        </div>
+
         {top.length > 0 ? (
           <ChartFrame height={Math.max(220, top.length * 26 + 24)}>
             <BarChart data={top} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
@@ -189,19 +272,11 @@ function BySupplier({
           </ChartFrame>
         ) : (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No supplier activity in this period.
+            {activeFlag ? "No suppliers match this flag." : "No supplier activity in this period."}
           </p>
         )}
 
-        {rosterFilter && (
-          <CycleFilterBanner
-            label={rosterFilter.label}
-            count={view.length}
-            onClear={rosterFilter.onClear}
-          />
-        )}
-
-        {rows.length > 0 && (
+        {filteredRows.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -212,11 +287,11 @@ function BySupplier({
                 <SortHead label="ABC" sortKey="abc_class" active={sort.key === "abc_class"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[64px]" />
                 <SortHead label="Exposure" sortKey="kraljic_quadrant" active={sort.key === "kraljic_quadrant"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[120px]" />
                 <SortHead label="Performance" sortKey="composite" active={sort.key === "composite"} dir={sort.dir} onSort={toggle} align="right" width="w-[140px]" />
-                <TableHead>Slowest stage</TableHead>
+                <TableHead className="w-[220px]">Flags</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {view.map((r) => (
+              {sorted.map((r) => (
                 <TableRow
                   key={r.supplier_id}
                   onClick={() => onSupplierClick(r.supplier_id)}
@@ -242,15 +317,7 @@ function BySupplier({
                     <PerfBar score={r.composite} />
                   </TableCell>
                   <TableCell>
-                    <span
-                      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                      style={{
-                        backgroundColor: `color-mix(in srgb, ${STAGE_COLOR[r.slowest_stage]} 12%, transparent)`,
-                        color: STAGE_COLOR[r.slowest_stage],
-                      }}
-                    >
-                      {r.slowest_stage_label} ({r.slowest_stage_pct}%)
-                    </span>
+                    <FlagPills flags={flagsBySupplier.get(r.supplier_id)} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -320,14 +387,20 @@ export function CycleSupplierSection({
   startDate,
   endDate,
   data: dataProp,
-  rosterFilter,
+  flagsBySupplier,
+  flagCounts,
+  activeFlag,
+  onSelectFlag,
 }: {
   startDate: string;
   endDate: string;
   // When the parent supplies breakdown data (CycleTimeClient), this component is
   // presentational and skips its own fetch. Omitted → it fetches (standalone).
   data?: CycleBreakdown;
-  rosterFilter?: RosterFilter | null;
+  flagsBySupplier: Map<string, SupplierFlagState>;
+  flagCounts: Record<CycleFlagKey, number>;
+  activeFlag: CycleFlagKey | null;
+  onSelectFlag: (k: CycleFlagKey | null) => void;
 }) {
   // Keyed state (no synchronous setState in the effect — matches the
   // SpendDecompositionPanel pattern the eslint config requires). The result is
@@ -371,6 +444,13 @@ export function CycleSupplierSection({
     };
   }, [startDate, endDate, dataProp]);
 
+  // Stage-dominated PO ids for the selected span → the drill-down cross-refs its
+  // own POs against this set (no API change).
+  const stageDominatedPoIds = useMemo(
+    () => new Set((current?.data?.stageAnomalies ?? []).map((a) => a.po_id)),
+    [current?.data],
+  );
+
   if (current?.err) {
     return <p className="text-sm text-destructive">{current.err}</p>;
   }
@@ -386,15 +466,19 @@ export function CycleSupplierSection({
     <>
       <BySupplier
         rows={current.data.bySupplier}
+        flagsBySupplier={flagsBySupplier}
+        flagCounts={flagCounts}
+        activeFlag={activeFlag}
+        onSelectFlag={onSelectFlag}
         onSupplierClick={setSelectedSupplierId}
         selectedSupplierId={selectedSupplierId}
-        rosterFilter={rosterFilter}
       />
       <ByCategory rows={current.data.byCategory} />
       <CycleTimeSupplierDetailPanel
         supplierId={selectedSupplierId}
         startDate={startDate}
         endDate={endDate}
+        stageDominatedPoIds={stageDominatedPoIds}
         onClose={() => setSelectedSupplierId(null)}
       />
     </>

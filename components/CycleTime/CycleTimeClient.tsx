@@ -3,14 +3,11 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { CycleTimeResult, RangeAnalyses } from "@/lib/analysis-types";
-import type { CycleBreakdown, CycleFilterKey } from "@/lib/cycle-time-types";
+import type { CycleBreakdown, CycleFlagKey, SupplierFlagState } from "@/lib/cycle-time-types";
 import { CycleTimeGlancePanel } from "@/components/CycleTime/CycleTimeGlancePanel";
 import { CycleTimeAnomalyCards } from "@/components/CycleTime/CycleTimeAnomalyCards";
-import { CycleTimeView, type AnomalyFilter } from "@/components/CycleTimeView";
-import {
-  CycleSupplierSection,
-  type RosterFilter,
-} from "@/components/CycleTime/CycleSupplierSection";
+import { CycleTimeView } from "@/components/CycleTimeView";
+import { CycleSupplierSection } from "@/components/CycleTime/CycleSupplierSection";
 
 const median = (xs: number[]) => {
   if (xs.length === 0) return 0;
@@ -48,13 +45,13 @@ export function CycleTimeClient({
   const key = `${startDate}_${endDate}`;
   const [ctState, setCtState] = useState<{ key: string; data?: CycleTimeResult; err?: string } | null>(null);
   const [bdState, setBdState] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
-  const [activeFilter, setActiveFilter] = useState<CycleFilterKey | null>(null);
+  const [activeFlag, setActiveFlag] = useState<CycleFlagKey | null>(null);
 
   // Reset the filter on span change (render-time compare; no set-state-in-effect).
   const [prevKey, setPrevKey] = useState(key);
   if (prevKey !== key) {
     setPrevKey(key);
-    if (activeFilter !== null) setActiveFilter(null);
+    if (activeFlag !== null) setActiveFlag(null);
   }
 
   const cycleTime = cachedCycleTime ?? (ctState?.key === key ? ctState.data : undefined);
@@ -110,43 +107,53 @@ export function CycleTimeClient({
     );
   }
 
-  // ---- Anomaly counts + filter wiring (breakdown-dependent) --------------- #
-  const slowPos = cycleTime.anomalies.length;
-  const iqrMedian = breakdown ? median(breakdown.bySupplier.map((r) => r.iqr)) : 0;
-  // "Inconsistent" = IQR beyond 1.5× the portfolio median (Tukey 1.5×IQR
-  // convention), so only genuinely high-variability suppliers are flagged
-  // rather than the ~half that sit above the bare median.
-  const iqrCutoff = iqrMedian * 1.5;
-  const highIqr = breakdown ? breakdown.bySupplier.filter((r) => r.iqr > iqrCutoff).length : 0;
+  // ---- Supplier-level flag derivation (breakdown-dependent) --------------- #
+  // Every flag is derived CLIENT-SIDE from already-fetched data; the same
+  // flagsBySupplier map drives the cards, the roster chips/column, and the roster
+  // filter, so a card's count always equals the number of rows its filter shows.
+  const roster = breakdown?.bySupplier ?? [];
   const stageAnomalies = breakdown?.stageAnomalies ?? [];
+  // "Inconsistent" = IQR beyond 1.5× the portfolio median (Tukey 1.5×IQR
+  // convention), so only genuinely high-variability suppliers are flagged.
+  const iqrMedian = roster.length ? median(roster.map((r) => r.iqr)) : 0;
+  const iqrCutoff = iqrMedian * 1.5;
+  const outlierSup = new Set(cycleTime.anomalies.map((a) => a.supplier_id));
+  const stageDomSup = new Set(stageAnomalies.map((a) => a.supplier_id));
 
-  const clear = () => setActiveFilter(null);
+  const flagsBySupplier = new Map<string, SupplierFlagState>();
+  for (const r of roster) {
+    flagsBySupplier.set(r.supplier_id, {
+      has_outlier: outlierSup.has(r.supplier_id),
+      inconsistent: r.iqr > iqrCutoff,
+      has_stage_dom: stageDomSup.has(r.supplier_id),
+    });
+  }
+  const flagCounts: Record<CycleFlagKey, number> = { has_outlier: 0, inconsistent: 0, has_stage_dom: 0 };
+  for (const f of flagsBySupplier.values()) {
+    if (f.has_outlier) flagCounts.has_outlier++;
+    if (f.inconsistent) flagCounts.inconsistent++;
+    if (f.has_stage_dom) flagCounts.has_stage_dom++;
+  }
+  const flagPoCounts: Partial<Record<CycleFlagKey, number>> = {
+    has_outlier: cycleTime.anomalies.length,
+    has_stage_dom: stageAnomalies.length,
+  };
 
-  const anomalyFilter: AnomalyFilter | null =
-    activeFilter === "slow_pos"
-      ? { rows: cycleTime.anomalies, label: "Outlier POs (z > 2σ)", onClear: clear }
-      : activeFilter === "stage_anomaly"
-        ? { rows: stageAnomalies, label: "Stage-dominated POs (one stage > 60% of cycle)", onClear: clear }
-        : null;
-
-  const rosterFilter: RosterFilter | null =
-    activeFilter === "high_iqr"
-      ? { iqrThreshold: iqrCutoff, label: `Inconsistent suppliers (IQR > ${iqrCutoff.toFixed(1)}d)`, onClear: clear }
-      : null;
-
-  const handleSelect = (k: CycleFilterKey) => {
-    const next = activeFilter === k ? null : k;
-    setActiveFilter(next);
-    if (next) {
-      const id = next === "high_iqr" ? "cycle-roster" : "cycle-anomalies";
+  // Single active flag drives cards + chips (shared state). Cards scroll to the
+  // roster; chips (already at the roster) don't. Clicking the active one clears.
+  const setFlag = (k: CycleFlagKey | null, opts?: { scroll?: boolean }) => {
+    const next = k === null ? null : activeFlag === k ? null : k;
+    setActiveFlag(next);
+    if (next && opts?.scroll) {
       requestAnimationFrame(() => {
-        const el = document.getElementById(id);
+        const el = document.getElementById("cycle-roster");
         if (!el) return;
-        const y = el.getBoundingClientRect().top + window.scrollY - 80;
-        window.scrollTo({ top: y, behavior: "smooth" });
+        window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 80, behavior: "smooth" });
       });
     }
   };
+  const handleCardSelect = (k: CycleFlagKey) => setFlag(k, { scroll: true });
+  const handleChipSelect = (k: CycleFlagKey | null) => setFlag(k);
 
   return (
     <div className="flex flex-col gap-6">
@@ -165,9 +172,10 @@ export function CycleTimeClient({
         <p className="text-sm text-destructive">Couldn&apos;t load anomaly breakdown: {breakdownErr}</p>
       ) : breakdown ? (
         <CycleTimeAnomalyCards
-          counts={{ slow_pos: slowPos, high_iqr: highIqr, stage_anomaly: stageAnomalies.length }}
-          activeFilter={activeFilter}
-          onSelect={handleSelect}
+          counts={flagCounts}
+          poCounts={flagPoCounts}
+          activeFlag={activeFlag}
+          onSelect={handleCardSelect}
         />
       ) : (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -175,7 +183,7 @@ export function CycleTimeClient({
         </div>
       )}
 
-      <CycleTimeView data={cycleTime} anomalyFilter={anomalyFilter} />
+      <CycleTimeView data={cycleTime} showAnomaliesTable={false} />
 
       {/* Supplier roster — gated on the breakdown (non-fatal). */}
       {breakdownErr ? (
@@ -185,7 +193,10 @@ export function CycleTimeClient({
           startDate={startDate}
           endDate={endDate}
           data={breakdown}
-          rosterFilter={rosterFilter}
+          flagsBySupplier={flagsBySupplier}
+          flagCounts={flagCounts}
+          activeFlag={activeFlag}
+          onSelectFlag={handleChipSelect}
         />
       ) : (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

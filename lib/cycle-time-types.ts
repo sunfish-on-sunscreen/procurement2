@@ -13,8 +13,11 @@ export const CYCLE_STAGES = [
 
 export type CycleStageKey = (typeof CYCLE_STAGES)[number]["key"];
 
-/** Anomaly-action-card filter keys (Cycle Time "at a glance" batch). */
-export type CycleFilterKey = "slow_pos" | "high_iqr" | "stage_anomaly";
+/** Supplier-level anomaly flags. Each flag filters the single Cycle Time roster;
+ * membership is derived CLIENT-SIDE from already-fetched data (cycleTime.anomalies,
+ * breakdown.stageAnomalies, roster IQR) — presentation only, no new compute. */
+export type CycleFlagKey = "has_outlier" | "inconsistent" | "has_stage_dom";
+export type SupplierFlagState = Record<CycleFlagKey, boolean>;
 
 export type AbcClass = "A" | "B" | "C";
 

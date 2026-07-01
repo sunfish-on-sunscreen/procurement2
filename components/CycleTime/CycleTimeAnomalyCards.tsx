@@ -1,68 +1,63 @@
 "use client";
 
-import { Timer, Activity, TriangleAlert } from "lucide-react";
-import type { CycleFilterKey } from "@/lib/cycle-time-types";
+import { Timer, Activity, Layers } from "lucide-react";
+import type { CycleFlagKey } from "@/lib/cycle-time-types";
 import { cardElevation, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type CardMeta = {
-  key: CycleFilterKey;
+  key: CycleFlagKey;
   title: string;
-  color: string; // semantic CSS token
-  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  desc: string;
-  cta: string;
+  color: string; // semantic CSS token — used only as a small dot accent
+  icon: React.ComponentType<{ className?: string }>;
 };
 
-// Theme-aware semantic tokens (warning / info / destructive) — light + dark
-// safe; tints via color-mix so the cards adapt in dark mode.
+// Muted/neutral cards: identity carried by icon + label + a small colour dot
+// (never colour alone). Colour is a subtle accent, not a loud warn/danger fill.
 const CARDS: CardMeta[] = [
-  {
-    key: "slow_pos",
-    title: "Outlier POs",
-    color: "var(--warning)",
-    icon: Timer,
-    desc: "POs significantly slower than the typical cycle (z > 2σ).",
-    cta: "View outlier POs",
-  },
-  {
-    key: "high_iqr",
-    title: "Inconsistent suppliers",
-    color: "var(--primary)",
-    icon: Activity,
-    desc: "Suppliers with significantly higher cycle time variability than the portfolio (IQR > 1.5× median).",
-    cta: "View suppliers",
-  },
-  {
-    key: "stage_anomaly",
-    title: "Stage-dominated POs",
-    color: "var(--destructive)",
-    icon: TriangleAlert,
-    desc: "POs where a single stage takes over 60% of the total cycle.",
-    cta: "View stage-dominated POs",
-  },
+  { key: "has_outlier", title: "Has outlier POs", color: "var(--warning)", icon: Timer },
+  { key: "inconsistent", title: "Inconsistent", color: "var(--primary)", icon: Activity },
+  { key: "has_stage_dom", title: "Has stage-dominated POs", color: "var(--destructive)", icon: Layers },
 ];
+
+const plural = (n: number) => (n === 1 ? "" : "s");
+
+/** Per-flag description — PO-level context beneath the distinct-supplier count. */
+function descFor(key: CycleFlagKey, poCounts: Partial<Record<CycleFlagKey, number>>): string {
+  if (key === "has_outlier") {
+    const p = poCounts.has_outlier ?? 0;
+    return `${p} outlier PO${plural(p)} · z > 2σ`;
+  }
+  if (key === "inconsistent") {
+    return "IQR > 1.5× the portfolio median";
+  }
+  const p = poCounts.has_stage_dom ?? 0;
+  return `${p} stage-dominated PO${plural(p)} · one stage > 60%`;
+}
 
 function AnomalyCard({
   meta,
   count,
+  desc,
   active,
   onSelect,
 }: {
   meta: CardMeta;
   count: number;
+  desc: string;
   active: boolean;
   onSelect: () => void;
 }) {
   const Icon = meta.icon;
-  // Empty bucket → muted, non-clickable.
+  // Empty flag → muted, non-clickable.
   if (count === 0) {
     return (
       <div
-        className="flex cursor-not-allowed flex-col gap-2 rounded-lg border border-l-4 border-l-muted-foreground/30 bg-muted/30 p-4 text-left opacity-50"
+        className="flex cursor-not-allowed flex-col gap-2 rounded-lg border bg-muted/20 p-4 text-left opacity-50"
         aria-disabled="true"
       >
         <div className="flex items-center gap-2">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-sm font-medium text-muted-foreground">{meta.title}</span>
           <span className="ml-auto text-lg font-semibold tabular-nums text-muted-foreground">0</span>
@@ -77,49 +72,47 @@ function AnomalyCard({
       onClick={onSelect}
       aria-pressed={active}
       className={cn(
-        "flex flex-col gap-2 rounded-lg border border-l-4 p-4 text-left transition-colors",
-        active ? "ring-2 ring-inset ring-foreground/30" : "hover:bg-muted/40",
+        "flex flex-col gap-2 rounded-lg border bg-muted/30 p-4 text-left transition-colors",
+        active ? "ring-2 ring-inset ring-foreground/40" : "hover:bg-muted/50",
       )}
-      style={{
-        borderLeftColor: meta.color,
-        backgroundColor: `color-mix(in srgb, ${meta.color} 6%, transparent)`,
-      }}
     >
       <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 shrink-0" style={{ color: meta.color }} />
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} />
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="text-sm font-medium">{meta.title}</span>
-        <span className="ml-auto text-lg font-semibold tabular-nums" style={{ color: meta.color }}>
-          {count}
-        </span>
+        <span className="ml-auto text-lg font-semibold tabular-nums">{count}</span>
       </div>
-      <p className="text-xs text-muted-foreground">{meta.desc}</p>
-      <span className="mt-auto pt-1 text-xs font-medium" style={{ color: meta.color }}>
-        {active ? "Showing ↓" : `${meta.cta} →`}
+      <p className="text-xs text-muted-foreground">{desc}</p>
+      <span className="mt-auto pt-1 text-xs font-medium text-muted-foreground">
+        {active ? "Filtering roster ↓" : "Filter roster →"}
       </span>
     </button>
   );
 }
 
 /**
- * Three anomaly action cards (mirrors Cross-classification insights): Outlier POs,
- * Inconsistent suppliers, Stage-dominated POs. Clicking a card filters + smooth-
- * scrolls to the relevant table (handled by the parent CycleTimeClient).
+ * Three supplier-level anomaly flags. Each card's number is a DISTINCT-SUPPLIER
+ * count; the PO-level count sits in the description. Clicking a card sets the
+ * single active roster filter (shared with the roster's filter chips), so the
+ * card + chip stay in sync. Clicking the active card again clears it.
  */
 export function CycleTimeAnomalyCards({
   counts,
-  activeFilter,
+  poCounts,
+  activeFlag,
   onSelect,
 }: {
-  counts: Record<CycleFilterKey, number>;
-  activeFilter: CycleFilterKey | null;
-  onSelect: (key: CycleFilterKey) => void;
+  counts: Record<CycleFlagKey, number>;
+  poCounts: Partial<Record<CycleFlagKey, number>>;
+  activeFlag: CycleFlagKey | null;
+  onSelect: (key: CycleFlagKey) => void;
 }) {
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>Anomaly actions</CardTitle>
+        <CardTitle>Anomaly flags</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Click a card to filter and jump to the affected table.
+          Suppliers tripping each flag. Click one to filter the roster below.
         </p>
       </CardHeader>
       <CardContent>
@@ -129,7 +122,8 @@ export function CycleTimeAnomalyCards({
               key={meta.key}
               meta={meta}
               count={counts[meta.key]}
-              active={activeFilter === meta.key}
+              desc={descFor(meta.key, poCounts)}
+              active={activeFlag === meta.key}
               onSelect={() => onSelect(meta.key)}
             />
           ))}

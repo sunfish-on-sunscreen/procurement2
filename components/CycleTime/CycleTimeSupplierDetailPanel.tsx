@@ -160,16 +160,65 @@ function PoList({ pos }: { pos: CycleSupplierDetail["pos"] }) {
   );
 }
 
+// ---- Flagged POs (outlier and/or stage-dominated) -------------------------- #
+function FlagBadge({ color, label }: { color: string; label: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  );
+}
+
+function FlaggedPos({
+  pos,
+  stageDominatedPoIds,
+}: {
+  pos: CycleSupplierDetail["pos"];
+  stageDominatedPoIds: Set<string>;
+}) {
+  const flagged = pos
+    .map((p) => ({ ...p, is_stage_dom: stageDominatedPoIds.has(p.po_id) }))
+    .filter((p) => p.is_anomaly || p.is_stage_dom)
+    .sort((a, b) => b.total_cycle_days - a.total_cycle_days);
+
+  if (flagged.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">No flagged POs for this supplier in this period.</p>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {flagged.map((p) => (
+        <li key={p.po_id} className="flex items-center justify-between gap-2 text-xs">
+          <span className="font-medium">{p.po_id}</span>
+          <span className="tabular-nums text-muted-foreground">{p.total_cycle_days} d</span>
+          <span className="flex flex-wrap justify-end gap-1">
+            {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
+            {p.is_stage_dom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // ---- Panel ----------------------------------------------------------------- #
 export function CycleTimeSupplierDetailPanel({
   supplierId,
   startDate,
   endDate,
+  stageDominatedPoIds,
   onClose,
 }: {
   supplierId: string | null;
   startDate: string;
   endDate: string;
+  // Span-scoped set of stage-dominated PO ids (one stage > 60% of cycle), passed
+  // from the roster so this panel can flag them without an API change.
+  stageDominatedPoIds: Set<string>;
   onClose: () => void;
 }) {
   const key = supplierId ? `${supplierId}_${startDate}_${endDate}` : "";
@@ -270,7 +319,15 @@ export function CycleTimeSupplierDetailPanel({
               <StageBars stages={current.data.stages} />
             </div>
 
-            {/* Section 5: PO list */}
+            {/* Section 5: this supplier's flagged POs */}
+            <div className="border-b p-4">
+              <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+                This supplier&apos;s flagged POs
+              </h4>
+              <FlaggedPos pos={current.data.pos} stageDominatedPoIds={stageDominatedPoIds} />
+            </div>
+
+            {/* Section 6: PO list */}
             <div className="p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">
                 Purchase orders ({cyc.po_count})
