@@ -57,7 +57,7 @@ export function StageOccupancyChart({ data }: { data: StageOccupancyRow[] }) {
           width={60}
           tick={{ fontSize: 11 }}
           label={{
-            value: "PO-months (avg POs active)",
+            value: "Stage occupancy",
             angle: -90,
             position: "insideLeft",
             fontSize: 11,
