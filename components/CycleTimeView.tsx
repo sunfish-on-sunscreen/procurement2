@@ -38,6 +38,7 @@ import { ChartFrame } from "@/components/charts/ChartFrame";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
 import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
 import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
+import { StageDecompositionTable } from "@/components/CycleTime/StageDecompositionTable";
 import { CHART_COLORS } from "@/lib/chart-colors";
 import { StatBlock } from "@/components/ui/stat-block";
 import { SortArrow } from "@/components/RankingCells";
@@ -50,13 +51,6 @@ const QUAD_ORDER: KraljicQuadrant[] = [
   "Bottleneck",
   "Routine",
 ];
-
-const STAGES = [
-  { key: "pr_to_po", label: "PR → PO" },
-  { key: "po_to_delivery", label: "PO → Delivery" },
-  { key: "delivery_to_invoice", label: "Delivery → Invoice" },
-  { key: "invoice_to_payment", label: "Invoice → Payment" },
-] as const;
 
 // 2-decimal medians (precision audit AA — cycle-time medians show 2dp).
 const d2 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
@@ -295,60 +289,6 @@ function PeriodComparisonSection({ initial }: { initial: PeriodComparison }) {
   );
 }
 
-// ---- Stage decomposition (single-population descriptives, sortable) -------- #
-type StageRow = { order: number; key: string; label: string } & CycleDescriptive;
-
-function StageDecompositionTable({ data }: { data: CycleTimeResult }) {
-  const rows: StageRow[] = STAGES.map((s, i) => ({
-    order: i,
-    key: s.key,
-    label: s.label,
-    ...data.stage_breakdown[s.key],
-  }));
-  const { sorted, sort, toggle } = useTableSort<StageRow, string>(
-    rows,
-    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
-    "order",
-    "asc",
-  );
-  return (
-    <Card className={cardElevation}>
-      <CardHeader>
-        <CardTitle>Stage Decomposition</CardTitle>
-        <CardDescription>
-          Where time is spent across the four procure-to-pay sub-processes.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <SortHead label="Stage" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
-              <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="Average" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="Median" sortKey="median" active={sort.key === "median"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="P25" sortKey="p25" active={sort.key === "p25"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="P75" sortKey="p75" active={sort.key === "p75"} dir={sort.dir} onSort={toggle} align="right" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sorted.map((s) => (
-              <TableRow key={s.key}>
-                <TableCell className="font-medium">{s.label}</TableCell>
-                <TableCell className="text-right tabular-nums text-muted-foreground">{s.n}</TableCell>
-                <TableCell className="text-right tabular-nums">{d2(s.mean)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d2(s.median)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d2(s.p25)}</TableCell>
-                <TableCell className="text-right tabular-nums">{d2(s.p75)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ---- Cycle time by Kraljic quadrant (descriptives, sortable) --------------- #
 type QuadCycleRow = { order: number; quadrant: KraljicQuadrant } & CycleDescriptive;
 
@@ -575,6 +515,7 @@ export function CycleTimeView({
   showAnomaliesTable = true,
   showMonthlyTrend = true,
   showStatGrid = true,
+  showStageDecomposition = true,
   showDistributionInsight = false,
   onOutlierClick,
 }: {
@@ -589,6 +530,9 @@ export function CycleTimeView({
   // The dashboard renders the stat grid itself (above the anomaly flags, with a 5th
   // "Slowest stage" card); reports + range-compute keep it here (default true).
   showStatGrid?: boolean;
+  // The dashboard moves the stage decomposition into the merged "Stage breakdown"
+  // section; reports + range-compute keep it here (default true).
+  showStageDecomposition?: boolean;
   // Dashboard-only interpretation lines below the box plot (skew + outlier
   // direction). Off by default so reports/range-compute keep the box plot as-is.
   showDistributionInsight?: boolean;
@@ -638,7 +582,19 @@ export function CycleTimeView({
         </CardContent>
       </Card>
 
-      <StageDecompositionTable data={data} />
+      {showStageDecomposition && (
+        <Card className={cardElevation}>
+          <CardHeader>
+            <CardTitle>Stage Decomposition</CardTitle>
+            <CardDescription>
+              Where time is spent across the four procure-to-pay sub-processes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StageDecompositionTable data={data} />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CycleByQuadrantTable data={data} />

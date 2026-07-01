@@ -32,16 +32,17 @@ export function CycleStatGrid({
 }) {
   const d = data.distribution;
 
-  // Slowest stage by median + its share of the summed stage medians (same method
-  // as the glance panel), wired to real data.
-  const stageMedians = STAGES.map((s) => ({
+  // Slowest stage by mean + its mean-based share (stage mean ÷ Σ stage means) so
+  // "% of total time" is consistent with the Stage-breakdown insight
+  // (PO → Delivery = 49%), wired to real data.
+  const stageMeans = STAGES.map((s) => ({
     label: s.label,
-    median: data.stage_breakdown[s.key]?.median ?? 0,
+    mean: data.stage_breakdown[s.key]?.mean ?? 0,
   }));
-  const stageTotal = stageMedians.reduce((s, x) => s + x.median, 0);
-  const slowest = stageMedians.reduce((m, c) => (c.median > m.median ? c : m), stageMedians[0]);
-  const slowestPct = stageTotal > 0 ? Math.round((slowest.median / stageTotal) * 100) : 0;
-  const showSlowest = includeSlowest && slowest.median > 0;
+  const stageTotal = stageMeans.reduce((s, x) => s + x.mean, 0);
+  const slowest = stageMeans.reduce((m, c) => (c.mean > m.mean ? c : m), stageMeans[0]);
+  const slowestPct = stageTotal > 0 ? Math.round((slowest.mean / stageTotal) * 100) : 0;
+  const showSlowest = includeSlowest && slowest.mean > 0;
 
   const cols = showSlowest ? "sm:grid-cols-3 lg:grid-cols-5" : "lg:grid-cols-4";
 

@@ -70,14 +70,15 @@ export function CycleTimeGlancePanel({
   const median = dist.median;
   const n = dist.n;
 
-  // Stage medians → slowest stage + its share of the summed stage medians.
-  const stageMedians = STAGES.map((s) => ({
+  // Stage means → slowest stage + its mean-based share (matches the stat card and
+  // the Stage-breakdown insight, so "% of cycle" is consistent page-wide).
+  const stageMeans = STAGES.map((s) => ({
     label: s.label,
-    median: cycleTime.stage_breakdown[s.key]?.median ?? 0,
+    mean: cycleTime.stage_breakdown[s.key]?.mean ?? 0,
   }));
-  const stageTotal = stageMedians.reduce((s, x) => s + x.median, 0);
-  const slowest = stageMedians.reduce((m, c) => (c.median > m.median ? c : m), stageMedians[0]);
-  const slowestPct = stageTotal > 0 ? Math.round((slowest.median / stageTotal) * 100) : 0;
+  const stageTotal = stageMeans.reduce((s, x) => s + x.mean, 0);
+  const slowest = stageMeans.reduce((m, c) => (c.mean > m.mean ? c : m), stageMeans[0]);
+  const slowestPct = stageTotal > 0 ? Math.round((slowest.mean / stageTotal) * 100) : 0;
   const prToPoMean = cycleTime.stage_breakdown.pr_to_po?.mean ?? null;
 
   // YoY trend vs the previous period (single-year mode only; parent passes null in range).
@@ -204,12 +205,12 @@ export function CycleTimeGlancePanel({
             This cadence is typical of capital-intensive mining procurement.
           </p>
 
-          {slowest.median > 0 && (
+          {slowest.mean > 0 && (
             <div className="space-y-1">
               <h3 className="font-medium">Where the time goes</h3>
               <p>
                 <strong>{slowest.label}</strong> is the binding constraint at{" "}
-                <strong>{slowestPct}%</strong> of the median cycle
+                <strong>{slowestPct}%</strong> of the cycle
                 {prToPoMean != null && (
                   <>
                     , while PR → PO approval averages just {d1(prToPoMean)} days — the delay is

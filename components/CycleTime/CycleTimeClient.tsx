@@ -9,7 +9,7 @@ import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
 import { CycleTimeAnomalyCards } from "@/components/CycleTime/CycleTimeAnomalyCards";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { CycleSupplierSection } from "@/components/CycleTime/CycleSupplierSection";
-import { StageOccupancySection } from "@/components/CycleTime/StageOccupancySection";
+import { StageBreakdownSection } from "@/components/CycleTime/StageBreakdownSection";
 
 const median = (xs: number[]) => {
   if (xs.length === 0) return 0;
@@ -197,12 +197,19 @@ export function CycleTimeClient({
         showAnomaliesTable={false}
         showMonthlyTrend={false}
         showStatGrid={false}
+        showStageDecomposition={false}
         showDistributionInsight
         onOutlierClick={setSelectedSupplierId}
       />
 
-      {/* Fractional per-stage monthly occupancy (dashboard-only; self-fetching). */}
-      <StageOccupancySection startDate={startDate} endDate={endDate} />
+      {/* Merged "Stage breakdown" (dashboard-only): pipeline chart + decomposition
+          table + stage insight + category bars. */}
+      <StageBreakdownSection
+        startDate={startDate}
+        endDate={endDate}
+        cycleTime={cycleTime}
+        categories={breakdown?.byCategory ?? []}
+      />
 
       {/* Supplier roster — gated on the breakdown (non-fatal). */}
       {breakdownErr ? (
