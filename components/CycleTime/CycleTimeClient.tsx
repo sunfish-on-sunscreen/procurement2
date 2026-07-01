@@ -153,6 +153,7 @@ export function CycleTimeClient({
       <CycleTimeGlancePanel
         cycleTime={cycleTime}
         roster={breakdown?.bySupplier ?? []}
+        categories={breakdown?.byCategory ?? []}
         previousMedian={previousMedian}
         previousLabel={previousLabel}
         periodLabel={periodLabel}
