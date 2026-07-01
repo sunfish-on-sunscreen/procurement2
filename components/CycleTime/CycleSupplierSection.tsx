@@ -148,7 +148,7 @@ function SupplierBarTooltip({
     <div className="max-w-[240px] rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="font-medium">{d.full}</div>
       <div className="mt-1 text-muted-foreground">
-        Median {d.median.toFixed(1)} d · IQR {d.iqr.toFixed(1)} d · {d.po_count} PO(s)
+        Median {d.median.toFixed(1)} d · Typical range {d.iqr.toFixed(1)} d · {d.po_count} PO(s)
       </div>
     </div>
   );
@@ -282,7 +282,7 @@ function BySupplier({
               <TableRow>
                 <SortHead label="Supplier" sortKey="supplier_name" active={sort.key === "supplier_name"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
                 <SortHead label="Median (d)" sortKey="median_cycle" active={sort.key === "median_cycle"} dir={sort.dir} onSort={toggle} align="right" />
-                <SortHead label="IQR (d)" sortKey="iqr" active={sort.key === "iqr"} dir={sort.dir} onSort={toggle} align="right" />
+                <SortHead label="Typical range (d)" sortKey="iqr" active={sort.key === "iqr"} dir={sort.dir} onSort={toggle} align="right" />
                 <SortHead label="POs" sortKey="po_count" active={sort.key === "po_count"} dir={sort.dir} onSort={toggle} align="right" />
                 <SortHead label="ABC" sortKey="abc_class" active={sort.key === "abc_class"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[64px]" />
                 <SortHead label="Exposure" sortKey="kraljic_quadrant" active={sort.key === "kraljic_quadrant"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[120px]" />
@@ -344,7 +344,7 @@ function ByCategory({ rows }: { rows: CycleBreakdown["byCategory"] }) {
       <CardHeader>
         <CardTitle>Stage Breakdown by Category</CardTitle>
         <CardDescription>
-          Mean days in each procure-to-pay stage, per category. Reveals whether a
+          Average days in each procure-to-pay stage, per category. Reveals whether a
           category&apos;s delay is supplier-driven (PO → Delivery) or internal
           (PR → PO approval).
         </CardDescription>

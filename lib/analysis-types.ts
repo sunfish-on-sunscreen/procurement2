@@ -72,7 +72,6 @@ export type CycleDistribution = {
   min: number | null;
   max: number | null;
   mean: number | null;
-  std: number | null;
   n: number;
 };
 

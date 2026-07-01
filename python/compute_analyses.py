@@ -377,13 +377,12 @@ def cycle_time_analysis(
             "min": num(c.min()),
             "max": num(c.max()),
             "mean": num(c.mean()),
-            "std": num(c.std(ddof=1)) if len(c) > 1 else None,
             "n": int(len(c)),
         }
     else:
         distribution = {
             "median": None, "p25": None, "p75": None, "iqr": None,
-            "min": None, "max": None, "mean": None, "std": None, "n": 0,
+            "min": None, "max": None, "mean": None, "n": 0,
         }
 
     # --- stage decomposition (single population) ------------------------ #

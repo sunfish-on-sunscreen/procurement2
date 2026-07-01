@@ -302,7 +302,7 @@ export function CycleTimeSupplierDetailPanel({
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Cycle stats</h4>
               <div className="grid grid-cols-3 gap-3">
                 <StatBlock label="Median cycle" value={`${cyc.median_cycle.toFixed(2)} d`} />
-                <StatBlock label="IQR (P25–P75)" value={`${cyc.p25.toFixed(0)}–${cyc.p75.toFixed(0)} d`} />
+                <StatBlock label="Typical range" value={`${cyc.p25.toFixed(0)}–${cyc.p75.toFixed(0)} d`} />
                 <StatBlock label="POs" value={String(cyc.po_count)} />
               </div>
               <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">

@@ -29,7 +29,7 @@ function descFor(key: CycleFlagKey, poCounts: Partial<Record<CycleFlagKey, numbe
     return `${p} outlier PO${plural(p)} · z > 2σ`;
   }
   if (key === "inconsistent") {
-    return "IQR > 1.5× the portfolio median";
+    return "Typical range > 1.5× the portfolio median";
   }
   const p = poCounts.has_stage_dom ?? 0;
   return `${p} stage-dominated PO${plural(p)} · one stage > 60%`;

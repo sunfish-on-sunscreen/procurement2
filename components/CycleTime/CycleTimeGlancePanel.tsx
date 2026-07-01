@@ -146,7 +146,7 @@ export function CycleTimeGlancePanel({
     bullets.push(
       <li key="iqr">
         <strong>{num0.format(highIqr)}</strong> supplier{highIqr === 1 ? "" : "s"} show high
-        cycle-time variability (IQR &gt; 1.5× the portfolio median).
+        cycle-time variability (typical range &gt; 1.5× the portfolio median).
       </li>,
     );
   }
@@ -191,7 +191,7 @@ export function CycleTimeGlancePanel({
                 <strong>
                   {d0(dist.p25)}–{d0(dist.p75)} days
                 </strong>{" "}
-                (IQR {d0(dist.iqr)} days).
+                (typical range {d0(dist.iqr)} days).
               </>
             )}
             {stability && (
@@ -250,12 +250,7 @@ export function CycleTimeGlancePanel({
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatBlock
-          size="lg"
-          label="Median cycle time"
-          value={`${d2(median)} days`}
-          sublabel={`n = ${num0.format(n)} POs`}
-        />
+        <StatBlock size="lg" label="Median cycle time" value={`${d2(median)} days`} />
         <StatBlock size="lg" label="Outlier POs" value={num0.format(outliers)} sublabel="z-score > 2σ" />
         <StatBlock
           size="lg"

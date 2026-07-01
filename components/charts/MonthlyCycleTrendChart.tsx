@@ -31,7 +31,7 @@ function TrendTooltip({ active, payload }: TrendTooltipProps) {
     <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="font-medium">{d.month}</div>
       <div className="text-muted-foreground">
-        Monthly mean {d.avg_cycle_days.toFixed(1)} d
+        Monthly average {d.avg_cycle_days.toFixed(1)} d
       </div>
       {d.rolling_3mo != null && (
         <div className="text-muted-foreground">
@@ -77,7 +77,7 @@ export function MonthlyCycleTrendChart({
         <Line
           type="monotone"
           dataKey="avg_cycle_days"
-          name="Monthly mean"
+          name="Monthly average"
           stroke={CHART_COLORS[0]}
           strokeWidth={2}
           dot={{ r: 2 }}

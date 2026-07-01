@@ -285,9 +285,11 @@ export default async function MethodologyPage() {
                 smoothing.
               </li>
               <li>
-                <strong>Distribution analysis</strong>: median, interquartile
-                range (IQR), and percentile summary of the cycle-time
-                distribution.
+                <strong>Distribution analysis</strong>: median and the{" "}
+                <strong>typical range</strong> (interquartile range, IQR) — the
+                P25–P75 band covering the middle 50% of POs, computed via
+                linear-interpolation quantiles — plus a percentile summary of the
+                cycle-time distribution.
               </li>
               <li>
                 <strong>Stage-level descriptive statistics</strong>: PR→PO,
@@ -311,6 +313,15 @@ export default async function MethodologyPage() {
                 conventions (small ≈ 0.1, medium ≈ 0.3, large ≈ 0.5).
               </li>
             </ol>
+            <p>
+              The supplier roster surfaces three per-supplier flags:{" "}
+              <strong>Has outlier POs</strong> (at least one PO beyond the 2σ
+              threshold above); <strong>Inconsistent</strong> — a supplier whose
+              typical range (IQR) exceeds 1.5× the median of all suppliers&apos;
+              IQRs, the Tukey convention for unusually wide spread; and{" "}
+              <strong>Stage-dominated POs</strong> (at least one PO where a single
+              procure-to-pay stage exceeds 60% of that PO&apos;s total cycle).
+            </p>
             <p>
               Period comparison defaults to a midpoint split of the currently
               selected period. Custom date ranges can be specified to compare

@@ -127,7 +127,7 @@ function ComparisonResult({ c }: { c: PeriodComparison }) {
         <StatBlock
           label="Mann-Whitney U"
           value={c.mannwhitney_u != null ? c.mannwhitney_u.toFixed(0) : "—"}
-          sublabel={`n = ${c.period_a.n} vs ${c.period_b.n}`}
+          sublabel={`${c.period_a.n} vs ${c.period_b.n} POs`}
         />
         <StatBlock label="p-value" value={formatP(c.p_value)} sublabel="α = 0.05" />
         <StatBlock
@@ -327,7 +327,7 @@ function StageDecompositionTable({ data }: { data: CycleTimeResult }) {
             <TableRow>
               <SortHead label="Stage" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
               <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="Mean" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Average" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
               <SortHead label="Median" sortKey="median" active={sort.key === "median"} dir={sort.dir} onSort={toggle} align="right" />
               <SortHead label="P25" sortKey="p25" active={sort.key === "p25"} dir={sort.dir} onSort={toggle} align="right" />
               <SortHead label="P75" sortKey="p75" active={sort.key === "p75"} dir={sort.dir} onSort={toggle} align="right" />
@@ -378,7 +378,7 @@ function CycleByQuadrantTable({ data }: { data: CycleTimeResult }) {
             <TableRow>
               <SortHead label="Quadrant" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
               <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="Mean" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Average" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
               <SortHead label="Median" sortKey="median" active={sort.key === "median"} dir={sort.dir} onSort={toggle} align="right" />
               <SortHead label="P25" sortKey="p25" active={sort.key === "p25"} dir={sort.dir} onSort={toggle} align="right" />
               <SortHead label="P75" sortKey="p75" active={sort.key === "p75"} dir={sort.dir} onSort={toggle} align="right" />
@@ -562,19 +562,17 @@ export function CycleTimeView({
               `${d2(d.median)} days`
             )
           }
-          sublabel={`n = ${d.n} POs`}
         />
         <StatBlock
           size="comfortable"
-          label="IQR (P25–P75)"
+          label="Typical range"
           value={`${d0(d.p25)}–${d0(d.p75)} d`}
           sublabel={`spread ${d0(d.iqr)} d`}
         />
         <StatBlock
           size="comfortable"
-          label="Mean"
+          label="Average cycle time"
           value={`${d1(d.mean)} d`}
-          sublabel={d.std != null ? `σ = ${d1(d.std)}` : undefined}
         />
         <StatBlock size="comfortable" label="Range" value={`${d0(d.min)}–${d0(d.max)} d`} />
       </div>
@@ -583,7 +581,7 @@ export function CycleTimeView({
         <CardHeader>
           <CardTitle>Monthly Cycle Time Trend</CardTitle>
           <CardDescription>
-            Mean total procure-to-pay days by month, with a trailing 3-month
+            Average total procure-to-pay days by month, with a trailing 3-month
             rolling average.
           </CardDescription>
         </CardHeader>
