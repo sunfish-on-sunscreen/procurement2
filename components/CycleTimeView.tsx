@@ -603,7 +603,7 @@ export function CycleTimeView({
         <CardHeader>
           <CardTitle>Cycle Time Distribution</CardTitle>
           <CardDescription>
-            Median, interquartile range, and outliers across all POs.
+            Median, typical range, and outliers across all POs.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -165,8 +165,7 @@ export function CycleTimeBoxPlot({
         </text>
       </svg>
       <p className="mt-1 text-center text-xs text-muted-foreground">
-        Box = P25–P75 (IQR {d.iqr != null ? d.iqr.toFixed(0) : "—"} d) · whiskers
-        min–max · red dots = {outliers.length} outlier(s) &gt; 2σ
+        Box = typical range · whiskers = range · line = median · red dots = outlier POs
       </p>
       {tooltip.tip && (
         <PortalTooltip x={tooltip.tip.x} y={tooltip.tip.y}>
