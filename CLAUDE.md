@@ -8,7 +8,20 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **HEAD as of last doc update:
-> `3d0757a`.**
+> `158849b`.**
+
+> ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
+> `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
+> migration `remove_tier`), compute (all tier emitters + the whole
+> `tier_reclassification` recommendation category), every API/UI surface, the
+> report tier-filter dimension, and methodology §4.4. No `TIER_MAP`, no tier
+> chips/columns/headers. Classifications were byte-identical (tier was never an
+> analysis input); the Action Dashboard went 22→16 recs across 4 categories.
+> **Historical mentions of tier below are batch history — tier no longer exists.**
+> Also in `158849b`: the two Classification-views tabs were relabeled
+> **"Kraljic matrix" → "Exposure positioning"** and **"Performance vs spend" →
+> "Performance positioning"** (PillTabs code keys `kraljic`/`performance`
+> unchanged).
 
 4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
 Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
@@ -65,7 +78,7 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
   server-cached fast path; brief loading spinner (same pattern as the editor).
 - **Ranking data is a server-side `Purchase` aggregate** (spend / invoice count /
   avg over the span) merged with ABC class + Kraljic quadrant from the analyses +
-  category/tier — period/range-accurate. ⚠️ NOT from `spend_overview.top_suppliers`
+  category — period/range-accurate. ⚠️ NOT from `spend_overview.top_suppliers`
   (which is top-10 only and lacks counts).
 - **KPIs are dashboard-only** (Total spend, Total invoices, Active suppliers, Avg
   invoice value — no "Total POs", no "Avg cycle time"). They live in
@@ -205,8 +218,8 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
   selected row keeps `ring-inset`. Numeric columns were already right-aligned.
 
 ### Supplier ranking + detail panel + sidebar (follow-up)
-- **Kraljic column removed** from the ranking table → 8 cols (`# · Supplier ·
-  Category · Tier · Total spend · Invoices · Avg invoice · ABC`). `kraljic_quadrant`
+- **Kraljic + Tier columns removed** from the ranking table → 7 cols (`# ·
+  Supplier · Category · Total spend · Invoices · Avg invoice · ABC`). `kraljic_quadrant`
   stays in the row data, just unrendered; the `SortKey` member + `QUADRANT_COLORS`
   import were dropped from the table.
 - **Detail-panel header is now a 3-section supplier profile** — each a `border-b
@@ -393,7 +406,7 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
   period change, resetting all per-session local UI state (section collapse,
   active Spend-Overview tab, TOC active section). No reset effect needed.
 - **All 6c chrome is gated on the `embedded` prop** (TOC, sticky headers,
-  collapse chevrons, KPI sparklines, tab switcher, tier chips). `/reports/[id]`
+  collapse chevrons, KPI sparklines, tab switcher). `/reports/[id]`
   renders `ReportDocument` without `embedded` → static immutable view, unchanged.
 - **Sticky stack:** `ReportTOC` is `sticky top-0`; section headers are
   `sticky top-9` (below the TOC). TOC active section uses an IntersectionObserver
@@ -405,10 +418,6 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
   browser — don't mistake the throttling for a bug.
 
 ### Architecture facts (current as of 11F)
-- **Tier names are `Core` / `Established` / `Standard`** (renamed in 3a from
-  Strategic/Preferred/Approved). ⚠️ **"Strategic" still exists as a Kraljic
-  QUADRANT name** — tier-Strategic and quadrant-Strategic are two distinct
-  contexts; never conflate them in grep/replace.
 - **Period tagging uses invoice date** with PR-date fallback, i.e.
   `(invoiceDate ?? prDate).year`. Python `load_frames` filters by
   `COALESCE(invoiceDate, prDate)`. This surfaces a **2026** period.
@@ -422,7 +431,7 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
 - **Range results are cached** in `AnalysisResult` (computed once, then read);
   the range cache (`periodId IS NULL` rows) is **invalidated on re-upload**.
 - **Reports use `ReportConfig`** (`lib/report-config.ts`): 5 customization layers
-  (period, sections, recommendation filters, detail level, tier/category filters
+  (period, sections, recommendation filters, detail level, category filter
   with per-section scope) + **3 tones** (executive/operational/analytical).
 - **Filter philosophy = visibility-only**: filters hide rows; narratives stay
   full-population with a caveat (no recompute). **Tone variants are applied at
@@ -433,7 +442,7 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
 - **`generate_dataset.py` does NOT exist in this repo.** The synthetic dataset
   was generated externally; **`scripts/transform_dataset.py`** is the
   deterministic transformer (seed 42) that produced the current
-  `data/raw/procurement_data.xlsx` (tier rename + risk_score/single_source fixes).
+  `data/raw/procurement_data.xlsx` (risk_score/single_source fixes).
 
 ### Kraljic decisions (from Phase 11)
 - **Supply Risk Score** (reworked `57097d7`) = `supply_concentration(≤50) + cost_premium(≤25) + import_friction(≤25)`, caps sum to 100 (clip is a no-op). Replaced the old `single_source(30)+category_competition(30)+country_distance(20)+switching_cost(20)`.
@@ -452,7 +461,7 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
   synthesis cards already echo their quadrant hues; keep all four aligned.
 
 ### Key files added in 11F
-- `scripts/transform_dataset.py` — one-off dataset transformer (tier rename + DQ fixes, seed 42).
+- `scripts/transform_dataset.py` — one-off dataset transformer (DQ fixes, seed 42).
 - `scripts/migrate-period-tags.ts` — re-tag purchases by invoice year (reversible: `--by=pr`).
 - `lib/report-config.ts` — `ReportConfig` type, defaults, filter helpers.
 - `lib/range-analyses.ts` — `getRangeAnalyses()` cache-or-compute helper.
@@ -465,8 +474,8 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
 - `prisma/migrations/.../add_range_cache_columns/` — nullable periodId + range columns.
 
 ### Critical gotchas
-- **"Strategic" = tier (now `Core`) AND Kraljic quadrant (unchanged).** Any
-  grep/replace MUST distinguish context.
+- **"Strategic" is now ONLY a Kraljic quadrant name** — the declared tier that
+  also carried the name was removed entirely in `158849b`.
 - **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).
   Use `prisma migrate diff --from-config-datasource --to-schema ... --script` to
   author the SQL, then `prisma migrate deploy`.
@@ -557,9 +566,9 @@ Classification, Cycle Time (process-health monitoring), Action Dashboard
 
 ## Excel file schema
 Single .xlsx with 3 sheets:
-- Sheet "Suppliers": supplier_id, supplier_name, country, category, product_description, tier
+- Sheet "Suppliers": supplier_id, supplier_name, country, category, product_description  *(`tier` removed in `158849b`)*
 - Sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
-- Sheet "SupplierMetrics" (ENRICHED output): supplier_id, supplier_name, category, tier, total_spend_usd, num_pos, avg_po_value_usd, avg_lead_time_days, avg_cycle_time_days, on_time_delivery_pct, three_way_match_pct, defect_rate_pct, complaint_count_annual, rfx_response_rate_pct, avg_response_time_days, single_source_risk, quality_score, delivery_score, service_score, process_score, risk_score, composite_score  *(`calculated_tier` + `tier_mismatch` removed; the raw input file drops the 6 score columns too)*
+- Sheet "SupplierMetrics" (ENRICHED output): supplier_id, supplier_name, category, total_spend_usd, num_pos, avg_po_value_usd, avg_lead_time_days, avg_cycle_time_days, on_time_delivery_pct, three_way_match_pct, defect_rate_pct, complaint_count_annual, rfx_response_rate_pct, avg_response_time_days, single_source_risk, quality_score, delivery_score, service_score, process_score, risk_score, composite_score  *(`calculated_tier` + `tier_mismatch` removed; the raw input file drops the 6 score columns too)*
 
 Sample data file: `data/raw/procurement_data.xlsx` (use for testing)
 
