@@ -57,13 +57,9 @@ export function StageOccupancySection({
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>POs Active per Stage, by Month</CardTitle>
+        <CardTitle>Procure-to-pay pipeline, by month</CardTitle>
         <CardDescription>
-          Time-weighted count of POs active in each procure-to-pay stage per month
-          (fractional occupancy: a PO live all month counts as 1.0, split across
-          its stages). &ldquo;[X] active&rdquo; means that milestone has occurred
-          and the PO is in the phase after it; payment is the exit, so it is not a
-          stage.
+          How many POs are active in each stage each month (time-weighted).
         </CardDescription>
       </CardHeader>
       <CardContent>
