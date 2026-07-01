@@ -59,7 +59,8 @@ export function StageOccupancySection({
       <CardHeader>
         <CardTitle>Procure-to-pay pipeline, by month</CardTitle>
         <CardDescription>
-          How many POs are active in each stage each month (time-weighted).
+          How many POs are active in each stage each month (each counted once per
+          stage it touches).
         </CardDescription>
       </CardHeader>
       <CardContent>

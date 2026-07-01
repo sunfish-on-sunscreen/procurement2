@@ -6,7 +6,6 @@ import type { StageOccupancy, StageOccupancyRow } from "@/lib/cycle-time-types";
 export const runtime = "nodejs";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const round1 = (x: number) => Math.round(x * 10) / 10;
 
 // UTC calendar-day index. Read the date the same way the breakdown /
 // supplier-detail routes do (toISOString → YYYY-MM-DD) so day math is TZ-safe
@@ -19,15 +18,16 @@ const epochDay = (d: Date): number => {
 type StageKey = "pr_active" | "po_active" | "delivery_active" | "invoice_active";
 
 /**
- * Fractional (time-weighted) monthly occupancy of the 4 procure-to-pay stages,
- * for the selected span, using "[X] active" framing (X has occurred; the PO is
- * in the phase after it). For each PO, each stage-gap [start, end), and each
- * month M in the window, the PO contributes (days the gap overlapped M ÷ days in
- * M) to that stage — so a PO live for all of M sums to 1.0 across its stages (no
- * double-count, no month-boundary distortion). Payment is the exit, so there is
- * no payment series. Population = POs whose lifecycle [prDate, paymentDate]
- * overlaps the window (occupancy needs overlap, not the invoice-date tagging the
- * rest of the page uses). Login required; any role.
+ * Whole-integer monthly count of POs active in each of the 4 procure-to-pay
+ * stages, for the selected span, using "[X] active" framing (X has occurred; the
+ * PO is in the phase after it). For each PO and each stage-gap [start, end), the
+ * PO counts as a whole +1 in EVERY window month the gap touches. A PO that moves
+ * through two stages in one month counts +1 in both, so per-month totals across
+ * the stages can exceed the PO count (intended). Population = POs tagged to the
+ * window by invoiceDate — the SAME filter the breakdown route + the rest of the
+ * page use (303 for 2025). Stage-months that fall outside the window (e.g. a
+ * PO's PR stage in the prior December) are simply not counted; the x-axis is not
+ * extended into the neighbouring year. Login required; any role.
  */
 export async function GET(request: Request) {
   const session = await getSession();
@@ -64,11 +64,14 @@ export async function GET(request: Request) {
     }
   }
 
-  // Population: any PO whose lifecycle overlaps the window.
+  // Population: POs tagged to the window by invoiceDate — same filter the
+  // breakdown route + the rest of the page use (303 for 2025).
   const purchases = await prisma.purchase.findMany({
     where: {
-      prDate: { lte: new Date(`${end}T23:59:59`) },
-      paymentDate: { gte: new Date(`${start}T00:00:00`) },
+      invoiceDate: {
+        gte: new Date(`${start}T00:00:00`),
+        lte: new Date(`${end}T23:59:59`),
+      },
     },
     select: {
       prDate: true,
@@ -100,21 +103,14 @@ export async function GET(request: Request) {
       { key: "invoice_active", s: inv, e: pay },
     ];
     months.forEach((mo, i) => {
-      const daysInMonth = mo.nextEpoch - mo.startEpoch;
       for (const g of gaps) {
-        const overlap = Math.min(g.e, mo.nextEpoch) - Math.max(g.s, mo.startEpoch);
-        if (overlap > 0) acc[i][g.key] += overlap / daysInMonth;
+        // Whole +1 if the gap [start, end) touches this month at all.
+        const touches = Math.min(g.e, mo.nextEpoch) > Math.max(g.s, mo.startEpoch);
+        if (touches) acc[i][g.key] += 1;
       }
     });
   }
 
-  const rows: StageOccupancyRow[] = acc.map((r) => ({
-    month: r.month,
-    pr_active: round1(r.pr_active),
-    po_active: round1(r.po_active),
-    delivery_active: round1(r.delivery_active),
-    invoice_active: round1(r.invoice_active),
-  }));
-
+  const rows: StageOccupancyRow[] = acc;
   return NextResponse.json({ months: rows } satisfies StageOccupancy);
 }

@@ -35,7 +35,7 @@ function OccupancyTooltip({ active, payload }: OccTooltipProps) {
       {SERIES.map((s) => (
         <div key={s.key} className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />
-          {s.label} <span className="tabular-nums">{d[s.key].toFixed(1)}</span>
+          {s.label} <span className="tabular-nums">{d[s.key].toFixed(0)}</span>
         </div>
       ))}
     </div>
@@ -43,9 +43,10 @@ function OccupancyTooltip({ active, payload }: OccTooltipProps) {
 }
 
 /**
- * Time-weighted count of POs active in each of the four waiting stages per month
- * (fractional occupancy). Four lines; no rolling-average overlay. Y = average POs
- * active during the month (PO-months). Fed span-scoped data from the API route.
+ * Whole-integer count of POs active in each of the four stages per month. Four
+ * lines; no rolling-average overlay. Y = number of POs in that stage during the
+ * month (a PO is counted once in every stage it touches, so per-month totals can
+ * exceed the PO count). Fed span-scoped data from the API route.
  */
 export function StageOccupancyChart({ data }: { data: StageOccupancyRow[] }) {
   return (
@@ -57,7 +58,7 @@ export function StageOccupancyChart({ data }: { data: StageOccupancyRow[] }) {
           width={60}
           tick={{ fontSize: 11 }}
           label={{
-            value: "Stage occupancy",
+            value: "POs active",
             angle: -90,
             position: "insideLeft",
             fontSize: 11,
