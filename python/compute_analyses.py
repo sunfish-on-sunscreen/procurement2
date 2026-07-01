@@ -268,9 +268,8 @@ def abc_analysis(purchases, suppliers, metrics):
 #    test (the automation_period label was removed in Batch 5). Emits ongoing
 #    monitoring (monthly trend + 3-mo rolling average, distribution, stage
 #    decomposition, per-Kraljic-quadrant descriptives, Z-score anomalies) plus
-#    an OPTIONAL Mann-Whitney U comparison between two date windows. The window
-#    defaults to a midpoint split of the selected period; the API passes custom
-#    bounds via the --comparison-* CLI flags.
+#    a Mann-Whitney U comparison between the two halves of the selected period
+#    (a fixed midpoint split).
 # --------------------------------------------------------------------------- #
 def _coalesced_date(purchases):
     """Invoice date when present, else PR date — mirrors the period tag."""
@@ -337,7 +336,7 @@ def _comparison_block(a_vals, b_vals, a_bounds, b_bounds):
 
 
 def cycle_time_analysis(
-    purchases, suppliers, metrics, range_start, range_end, comparison=None
+    purchases, suppliers, metrics, range_start, range_end
 ):
     p = purchases.copy()
     p["_date"] = _coalesced_date(p)
@@ -416,16 +415,12 @@ def cycle_time_analysis(
                 }
             )
 
-    # --- period comparison (default midpoint split; CLI override) ------- #
+    # --- period comparison (default midpoint split of the selected period) ---- #
     start_ts = pd.to_datetime(range_start)
     end_ts = pd.to_datetime(range_end)
-    if comparison:
-        a_start, a_end = pd.to_datetime(comparison["start_a"]), pd.to_datetime(comparison["end_a"])
-        b_start, b_end = pd.to_datetime(comparison["start_b"]), pd.to_datetime(comparison["end_b"])
-    else:
-        mid = (start_ts + (end_ts - start_ts) / 2).normalize()
-        a_start, a_end = start_ts.normalize(), mid
-        b_start, b_end = mid + pd.Timedelta(days=1), end_ts.normalize()
+    mid = (start_ts + (end_ts - start_ts) / 2).normalize()
+    a_start, a_end = start_ts.normalize(), mid
+    b_start, b_end = mid + pd.Timedelta(days=1), end_ts.normalize()
 
     def _between(s, e):
         return p[(p["_date"] >= s) & (p["_date"] <= e + pd.Timedelta(hours=23, minutes=59, seconds=59))]
@@ -1161,13 +1156,6 @@ def main():
     parser.add_argument("--period-id", help="Mode A: compute + upsert for a period")
     parser.add_argument("--start-date", help="Mode B: range start (YYYY-MM-DD)")
     parser.add_argument("--end-date", help="Mode B: range end (YYYY-MM-DD)")
-    # Optional custom cycle-time period comparison (used by /api/analyses/
-    # cycle-compare). All four must be supplied together; otherwise cycle_time
-    # falls back to a midpoint split of the selected period.
-    parser.add_argument("--comparison-start-a")
-    parser.add_argument("--comparison-end-a")
-    parser.add_argument("--comparison-start-b")
-    parser.add_argument("--comparison-end-b")
     args = parser.parse_args()
 
     if args.period_id:
@@ -1240,28 +1228,12 @@ def main():
             traceback.print_exc(file=sys.stderr)
             results["recommendations"] = None
 
-        # Cycle time: monitoring + date-driven period comparison. Computed
-        # separately because it needs the period bounds (for the default midpoint
-        # split) and the optional --comparison-* overrides.
-        comparison = None
-        if all(
-            [
-                args.comparison_start_a,
-                args.comparison_end_a,
-                args.comparison_start_b,
-                args.comparison_end_b,
-            ]
-        ):
-            comparison = {
-                "start_a": args.comparison_start_a,
-                "end_a": args.comparison_end_a,
-                "start_b": args.comparison_start_b,
-                "end_b": args.comparison_end_b,
-            }
+        # Cycle time: monitoring + a default midpoint-split period comparison.
+        # Computed separately because it needs the period bounds.
         try:
             log("Computing cycle_time...")
             results["cycle_time"] = cycle_time_analysis(
-                purchases, suppliers, metrics, start_ts, end_ts, comparison
+                purchases, suppliers, metrics, start_ts, end_ts
             )
         except Exception as exc:  # noqa: BLE001
             log(f"FAILED cycle_time: {exc}")

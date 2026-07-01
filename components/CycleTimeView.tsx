@@ -1,20 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, TriangleAlert } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
 import type {
   CycleTimeResult,
   CycleDescriptive,
   KraljicQuadrant,
-  PeriodComparison,
 } from "@/lib/analysis-types";
 import {
   Card,
@@ -31,16 +21,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ChartFrame } from "@/components/charts/ChartFrame";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
 import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
 import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
 import { StageDecompositionTable } from "@/components/CycleTime/StageDecompositionTable";
-import { CHART_COLORS } from "@/lib/chart-colors";
-import { StatBlock } from "@/components/ui/stat-block";
 import { SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { cardElevation } from "@/lib/utils";
@@ -84,208 +69,6 @@ function SortHead({
         <SortArrow active={active} dir={active ? dir : "desc"} />
       </button>
     </TableHead>
-  );
-}
-
-function formatP(p: number | null): string {
-  if (p == null) return "—";
-  if (p < 0.001) return p.toExponential(2);
-  return p.toFixed(4);
-}
-
-// ---- Period-vs-period comparison (collapsible, on-demand) ------------------ #
-function ComparisonResult({ c }: { c: PeriodComparison }) {
-  if (c.insufficient_data) {
-    return (
-      <Alert>
-        <TriangleAlert />
-        <AlertTitle>Not enough data to compare</AlertTitle>
-        <AlertDescription>
-          One window has fewer than 10 POs (A: {c.period_a.n}, B: {c.period_b.n}).
-          The Mann-Whitney U test needs at least 10 in each group. Widen the
-          windows or pick a denser period.
-        </AlertDescription>
-      </Alert>
-    );
-  }
-  const significant = c.p_value != null && c.p_value < 0.05;
-  const barData = [
-    { group: "Window A", median: c.median_a ?? 0 },
-    { group: "Window B", median: c.median_b ?? 0 },
-  ];
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatBlock
-          label="Mann-Whitney U"
-          value={c.mannwhitney_u != null ? c.mannwhitney_u.toFixed(0) : "—"}
-          sublabel={`${c.period_a.n} vs ${c.period_b.n} POs`}
-        />
-        <StatBlock label="p-value" value={formatP(c.p_value)} sublabel="α = 0.05" />
-        <StatBlock
-          label="Rank-biserial r"
-          value={c.rank_biserial_r != null ? c.rank_biserial_r.toFixed(3) : "—"}
-          sublabel={c.effect_size_label ?? "—"}
-        />
-        <StatBlock
-          label="Median A → B"
-          value={`${d2(c.median_a)} → ${d2(c.median_b)} d`}
-        />
-      </div>
-      <ChartFrame height={200}>
-        <BarChart data={barData} margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="group" tick={{ fontSize: 12 }} />
-          <YAxis
-            width={48}
-            tick={{ fontSize: 11 }}
-            label={{
-              value: "median days",
-              angle: -90,
-              position: "insideLeft",
-              fontSize: 10,
-            }}
-          />
-          <Tooltip formatter={(v) => [`${Number(v).toFixed(2)} days`, "Median"]} />
-          <Bar dataKey="median" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ChartFrame>
-      <Alert variant={significant ? "default" : "destructive"}>
-        <AlertTitle>
-          {significant
-            ? "Statistically significant difference"
-            : "No significant difference"}
-        </AlertTitle>
-        <AlertDescription>
-          {significant
-            ? `Cycle-time distributions differ between the two windows (p = ${formatP(
-                c.p_value,
-              )}, ${c.effect_size_label} effect).`
-            : `The two windows are not significantly different at α = 0.05 (p = ${formatP(
-                c.p_value,
-              )}).`}
-        </AlertDescription>
-      </Alert>
-    </div>
-  );
-}
-
-function PeriodComparisonSection({ initial }: { initial: PeriodComparison }) {
-  const [open, setOpen] = useState(false);
-  const [startA, setStartA] = useState(initial.period_a.start);
-  const [endA, setEndA] = useState(initial.period_a.end);
-  const [startB, setStartB] = useState(initial.period_b.start);
-  const [endB, setEndB] = useState(initial.period_b.end);
-  const [result, setResult] = useState<PeriodComparison>(initial);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function compare() {
-    setLoading(true);
-    setError(null);
-    setWarning(null);
-    try {
-      const res = await fetch("/api/analyses/cycle-compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          comparison_start_a: startA,
-          comparison_end_a: endA,
-          comparison_start_b: startB,
-          comparison_end_b: endB,
-        }),
-      });
-      const json = (await res.json()) as {
-        period_comparison?: PeriodComparison;
-        warning?: string;
-        error?: string;
-      };
-      if (!res.ok || !json.period_comparison) {
-        throw new Error(json.error || "Comparison failed");
-      }
-      setResult(json.period_comparison);
-      setWarning(json.warning ?? null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <Card className={cardElevation}>
-      <CardHeader>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex w-full items-center gap-2 text-left"
-        >
-          {open ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-          <CardTitle>Period-vs-Period Comparison</CardTitle>
-          <span className="ml-2 text-sm font-normal text-muted-foreground">
-            (compare two date ranges)
-          </span>
-        </button>
-      </CardHeader>
-      {open && (
-        <CardContent className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Window A</span>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={startA}
-                  onChange={(e) => setStartA(e.target.value)}
-                  className="w-[150px]"
-                />
-                <span className="text-muted-foreground">to</span>
-                <Input
-                  type="date"
-                  value={endA}
-                  onChange={(e) => setEndA(e.target.value)}
-                  className="w-[150px]"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Window B</span>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={startB}
-                  onChange={(e) => setStartB(e.target.value)}
-                  className="w-[150px]"
-                />
-                <span className="text-muted-foreground">to</span>
-                <Input
-                  type="date"
-                  value={endB}
-                  onChange={(e) => setEndB(e.target.value)}
-                  className="w-[150px]"
-                />
-              </div>
-            </div>
-          </div>
-          <div>
-            <Button onClick={compare} disabled={loading}>
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Compare
-            </Button>
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {warning && (
-            <p className="text-sm text-amber-600 dark:text-amber-400">{warning}</p>
-          )}
-          <ComparisonResult c={result} />
-        </CardContent>
-      )}
-    </Card>
   );
 }
 
@@ -602,8 +385,6 @@ export function CycleTimeView({
       </div>
 
       {showAnomaliesTable && <AnomaliesTable data={data.anomalies} />}
-
-      <PeriodComparisonSection initial={data.period_comparison} />
     </>
   );
 }

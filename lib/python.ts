@@ -70,39 +70,3 @@ export function runComputeRange(
 ): Promise<PythonResult> {
   return runScript(["--start-date", startDate, "--end-date", endDate], timeoutMs);
 }
-
-/**
- * Mode B with a custom cycle-time period comparison. Loads purchases over the
- * union of both windows (so both comparison groups are present) and passes the
- * four --comparison-* overrides. The caller reads cycle_time.period_comparison
- * from the stdout JSON. No DB writes (Mode B); not cached.
- */
-export function runCycleCompare(
-  bounds: {
-    startA: string;
-    endA: string;
-    startB: string;
-    endB: string;
-  },
-  timeoutMs = 30000,
-): Promise<PythonResult> {
-  const loadStart = [bounds.startA, bounds.startB].sort()[0];
-  const loadEnd = [bounds.endA, bounds.endB].sort()[1];
-  return runScript(
-    [
-      "--start-date",
-      loadStart,
-      "--end-date",
-      loadEnd,
-      "--comparison-start-a",
-      bounds.startA,
-      "--comparison-end-a",
-      bounds.endA,
-      "--comparison-start-b",
-      bounds.startB,
-      "--comparison-end-b",
-      bounds.endB,
-    ],
-    timeoutMs,
-  );
-}
