@@ -5,7 +5,6 @@ import type { CycleTimeResult, KraljicQuadrant } from "@/lib/analysis-types";
 import type { CycleSupplierRow, CycleCategoryRow } from "@/lib/cycle-time-types";
 import { cardElevation } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatBlock } from "@/components/ui/stat-block";
 
 const STAGES = [
   { key: "pr_to_po", label: "PR → PO" },
@@ -43,7 +42,8 @@ function medianOf(xs: number[]): number {
 /**
  * "Cycle at a glance" — narrative summary mirroring Spend Overview's InsightsPanel
  * pattern: a prose card (lead paragraph + "Where the time goes" + "Worth noting"
- * bullets + closing hint) followed by a decoupled StatBlock KPI grid. Every number
+ * bullets + closing hint). The KPI cells that used to sit below it were removed
+ * (they duplicated the stat grid + anomaly flags directly beneath). Every number
  * is computed client-side from the already-loaded cycle_time analysis + breakdown
  * roster/categories — no new API/Python. Clauses whose data is absent for the
  * selected period/range omit gracefully rather than render placeholders.
@@ -248,17 +248,6 @@ export function CycleTimeGlancePanel({
           </p>
         </CardContent>
       </Card>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatBlock size="lg" label="Median cycle time" value={`${d2(median)} days`} />
-        <StatBlock size="lg" label="Outlier POs" value={num0.format(outliers)} sublabel="z-score > 2σ" />
-        <StatBlock
-          size="lg"
-          label="Slowest stage"
-          value={slowest.median > 0 ? slowest.label : "—"}
-          sublabel={slowest.median > 0 ? `${slowestPct}% of total time` : "no data"}
-        />
-      </div>
     </>
   );
 }

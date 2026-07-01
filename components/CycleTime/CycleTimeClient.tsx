@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import type { CycleTimeResult, RangeAnalyses } from "@/lib/analysis-types";
 import type { CycleBreakdown, CycleFlagKey, SupplierFlagState } from "@/lib/cycle-time-types";
 import { CycleTimeGlancePanel } from "@/components/CycleTime/CycleTimeGlancePanel";
+import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
 import { CycleTimeAnomalyCards } from "@/components/CycleTime/CycleTimeAnomalyCards";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { CycleSupplierSection } from "@/components/CycleTime/CycleSupplierSection";
@@ -47,12 +48,16 @@ export function CycleTimeClient({
   const [ctState, setCtState] = useState<{ key: string; data?: CycleTimeResult; err?: string } | null>(null);
   const [bdState, setBdState] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
   const [activeFlag, setActiveFlag] = useState<CycleFlagKey | null>(null);
+  // Selected supplier for the drill-down panel — lifted here so BOTH the roster
+  // rows and the box-plot outlier dots open the same panel.
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
 
-  // Reset the filter on span change (render-time compare; no set-state-in-effect).
+  // Reset the filter + drill-down on span change (render-time compare; no set-state-in-effect).
   const [prevKey, setPrevKey] = useState(key);
   if (prevKey !== key) {
     setPrevKey(key);
     if (activeFlag !== null) setActiveFlag(null);
+    if (selectedSupplierId !== null) setSelectedSupplierId(null);
   }
 
   const cycleTime = cachedCycleTime ?? (ctState?.key === key ? ctState.data : undefined);
@@ -168,6 +173,9 @@ export function CycleTimeClient({
         isRangeMode={isRangeMode}
       />
 
+      {/* Stat grid (Change 4: sits above the anomaly flags; 5th "Slowest stage" card). */}
+      <CycleStatGrid data={cycleTime} includeSlowest />
+
       {/* Anomaly cards — gated on the breakdown (non-fatal). */}
       {breakdownErr ? (
         <p className="text-sm text-destructive">Couldn&apos;t load anomaly breakdown: {breakdownErr}</p>
@@ -184,7 +192,13 @@ export function CycleTimeClient({
         </div>
       )}
 
-      <CycleTimeView data={cycleTime} showAnomaliesTable={false} showMonthlyTrend={false} />
+      <CycleTimeView
+        data={cycleTime}
+        showAnomaliesTable={false}
+        showMonthlyTrend={false}
+        showStatGrid={false}
+        onOutlierClick={setSelectedSupplierId}
+      />
 
       {/* Fractional per-stage monthly occupancy (dashboard-only; self-fetching). */}
       <StageOccupancySection startDate={startDate} endDate={endDate} />
@@ -201,6 +215,8 @@ export function CycleTimeClient({
           flagCounts={flagCounts}
           activeFlag={activeFlag}
           onSelectFlag={handleChipSelect}
+          selectedSupplierId={selectedSupplierId}
+          onSupplierClick={setSelectedSupplierId}
         />
       ) : (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -14,6 +14,7 @@ export function CycleTimeBoxPlot({
   distribution: d,
   anomalies = [],
   interactive = false,
+  onOutlierClick,
 }: {
   distribution: CycleDistribution;
   anomalies?: CycleAnomaly[];
@@ -22,6 +23,9 @@ export function CycleTimeBoxPlot({
   // plain non-interactive markers (no dead click). usePin() is still called
   // unconditionally (no-op without a provider) to keep hook order stable.
   interactive?: boolean;
+  // Dashboard: clicking an outlier dot opens that supplier's detail panel. When
+  // provided it takes precedence over the editor pin behaviour.
+  onOutlierClick?: (supplierId: string) => void;
 }) {
   const { pinnedSupplierId, pin } = usePin();
   const tooltip = usePortalTooltip<CycleAnomaly>();
@@ -128,17 +132,25 @@ export function CycleTimeBoxPlot({
         {/* outlier dots (slightly jittered around the axis) — hover to
             identify, click to pin the supplier (Batch 6b) */}
         {outlierAnoms.map((a, i) => {
-          const canPin = interactive && a.supplier_id != null;
+          const hasSupplier = a.supplier_id != null;
+          const canOpen = hasSupplier && onOutlierClick != null;
+          const canPin = interactive && hasSupplier;
           const pinned = canPin && a.supplier_id === pinnedSupplierId;
           const dotCy = cy + (i % 2 === 0 ? -1 : 1) * (boxH / 2 + 8);
           return (
             <g
               key={a.po_id}
-              style={{ cursor: canPin ? "pointer" : "default" }}
+              style={{ cursor: canOpen || canPin ? "pointer" : "default" }}
               onMouseEnter={(e) => tooltip.show(e, a)}
               onMouseMove={(e) => tooltip.move(e)}
               onMouseLeave={tooltip.hide}
-              onClick={canPin ? () => pin(a.supplier_id) : undefined}
+              onClick={
+                canOpen
+                  ? () => onOutlierClick(a.supplier_id)
+                  : canPin
+                    ? () => pin(a.supplier_id)
+                    : undefined
+              }
             >
               {pinned && (
                 <circle

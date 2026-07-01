@@ -391,6 +391,8 @@ export function CycleSupplierSection({
   flagCounts,
   activeFlag,
   onSelectFlag,
+  selectedSupplierId,
+  onSupplierClick,
 }: {
   startDate: string;
   endDate: string;
@@ -401,6 +403,10 @@ export function CycleSupplierSection({
   flagCounts: Record<CycleFlagKey, number>;
   activeFlag: CycleFlagKey | null;
   onSelectFlag: (k: CycleFlagKey | null) => void;
+  // Drill-down selection is controlled by the parent (CycleTimeClient) so box-plot
+  // outlier dots open the same panel as roster rows. `null` closes it.
+  selectedSupplierId: string | null;
+  onSupplierClick: (id: string | null) => void;
 }) {
   // Keyed state (no synchronous setState in the effect — matches the
   // SpendDecompositionPanel pattern the eslint config requires). The result is
@@ -409,15 +415,6 @@ export function CycleSupplierSection({
   const key = `${startDate}_${endDate}`;
   const [state, setState] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
   const current = dataProp ? { data: dataProp, err: undefined } : state?.key === key ? state : null;
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
-
-  // Clear the open drill-down when the span changes (render-time compare; no
-  // set-state-in-effect, matching the codebase's eslint rule).
-  const [prevKey, setPrevKey] = useState(key);
-  if (prevKey !== key) {
-    setPrevKey(key);
-    if (selectedSupplierId !== null) setSelectedSupplierId(null);
-  }
 
   useEffect(() => {
     if (dataProp) return; // parent supplies data — no self-fetch
@@ -470,7 +467,7 @@ export function CycleSupplierSection({
         flagCounts={flagCounts}
         activeFlag={activeFlag}
         onSelectFlag={onSelectFlag}
-        onSupplierClick={setSelectedSupplierId}
+        onSupplierClick={onSupplierClick}
         selectedSupplierId={selectedSupplierId}
       />
       <ByCategory rows={current.data.byCategory} />
@@ -479,7 +476,7 @@ export function CycleSupplierSection({
         startDate={startDate}
         endDate={endDate}
         stageDominatedPoIds={stageDominatedPoIds}
-        onClose={() => setSelectedSupplierId(null)}
+        onClose={() => onSupplierClick(null)}
       />
     </>
   );

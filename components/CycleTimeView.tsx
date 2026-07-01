@@ -37,7 +37,7 @@ import { Input } from "@/components/ui/input";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
 import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
-import { Sparkline } from "@/components/charts/Sparkline";
+import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
 import { CHART_COLORS } from "@/lib/chart-colors";
 import { StatBlock } from "@/components/ui/stat-block";
 import { SortArrow } from "@/components/RankingCells";
@@ -58,8 +58,6 @@ const STAGES = [
   { key: "invoice_to_payment", label: "Invoice → Payment" },
 ] as const;
 
-const d0 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(0));
-const d1 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(1));
 // 2-decimal medians (precision audit AA — cycle-time medians show 2dp).
 const d2 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
 
@@ -536,6 +534,8 @@ export function CycleTimeView({
   embedded = false,
   showAnomaliesTable = true,
   showMonthlyTrend = true,
+  showStatGrid = true,
+  onOutlierClick,
 }: {
   data: CycleTimeResult;
   embedded?: boolean;
@@ -545,41 +545,18 @@ export function CycleTimeView({
   // The dashboard replaces the Monthly Cycle Time Trend with the stage-occupancy
   // chart (in CycleTimeClient); reports + range-compute keep the trend (default true).
   showMonthlyTrend?: boolean;
+  // The dashboard renders the stat grid itself (above the anomaly flags, with a 5th
+  // "Slowest stage" card); reports + range-compute keep it here (default true).
+  showStatGrid?: boolean;
+  // Dashboard: clicking a box-plot outlier dot opens that supplier's detail panel.
+  // Omitted in reports → dots keep their pin-in-editor behaviour.
+  onOutlierClick?: (supplierId: string) => void;
 }) {
   const d = data.distribution;
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatBlock
-          size="comfortable"
-          label="Median cycle time"
-          value={
-            embedded ? (
-              <span className="flex items-end justify-between gap-2">
-                {`${d2(d.median)} days`}
-                <span className="text-primary">
-                  <Sparkline data={data.monthly_trend.map((m) => m.median_cycle_days)} />
-                </span>
-              </span>
-            ) : (
-              `${d2(d.median)} days`
-            )
-          }
-        />
-        <StatBlock
-          size="comfortable"
-          label="Typical range"
-          value={`${d0(d.p25)}–${d0(d.p75)} d`}
-          sublabel={`spread ${d0(d.iqr)} d`}
-        />
-        <StatBlock
-          size="comfortable"
-          label="Average cycle time"
-          value={`${d1(d.mean)} d`}
-        />
-        <StatBlock size="comfortable" label="Range" value={`${d0(d.min)}–${d0(d.max)} d`} />
-      </div>
+      {showStatGrid && <CycleStatGrid data={data} embedded={embedded} />}
 
       {showMonthlyTrend && (
         <Card className={cardElevation}>
@@ -607,7 +584,12 @@ export function CycleTimeView({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CycleTimeBoxPlot distribution={d} anomalies={data.anomalies} interactive={embedded} />
+          <CycleTimeBoxPlot
+            distribution={d}
+            anomalies={data.anomalies}
+            interactive={embedded}
+            onOutlierClick={onOutlierClick}
+          />
         </CardContent>
       </Card>
 
