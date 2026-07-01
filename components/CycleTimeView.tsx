@@ -535,12 +535,16 @@ export function CycleTimeView({
   data,
   embedded = false,
   showAnomaliesTable = true,
+  showMonthlyTrend = true,
 }: {
   data: CycleTimeResult;
   embedded?: boolean;
   // The dashboard hides the Outlier POs table (PO detail moved to the per-supplier
   // drill-down); reports + range-compute keep it (default true).
   showAnomaliesTable?: boolean;
+  // The dashboard replaces the Monthly Cycle Time Trend with the stage-occupancy
+  // chart (in CycleTimeClient); reports + range-compute keep the trend (default true).
+  showMonthlyTrend?: boolean;
 }) {
   const d = data.distribution;
 
@@ -577,21 +581,23 @@ export function CycleTimeView({
         <StatBlock size="comfortable" label="Range" value={`${d0(d.min)}–${d0(d.max)} d`} />
       </div>
 
-      <Card className={cardElevation}>
-        <CardHeader>
-          <CardTitle>Monthly Cycle Time Trend</CardTitle>
-          <CardDescription>
-            Average total procure-to-pay days by month, with a trailing 3-month
-            rolling average.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MonthlyCycleTrendChart
-            trend={data.monthly_trend}
-            rolling={data.rolling_avg_trend}
-          />
-        </CardContent>
-      </Card>
+      {showMonthlyTrend && (
+        <Card className={cardElevation}>
+          <CardHeader>
+            <CardTitle>Monthly Cycle Time Trend</CardTitle>
+            <CardDescription>
+              Average total procure-to-pay days by month, with a trailing 3-month
+              rolling average.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MonthlyCycleTrendChart
+              trend={data.monthly_trend}
+              rolling={data.rolling_avg_trend}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card className={cardElevation}>
         <CardHeader>

@@ -103,3 +103,19 @@ export type CycleBreakdown = {
   // older cached/consumer shape stays valid.
   stageAnomalies?: CycleAnomaly[];
 };
+
+// --- Fractional per-stage monthly occupancy (GET /api/cycle-time/stage-occupancy)
+/** One month's time-weighted count of POs active in each of the 4 stages, using
+ * "[X] active" framing (X has occurred; the PO is in the phase after it). Each
+ * value = Σ over POs of (days that stage's gap overlapped the month ÷ days in the
+ * month), so a PO live all month contributes 1.0 spread across its stages.
+ * Payment is the exit — there is no payment series. Rounded to 1dp. */
+export type StageOccupancyRow = {
+  month: string; // "YYYY-MM"
+  pr_active: number; // prDate → poDate
+  po_active: number; // poDate → deliveryDate
+  delivery_active: number; // deliveryDate → invoiceDate
+  invoice_active: number; // invoiceDate → paymentDate
+};
+
+export type StageOccupancy = { months: StageOccupancyRow[] };

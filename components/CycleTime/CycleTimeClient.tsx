@@ -8,6 +8,7 @@ import { CycleTimeGlancePanel } from "@/components/CycleTime/CycleTimeGlancePane
 import { CycleTimeAnomalyCards } from "@/components/CycleTime/CycleTimeAnomalyCards";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { CycleSupplierSection } from "@/components/CycleTime/CycleSupplierSection";
+import { StageOccupancySection } from "@/components/CycleTime/StageOccupancySection";
 
 const median = (xs: number[]) => {
   if (xs.length === 0) return 0;
@@ -183,7 +184,10 @@ export function CycleTimeClient({
         </div>
       )}
 
-      <CycleTimeView data={cycleTime} showAnomaliesTable={false} />
+      <CycleTimeView data={cycleTime} showAnomaliesTable={false} showMonthlyTrend={false} />
+
+      {/* Fractional per-stage monthly occupancy (dashboard-only; self-fetching). */}
+      <StageOccupancySection startDate={startDate} endDate={endDate} />
 
       {/* Supplier roster — gated on the breakdown (non-fatal). */}
       {breakdownErr ? (
