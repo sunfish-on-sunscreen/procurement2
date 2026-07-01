@@ -88,8 +88,7 @@ export default async function MethodologyPage() {
           <p>
             The dataset was originally generated externally (the generator is
             not in this repository). A transformer script (
-            <code>scripts/transform_dataset.py</code>) then applies the supplier
-            tier naming (<strong>Core / Established / Standard</strong>) and two
+            <code>scripts/transform_dataset.py</code>) then applies two
             data-quality fixes — varied supply-risk scores and single-source
             flags — deterministically with a fixed seed of <strong>42</strong>.
             A full from-scratch generator is planned for a future phase.
@@ -129,7 +128,7 @@ export default async function MethodologyPage() {
             </ul>
             <p>
               Output includes each supplier&apos;s rank, % of spend, cumulative %,
-              ABC class, and a crosstab of legacy tier vs. ABC class.
+              ABC class.
             </p>
             <p className="text-xs">
               Reference: Juran&apos;s Pareto principle (1951); CIPS spend-analysis
@@ -259,8 +258,8 @@ export default async function MethodologyPage() {
             </ul>
             <p>
               The diagnostic cross-references with the Kraljic quadrant analysis
-              via the color coding on the scatter, surfacing tier mismatches and
-              engagement priorities. Performance score uses the existing
+              via the color coding on the scatter, surfacing engagement
+              priorities. Performance score uses the existing
               CIPS-aligned composite score (quality 25%, delivery 25%, process
               20%, service 15%, risk 15%).
             </p>
@@ -418,18 +417,6 @@ export default async function MethodologyPage() {
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h3 className="text-base font-semibold text-foreground">
-              4.4 Declared tier
-            </h3>
-            <p>
-              Each supplier carries a <strong>declared tier</strong> (Core /
-              Established / Standard) — its contractual classification, shown as
-              identity in the ranking and detail panel. It is not recomputed from the
-              composite score; the scorecard above stands on its own as the
-              performance signal.
-            </p>
-          </section>
         </CardContent>
       </Card>
 
@@ -505,9 +492,6 @@ export default async function MethodologyPage() {
             ranked, specific actions. The recommendations engine evaluates:
           </p>
           <ul className="list-disc space-y-1 pl-5">
-            <li>
-              Tier mismatches across ABC, Kraljic, and Performance vs Spend.
-            </li>
             <li>High-spend underperformers (Critical Issues).</li>
             <li>Low-spend high performers (Hidden Gems).</li>
             <li>High-risk low-impact suppliers (Bottleneck Risk).</li>
@@ -527,7 +511,7 @@ export default async function MethodologyPage() {
             <p>
               Every recommendation carries an impact score (0–100) used to rank
               actions globally across categories. Each category is normalized to
-              the same 0–100 scale so a tier change and a process fix are
+              the same 0–100 scale so an engagement and a process fix are
               comparable. All categories share a spend term:
             </p>
             <p className="rounded-md bg-muted/50 p-2 text-xs">
@@ -537,13 +521,6 @@ export default async function MethodologyPage() {
               </code>
             </p>
             <ul className="list-disc space-y-1.5 pl-5">
-              <li>
-                <strong>Tier Reclassification</strong> —{" "}
-                <code>spend_normalized × severity</code>, where severity is{" "}
-                <strong>1.0</strong> (promote), <strong>0.9</strong> (review),
-                or <strong>0.6</strong> (demote). Higher-spend mismatches rank
-                first.
-              </li>
               <li>
                 <strong>Critical Issues Engagement</strong> —{" "}
                 <code>0.7 × spend_normalized + 0.3 × performance_gap</code>{" "}

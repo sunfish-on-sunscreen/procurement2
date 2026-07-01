@@ -38,7 +38,7 @@ function ParetoTooltip({ active, payload }: ParetoTooltipProps) {
     <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="font-medium">{d.supplier_name}</div>
       <div className="text-muted-foreground">
-        Rank #{d.rank} &middot; Class {d.abc_class} &middot; {d.tier}
+        Rank #{d.rank} &middot; Class {d.abc_class}
       </div>
       <div>Spend: {usdCompact.format(d.total)}</div>
       <div>Cumulative: {(d.cumulative_pct * 100).toFixed(1)}%</div>

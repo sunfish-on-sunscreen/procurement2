@@ -30,27 +30,6 @@ export function PerfBar({ score }: { score: number | null }) {
   );
 }
 
-// --- Tier chip (decision J) ------------------------------------------------- #
-// Core = primary (most dominant), Established = secondary, Standard = muted.
-const TIER_STYLE: Record<string, { bg: string; color: string }> = {
-  Core: { bg: "color-mix(in srgb, var(--primary) 12%, transparent)", color: "var(--primary)" },
-  Established: { bg: "var(--secondary)", color: "var(--secondary-foreground)" },
-  Standard: { bg: "var(--muted)", color: "var(--muted-foreground)" },
-};
-
-export function TierChip({ tier }: { tier: string | null }) {
-  if (!tier) return <span className="text-muted-foreground">—</span>;
-  const st = TIER_STYLE[tier] ?? { bg: "var(--muted)", color: "var(--muted-foreground)" };
-  return (
-    <span
-      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: st.bg, color: st.color }}
-    >
-      {tier}
-    </span>
-  );
-}
-
 // --- Sortable column header arrow (decision L) ------------------------------ #
 // All sortable columns show a faint up/down glyph; the active column shows a
 // prominent directional arrow. (Non-sortable columns don't render this.)

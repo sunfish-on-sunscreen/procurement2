@@ -109,7 +109,6 @@ export function SupplierDetailPanel({
               Identity
             </h4>
             <Field label="Category" value={d.category ?? "—"} />
-            <Field label="Tier" value={d.tier ?? "—"} />
             <Field label="Country" value={d.country ?? "—"} />
           </section>
 

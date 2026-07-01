@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 /**
  * supplier externalId -> category, for the report filters (analysis result rows
- * carry supplier_id + tier but not category). Suppliers are a global catalog
+ * carry supplier_id but not category). Suppliers are a global catalog
  * (one row each, tagged to the latest period), so this is the same for any range.
  */
 export async function getSupplierCategoryMap(): Promise<Record<string, string>> {

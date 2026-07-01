@@ -19,7 +19,6 @@ const SuppliersRow = z.object({
   country: z.string(),
   category: z.string(),
   product_description: z.string(),
-  tier: z.string(),
 });
 
 const PurchasesRow = z.object({
@@ -52,7 +51,6 @@ const SupplierMetricsRow = z.object({
   supplier_id: z.string(),
   supplier_name: z.string(),
   category: z.string(),
-  tier: z.string(),
   // Per-period (P2): the enriched sheet carries one row per active
   // supplier-period; `period` is the invoice-year that row is scoped to.
   period: z.number().int(),
@@ -213,7 +211,6 @@ export async function POST(request: Request) {
     country: r.country,
     category: r.category,
     productDescription: r.product_description,
-    tier: r.tier,
     periodId: maxYearPeriodId,
   }));
 
@@ -266,7 +263,6 @@ export async function POST(request: Request) {
     supplierExternalId: r.supplier_id,
     supplierName: r.supplier_name,
     category: r.category,
-    tier: r.tier,
     totalSpendUsd: r.total_spend_usd,
     numPos: r.num_pos,
     avgPoValueUsd: r.avg_po_value_usd,

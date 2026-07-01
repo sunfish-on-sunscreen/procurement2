@@ -10,7 +10,6 @@ export type ClassificationRankingRow = {
   supplier_id: string;
   supplier_name: string;
   category: string | null;
-  tier: string | null;
   abc_class: "A" | "B" | "C" | null;
   kraljic_quadrant: KraljicQuadrant | null;
   // Composite performance for the span (latest-in-range snapshot, same source as

@@ -17,7 +17,6 @@ export type SectionKey =
   | "actionDashboard"
   | "methodology";
 
-export type Tier = "Core" | "Established" | "Standard";
 export type DetailLevel = "brief" | "standard" | "detailed";
 export type ReportTone = "executive" | "operational" | "analytical";
 
@@ -40,11 +39,9 @@ export interface ReportConfig {
   detailLevel: DetailLevel;
   tone: ReportTone;
   filters: {
-    tiers: Tier[];
     categories: string[]; // supplier categories (e.g. "Fuel", "Tires")
   };
   filterScope: {
-    tierApplies: SectionKey[];
     categoryApplies: SectionKey[];
   };
 }
@@ -57,11 +54,8 @@ export type SavedPreset = {
   updatedAt: string;
 };
 
-export const ALL_TIERS: Tier[] = ["Core", "Established", "Standard"];
-
 export const ALL_REC_CATEGORIES: RecommendationCategory[] = [
   "critical_issues_engagement",
-  "tier_reclassification",
   "bottleneck_risk",
   "hidden_gems_promotion",
   "process_improvement",
@@ -69,18 +63,12 @@ export const ALL_REC_CATEGORIES: RecommendationCategory[] = [
 
 export const REC_CATEGORY_LABELS: Record<RecommendationCategory, string> = {
   critical_issues_engagement: "Critical Issues",
-  tier_reclassification: "Tier Reclassification",
   bottleneck_risk: "Bottleneck Risk",
   hidden_gems_promotion: "Hidden Gems",
   process_improvement: "Process Improvement",
 };
 
-// Smart defaults: which sections each filter applies to out of the box.
-export const DEFAULT_TIER_SCOPE: SectionKey[] = [
-  "kraljic",
-  "performanceSpend",
-  "actionDashboard",
-];
+// Smart defaults: which sections the category filter applies to out of the box.
 export const DEFAULT_CATEGORY_SCOPE: SectionKey[] = [
   "abc",
   "kraljic",
@@ -124,9 +112,8 @@ export function defaultReportConfig(
     recommendationFilters: { categories: [...ALL_REC_CATEGORIES], topN: 10 },
     detailLevel: "standard",
     tone: "operational",
-    filters: { tiers: [...ALL_TIERS], categories: [...allCategories] },
+    filters: { categories: [...allCategories] },
     filterScope: {
-      tierApplies: [...DEFAULT_TIER_SCOPE],
       categoryApplies: [...DEFAULT_CATEGORY_SCOPE],
     },
   };
@@ -134,8 +121,8 @@ export function defaultReportConfig(
 
 /**
  * Reset all FILTER-related config to defaults (Batch 6c) while preserving the
- * user's deliberate choices: period, tone, and detail level. Resets tier +
- * category filters, section visibility, recommendation filters, and the
+ * user's deliberate choices: period, tone, and detail level. Resets the
+ * category filter, section visibility, recommendation filters, and the
  * per-section filter scope.
  */
 export function resetReportFilters(
@@ -155,21 +142,11 @@ export function resetReportFilters(
       methodology: true,
     },
     recommendationFilters: { categories: [...ALL_REC_CATEGORIES], topN: 10 },
-    filters: { tiers: [...ALL_TIERS], categories: [...allCategories] },
+    filters: { categories: [...allCategories] },
     filterScope: {
-      tierApplies: [...DEFAULT_TIER_SCOPE],
       categoryApplies: [...DEFAULT_CATEGORY_SCOPE],
     },
   };
-}
-
-/** True when the tier filter should hide rows for this section. */
-export function tierFilterActive(config: ReportConfig, section: SectionKey) {
-  return (
-    config.filterScope.tierApplies.includes(section) &&
-    config.filters.tiers.length > 0 &&
-    config.filters.tiers.length < ALL_TIERS.length
-  );
 }
 
 /** True when the category filter should hide rows for this section. */

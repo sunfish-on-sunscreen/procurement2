@@ -93,7 +93,7 @@ export async function GET(request: Request) {
     prisma.supplier.findFirst({
       where: { externalId: supplierId },
       orderBy: { periodId: "desc" },
-      select: { supplierName: true, category: true, tier: true, country: true },
+      select: { supplierName: true, category: true, country: true },
     }),
   ]);
 
@@ -168,7 +168,6 @@ export async function GET(request: Request) {
       id: supplierId,
       name: supplier?.supplierName ?? mine[0]?.supplierExternalId ?? supplierId,
       category: supplier?.category ?? null,
-      tier: supplier?.tier ?? null,
       country: supplier?.country ?? null,
       abc_class: abcClass,
       kraljic_quadrant: perf?.kraljic_quadrant ?? null,

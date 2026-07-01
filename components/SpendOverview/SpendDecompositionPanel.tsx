@@ -369,7 +369,7 @@ export function SpendDecompositionPanel({
             {s && (
               <p className="truncate text-xs text-muted-foreground">
                 {(() => {
-                  const parts = [s.category, s.tier, s.abcClass, s.kraljicQuadrant].filter(Boolean);
+                  const parts = [s.category, s.abcClass, s.kraljicQuadrant].filter(Boolean);
                   if (parts.length === 0 && !s.country) return s.id;
                   return (
                     <>

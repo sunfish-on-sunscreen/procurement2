@@ -5,7 +5,6 @@ export type SupplierRankingRow = {
   supplier_id: string;
   supplier_name: string;
   category: string | null;
-  tier: string | null;
   total_spend: number;
   po_count: number;
   avg_po_value: number;
@@ -23,7 +22,6 @@ export type SpendDetail = {
     id: string;
     name: string;
     category: string | null;
-    tier: string | null;
     country: string | null;
     // ABC class + Kraljic quadrant for the SELECTED period (period-scoped, matches
     // the ranking table). Null when the supplier is absent from that period.

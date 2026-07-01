@@ -39,7 +39,6 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
   return (
     <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="font-medium">{d.supplier_name}</div>
-      <div className="text-muted-foreground">{d.tier}</div>
       <div className="mt-1">
         <span className="text-muted-foreground">Zone: </span>
         <span className="font-medium" style={{ color: ZONE_COLORS[d.zone] }}>{d.zone}</span>

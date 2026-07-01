@@ -33,7 +33,6 @@ export type SpendOverviewResult = {
 export type AbcClassification = {
   supplier_id: string;
   supplier_name: string;
-  tier: string;
   total: number;
   rank: number;
   pct: number;
@@ -49,8 +48,6 @@ export type AbcResult = {
     B: { n: number; total_spend: number; pct_of_spend: number };
     C: { n: number; total_spend: number; pct_of_spend: number };
   };
-  crosstab: Record<string, Record<string, number>>; // tier -> abc_class -> count
-  abc_vs_tier?: Record<"A" | "B" | "C", Record<string, number>>; // class -> tier -> count
 };
 
 // --- Cycle Time (process-health monitoring + date-driven comparison) ------- #
@@ -170,7 +167,6 @@ export interface RiskComponents {
 export interface QuadrantAssignment {
   supplier_id: string;
   supplier_name: string;
-  tier: string;
   log_spend: number;
   supply_risk_score: number;
   // Optional: pre-emit cached rows (before this batch) lack it — the breakdown
@@ -196,7 +192,6 @@ export interface KraljicResult {
     spend_median: number;
     risk_median: number;
   };
-  quadrant_vs_tier: Record<KraljicQuadrant, Record<string, number>>;
 }
 
 export type PerformanceZone =
@@ -208,7 +203,6 @@ export type PerformanceZone =
 export interface PerformanceSpendSupplier {
   supplier_id: string;
   supplier_name: string;
-  tier: string;
   log_spend: number;
   total_spend_usd: number; // raw spend for display
   performance_score: number;
@@ -234,15 +228,9 @@ export interface PerformanceSpendResult {
   top_critical_issues: PerformanceSpendSupplier[]; // top 5 by spend
   top_hidden_gems: PerformanceSpendSupplier[]; // top 5 by performance
   performance_by_quadrant: Record<KraljicQuadrant, number>;
-  // 11D cross-reference (optional for backward compatibility).
-  tier_mismatch_by_zone?: Record<
-    PerformanceZone,
-    { mismatched: number; total: number }
-  >;
 }
 
 export type RecommendationCategory =
-  | "tier_reclassification"
   | "critical_issues_engagement"
   | "hidden_gems_promotion"
   | "bottleneck_risk"
@@ -250,8 +238,6 @@ export type RecommendationCategory =
 
 export type RecommendationAction =
   | "promote"
-  | "demote"
-  | "review"
   | "engage"
   | "mitigate"
   | "improve";
@@ -263,8 +249,6 @@ export type Recommendation = {
   action: RecommendationAction;
   supplier_id?: string; // absent for process_improvement
   supplier_name?: string;
-  current_tier?: string;
-  recommended_tier?: string;
   reasoning: string;
   impact_score: number;
   // Category-specific optional fields:

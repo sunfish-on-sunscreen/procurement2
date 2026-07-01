@@ -3,7 +3,6 @@
 import {
   type ReportConfig,
   type SectionKey,
-  ALL_TIERS,
 } from "@/lib/report-config";
 
 const SECTION_ORDER: SectionKey[] = [
@@ -34,16 +33,6 @@ export function FilterStatusStrip({
   config: ReportConfig;
   totalCategories: number;
 }) {
-  const tiers = config.filters.tiers;
-  const tierLabel =
-    tiers.length >= ALL_TIERS.length
-      ? "All tiers"
-      : tiers.length === 0
-        ? "No tiers"
-        : tiers.length === 1
-          ? `${tiers[0]} tier only`
-          : `${tiers.join(", ")} tiers`;
-
   const catN = config.filters.categories.length;
   const catLabel =
     catN >= totalCategories
@@ -60,7 +49,6 @@ export function FilterStatusStrip({
       : `${totalSections} sections`;
 
   const parts = [
-    tierLabel,
     catLabel,
     sectionLabel,
     `${TONE_LABELS[config.tone]} tone`,

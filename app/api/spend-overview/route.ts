@@ -72,14 +72,14 @@ export async function POST(request: Request) {
   `);
   const aggById = new Map(agg.map((r) => [r.id, r]));
 
-  // The full supplier roster (identity + declared tier) — one row per supplier.
+  // The full supplier roster (identity) — one row per supplier.
   // Including ALL suppliers means those with $0 in the period appear too, muted
   // and ranked last (they still exist; only their period activity is empty).
   // ⚠️ SupplierMetric is now per-period (P2): without `distinct` this fans out to
   // one row per supplier-period and duplicates every supplier in the ranking.
-  // Identity/category/tier are period-invariant, so keep any one row per supplier.
+  // Identity/category are period-invariant, so keep any one row per supplier.
   const roster = await prisma.supplierMetric.findMany({
-    select: { supplierExternalId: true, supplierName: true, category: true, tier: true },
+    select: { supplierExternalId: true, supplierName: true, category: true },
     distinct: ["supplierExternalId"],
     orderBy: { periodId: "desc" },
   });
@@ -95,7 +95,6 @@ export async function POST(request: Request) {
         supplier_id: s.supplierExternalId,
         supplier_name: s.supplierName,
         category: s.category ?? null,
-        tier: s.tier ?? null,
         total_spend: totalSpend,
         po_count: poCount,
         avg_po_value: poCount > 0 ? totalSpend / poCount : 0,

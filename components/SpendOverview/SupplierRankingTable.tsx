@@ -10,14 +10,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { SortArrow, TierChip } from "@/components/RankingCells";
+import { SortArrow } from "@/components/RankingCells";
 
 const num0 = new Intl.NumberFormat("en-US");
 
 type SortKey =
   | "supplier_name"
   | "category"
-  | "tier"
   | "total_spend"
   | "po_count"
   | "avg_po_value"
@@ -30,7 +29,6 @@ type Align = "left" | "right" | "center";
 const COLUMNS: { key: SortKey; label: string; align: Align; width?: string }[] = [
   { key: "supplier_name", label: "Supplier", align: "left" },
   { key: "category", label: "Category", align: "left" },
-  { key: "tier", label: "Tier", align: "left", width: "w-[110px]" },
   { key: "total_spend", label: "Spend", align: "right" },
   { key: "po_count", label: "Invoices", align: "right" },
   { key: "avg_po_value", label: "Avg invoice", align: "right" },
@@ -75,7 +73,7 @@ export function SupplierRankingTable({
     setSort((s) =>
       s.key === key
         ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: key === "supplier_name" || key === "category" || key === "tier" ? "asc" : "desc" },
+        : { key, dir: key === "supplier_name" || key === "category" ? "asc" : "desc" },
     );
 
   return (
@@ -134,7 +132,6 @@ export function SupplierRankingTable({
                     {r.category ?? "—"}
                   </span>
                 </td>
-                <td className="py-3">{r.inactive ? <span className="text-muted-foreground">—</span> : <TierChip tier={r.tier} />}</td>
                 <td className="py-3 text-right tabular-nums">{r.inactive ? "—" : formatCompactCurrency(r.total_spend)}</td>
                 <td className="py-3 text-right tabular-nums">{r.inactive ? "—" : num0.format(r.po_count)}</td>
                 <td className="py-3 text-right tabular-nums">{r.inactive ? "—" : formatCompactCurrency(r.avg_po_value)}</td>

@@ -72,7 +72,6 @@ export async function GET(
         periodId: true,
         supplierName: true,
         category: true,
-        tier: true,
         compositeScore: true,
         defectRatePct: true,
         complaintCountAnnual: true,
@@ -93,7 +92,7 @@ export async function GET(
     prisma.supplier.findFirst({
       where: { externalId: id },
       orderBy: { periodId: "desc" },
-      select: { supplierName: true, country: true, category: true, tier: true },
+      select: { supplierName: true, country: true, category: true },
     }),
     prisma.reportingPeriod.findMany({
       orderBy: { startDate: "asc" },
@@ -339,7 +338,6 @@ export async function GET(
       id,
       name: metric?.supplierName ?? supplier?.supplierName ?? purchases[0]?.supplierName ?? id,
       category: metric?.category ?? supplier?.category ?? null,
-      tier: metric?.tier ?? supplier?.tier ?? null,
       country: supplier?.country ?? null,
       abcClass,
       kraljicQuadrant,

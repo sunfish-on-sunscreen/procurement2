@@ -11,16 +11,11 @@ import type {
   CycleTimeResult,
   PerformanceSpendResult,
   RecommendationsResult,
-  Recommendation,
 } from "@/lib/analysis-types";
 import { deriveReportContext, TEMPLATES } from "@/lib/report-templates";
 import {
   type ReportConfig,
   type SectionKey,
-  type Tier,
-  ALL_TIERS,
-  FILTERABLE_SECTIONS,
-  tierFilterActive,
   categoryFilterActive,
 } from "@/lib/report-config";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
@@ -63,10 +58,8 @@ const ZONE_ORDER = [
 ] as const;
 const ACTION_COLORS: Record<string, string> = {
   engage: "#ef4444",
-  review: "#f59e0b",
   mitigate: "#f97316",
   promote: "#10b981",
-  demote: "#64748b",
   improve: "#3b82f6",
 };
 
@@ -79,43 +72,8 @@ const usd = (n: number) =>
   }).format(n);
 
 /**
- * Read-only per-section tier-filter indicator (Batch 6c). Shows the global tier
- * selection; clicking opens the sidebar's tier filter (no per-chip toggle).
- * Editor-only (`no-print`).
- */
-function TierChips({
-  tiers,
-  onOpen,
-}: {
-  tiers: Tier[];
-  onOpen?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title="Open tier filter in settings"
-      className="no-print ml-auto flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] hover:bg-muted"
-    >
-      {ALL_TIERS.map((t) => (
-        <span
-          key={t}
-          className={
-            tiers.includes(t)
-              ? "text-foreground"
-              : "text-muted-foreground/40 line-through"
-          }
-        >
-          {t}
-        </span>
-      ))}
-    </button>
-  );
-}
-
-/**
  * A report section (Batch 6c). In the editor (`embedded`) the header is sticky,
- * carries a collapse chevron + optional tier chips, and the body collapses via
+ * carries a collapse chevron, and the body collapses via
  * the `hidden` attribute (kept in the DOM so PDF export can reveal it). On the
  * static persisted view it renders as a plain section, unchanged.
  */
@@ -180,7 +138,6 @@ export function ReportDocument({
   supplierCategory,
   legacyCycle,
   embedded = false,
-  onOpenTierFilter,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
@@ -196,11 +153,9 @@ export function ReportDocument({
   /**
    * When true (the live editor at /reports/preview), suppress the built-in
    * sticky header (Back + Download) — the editor shell/sidebar owns those — and
-   * enable the Batch 6c chrome (TOC, sticky headers, collapse, tier chips).
+   * enable the Batch 6c chrome (TOC, sticky headers, collapse).
    */
   embedded?: boolean;
-  /** Editor-only: open the sidebar's tier filter (from a section's tier chips). */
-  onOpenTierFilter?: () => void;
 }) {
   const { pinnedSupplierId, pin } = usePin();
   const { sections, detailLevel } = config;
@@ -224,15 +179,12 @@ export function ReportDocument({
   );
   const T = TEMPLATES[tone];
 
-  // Visibility-only row filter for a section (tier + category, per scope).
-  function keep<T extends { tier?: string; supplier_id?: string }>(
+  // Visibility-only row filter for a section (category, per scope).
+  function keep<T extends { supplier_id?: string }>(
     rows: T[],
     section: SectionKey,
   ): T[] {
     let out = rows;
-    if (tierFilterActive(config, section)) {
-      out = out.filter((r) => r.tier == null || config.filters.tiers.includes(r.tier as never));
-    }
     if (categoryFilterActive(config, section, totalCategories)) {
       out = out.filter((r) => {
         const cat = r.supplier_id ? supplierCategory[r.supplier_id] : undefined;
@@ -243,14 +195,10 @@ export function ReportDocument({
   }
 
   const filterNote = (section: SectionKey): string | null => {
-    const t = tierFilterActive(config, section)
-      ? `tiers: ${config.filters.tiers.join(", ")}`
-      : null;
     const c = categoryFilterActive(config, section, totalCategories)
       ? `${config.filters.categories.length} categories`
       : null;
-    const parts = [t, c].filter(Boolean);
-    return parts.length ? `Filtered to ${parts.join("; ")}.` : null;
+    return c ? `Filtered to ${c}.` : null;
   };
 
   // ---- Recommendations: filter by category + scope, then cap ----------------
@@ -258,16 +206,16 @@ export function ReportDocument({
   const recsScoped = keep(
     recsAll.filter((r) =>
       config.recommendationFilters.categories.includes(r.type),
-    ).map((r) => ({ ...r, tier: r.current_tier })),
+    ),
     "actionDashboard",
-  ) as (Recommendation & { tier?: string })[];
+  );
   const recCap = brief ? 3 : detailed ? recsScoped.length : config.recommendationFilters.topN;
   const recsToShow = recsScoped.slice(0, recCap);
 
   // ---- Section chrome (Batch 6c, editor only) -------------------------------
   // Collapse + scroll-spy are per-session local state. ReportEditor remounts
   // this component on period change (key={spanKey}), so they reset there — no
-  // effect needed. Tier chips render only on sections the tier filter can affect.
+  // effect needed.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -334,11 +282,6 @@ export function ReportDocument({
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, []);
-
-  const tierChips = (section: SectionKey) =>
-    FILTERABLE_SECTIONS.includes(section) ? (
-      <TierChips tiers={config.filters.tiers} onOpen={onOpenTierFilter} />
-    ) : undefined;
 
   return (
     <div className="flex flex-col gap-4">
@@ -421,7 +364,6 @@ export function ReportDocument({
                 embedded={embedded}
                 collapsed={collapsed.has("spendOverview")}
                 onToggle={() => toggleCollapse("spendOverview")}
-                headerExtra={tierChips("spendOverview")}
               >
                 <OverviewCharts spend={analyses.spend_overview} embedded={embedded} />
                 <p className="text-sm leading-relaxed text-muted-foreground">
@@ -438,7 +380,6 @@ export function ReportDocument({
                 embedded={embedded}
                 collapsed={collapsed.has("abc")}
                 onToggle={() => toggleCollapse("abc")}
-                headerExtra={tierChips("abc")}
               >
                 {(() => {
                   const rows = keep(analyses.abc!.classifications, "abc");
@@ -451,7 +392,6 @@ export function ReportDocument({
                           <tr className="border-b text-left text-muted-foreground">
                             <th className="py-1 text-right font-medium">#</th>
                             <th className="py-1 font-medium">Supplier</th>
-                            <th className="py-1 font-medium">Tier</th>
                             <th className="py-1 font-medium">Class</th>
                             <th className="py-1 text-right font-medium">Spend</th>
                             <th className="py-1 text-right font-medium">%</th>
@@ -472,7 +412,6 @@ export function ReportDocument({
                               <td className="py-1 font-medium">
                                 {c.supplier_name}
                               </td>
-                              <td className="py-1">{c.tier}</td>
                               <td className="py-1">{c.abc_class}</td>
                               <td className="py-1 text-right">{usd(c.total)}</td>
                               <td className="py-1 text-right">
@@ -506,7 +445,6 @@ export function ReportDocument({
                 embedded={embedded}
                 collapsed={collapsed.has("kraljic")}
                 onToggle={() => toggleCollapse("kraljic")}
-                headerExtra={tierChips("kraljic")}
               >
                 {(() => {
                   const assigns = keep(
@@ -577,7 +515,6 @@ export function ReportDocument({
                           <thead>
                             <tr className="border-b text-left text-muted-foreground">
                               <th className="py-1 font-medium">Supplier</th>
-                              <th className="py-1 font-medium">Tier</th>
                               <th className="py-1 font-medium">Quadrant</th>
                               <th className="py-1 text-right font-medium">
                                 Supply risk
@@ -588,7 +525,6 @@ export function ReportDocument({
                             {assigns.map((a) => (
                               <tr key={a.supplier_id} className="border-b">
                                 <td className="py-1">{a.supplier_name}</td>
-                                <td className="py-1">{a.tier}</td>
                                 <td className="py-1">{a.quadrant}</td>
                                 <td className="py-1 text-right">
                                   {a.supply_risk_score.toFixed(1)}
@@ -612,7 +548,6 @@ export function ReportDocument({
                 embedded={embedded}
                 collapsed={collapsed.has("performanceSpend")}
                 onToggle={() => toggleCollapse("performanceSpend")}
-                headerExtra={tierChips("performanceSpend")}
               >
                 {(() => {
                   const ps = analyses.performance_spend!;
@@ -670,7 +605,7 @@ export function ReportDocument({
                           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                             {crit.map((s) => (
                               <li key={s.supplier_id}>
-                                {s.supplier_name} ({s.tier}) — {usd(s.total_spend_usd)},
+                                {s.supplier_name} — {usd(s.total_spend_usd)},
                                 performance {s.performance_score.toFixed(1)}
                               </li>
                             ))}
@@ -682,7 +617,6 @@ export function ReportDocument({
                           <thead>
                             <tr className="border-b text-left text-muted-foreground">
                               <th className="py-1 font-medium">Supplier</th>
-                              <th className="py-1 font-medium">Tier</th>
                               <th className="py-1 font-medium">Zone</th>
                               <th className="py-1 text-right font-medium">Spend</th>
                               <th className="py-1 text-right font-medium">Perf.</th>
@@ -692,7 +626,6 @@ export function ReportDocument({
                             {fullRows.map((s) => (
                               <tr key={s.supplier_id} className="border-b">
                                 <td className="py-1">{s.supplier_name}</td>
-                                <td className="py-1">{s.tier}</td>
                                 <td className="py-1">{s.zone}</td>
                                 <td className="py-1 text-right">
                                   {usd(s.total_spend_usd)}
@@ -721,7 +654,6 @@ export function ReportDocument({
                   embedded={embedded}
                   collapsed={collapsed.has("cycleTime")}
                   onToggle={() => toggleCollapse("cycleTime")}
-                  headerExtra={tierChips("cycleTime")}
                 >
                   <p className="rounded-md border border-amber-500/40 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                     This report uses the legacy pre/post automation comparison
@@ -739,7 +671,6 @@ export function ReportDocument({
                     embedded={embedded}
                     collapsed={collapsed.has("cycleTime")}
                     onToggle={() => toggleCollapse("cycleTime")}
-                    headerExtra={tierChips("cycleTime")}
                   >
                     <CycleTimeView data={analyses.cycle_time} embedded={embedded} />
                     <p className="text-sm leading-relaxed text-muted-foreground">
@@ -757,7 +688,6 @@ export function ReportDocument({
                 embedded={embedded}
                 collapsed={collapsed.has("actionDashboard")}
                 onToggle={() => toggleCollapse("actionDashboard")}
-                headerExtra={tierChips("actionDashboard")}
               >
                 <p className="text-sm leading-relaxed text-muted-foreground">
                   {T.recommendedPriorities(ctx)}
@@ -795,11 +725,6 @@ export function ReportDocument({
                           <span className="font-medium">
                             {p.supplier_name ?? p.scope}
                           </span>
-                          {p.current_tier && (
-                            <span className="text-xs text-muted-foreground">
-                              ({p.current_tier})
-                            </span>
-                          )}
                           <span className="ml-auto text-xs text-muted-foreground">
                             Impact {p.impact_score.toFixed(0)}
                           </span>

@@ -211,7 +211,7 @@ export function CycleTimeSupplierDetailPanel({
             </DialogTitle>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
-                {[s.category, s.tier, s.country].filter(Boolean).join(" · ") || s.id}
+                {[s.category, s.country].filter(Boolean).join(" · ") || s.id}
               </p>
             )}
             <p className="mt-0.5 text-[11px] text-muted-foreground" title={span.full}>

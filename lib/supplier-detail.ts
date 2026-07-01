@@ -35,7 +35,6 @@ export type SupplierDetail = {
   supplier_name: string;
   category: string | null;
   country: string | null;
-  tier: string | null;
   total_spend_usd: number | null;
   num_pos: number | null;
   performance_score: number | null;
@@ -86,7 +85,6 @@ export function buildSupplierDetail(
     supplier_name: name,
     category: supplierCategory[supplierId] ?? null,
     country: dir?.country ?? null,
-    tier: abcRow?.tier ?? krRow?.tier ?? psRow?.tier ?? null,
     total_spend_usd: psRow?.total_spend_usd ?? abcRow?.total ?? null,
     num_pos: dir?.num_pos ?? null,
     performance_score: psRow?.performance_score ?? null,

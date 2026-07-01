@@ -65,7 +65,6 @@ model Supplier {
   country            String
   category           String
   productDescription String
-  tier               String // Legacy tier
   periodId           String
   period             ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
@@ -110,7 +109,6 @@ model SupplierMetric {
   supplierExternalId   String
   supplierName         String
   category             String
-  tier                 String
   totalSpendUsd        Float
   numPos               Int
   avgPoValueUsd        Float

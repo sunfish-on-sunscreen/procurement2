@@ -1,7 +1,7 @@
 /**
  * Quick-view pills (Batch 6d): code-defined report "shapes" — a combination of
  * section visibility + tone + detail level. Pills deliberately do NOT touch the
- * period or the tier/category filters (those are contextual to what the user is
+ * period or the category filter (those are contextual to what the user is
  * analysing). Applying a pill spreads its shape over the current config.
  */
 import type {

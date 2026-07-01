@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   // ranking. Active suppliers (present in the performance set) carry their
   // Kraljic quadrant + composite + ABC class + spend; absent ones are zeroed.
   const roster = await prisma.supplierMetric.findMany({
-    select: { supplierExternalId: true, supplierName: true, tier: true },
+    select: { supplierExternalId: true, supplierName: true },
     distinct: ["supplierExternalId"],
     orderBy: { periodId: "desc" },
   });
@@ -81,7 +81,6 @@ export async function POST(request: Request) {
         supplier_id: r.supplierExternalId,
         supplier_name: ps?.supplier_name ?? r.supplierName,
         category: categoryMap[r.supplierExternalId] ?? null,
-        tier: ps?.tier ?? r.tier ?? null,
         abc_class: abcBySupplier.get(r.supplierExternalId)?.abc_class ?? null,
         kraljic_quadrant: ps?.kraljic_quadrant ?? null,
         performance_score: ps?.performance_score ?? null,

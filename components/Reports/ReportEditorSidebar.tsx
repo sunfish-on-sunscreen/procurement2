@@ -18,9 +18,7 @@ import {
   type SectionKey,
   type DetailLevel,
   type ReportTone,
-  type Tier,
   type SavedPreset,
-  ALL_TIERS,
   ALL_REC_CATEGORIES,
   REC_CATEGORY_LABELS,
   SECTION_LABELS,
@@ -112,7 +110,7 @@ export function ReportEditorSidebar({
   saving: boolean;
   onSave: () => void;
   pdfFilename: string;
-  // Controlled by ReportEditor (Batch 6c) so a section's tier chip can open it.
+  // Controlled by ReportEditor (Batch 6c).
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -408,26 +406,6 @@ export function ReportEditorSidebar({
           </section>
         )}
 
-        {/* Tier filter */}
-        <section id="sidebar-tier-filter" className="scroll-mt-2 space-y-2">
-          <GroupLabel>Tier filter</GroupLabel>
-          {ALL_TIERS.map((t) => (
-            <Check
-              key={t}
-              checked={config.filters.tiers.includes(t)}
-              onChange={() =>
-                set({
-                  filters: {
-                    ...config.filters,
-                    tiers: toggle(config.filters.tiers, t) as Tier[],
-                  },
-                })
-              }
-              label={t}
-            />
-          ))}
-        </section>
-
         {/* Category filter */}
         <section className="space-y-2">
           <button
@@ -482,7 +460,7 @@ export function ReportEditorSidebar({
           {advancedOpen && (
             <div className="space-y-2 rounded-md border p-2">
               <p className="text-[11px] text-muted-foreground">
-                Which sections the tier / category filters apply to.
+                Which sections the category filter applies to.
               </p>
               {FILTERABLE_SECTIONS.map((s) => (
                 <div
@@ -491,25 +469,6 @@ export function ReportEditorSidebar({
                 >
                   <span className="truncate">{SECTION_LABELS[s]}</span>
                   <div className="flex shrink-0 gap-2">
-                    <label className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 accent-primary"
-                        checked={config.filterScope.tierApplies.includes(s)}
-                        onChange={() =>
-                          set({
-                            filterScope: {
-                              ...config.filterScope,
-                              tierApplies: toggle(
-                                config.filterScope.tierApplies,
-                                s,
-                              ),
-                            },
-                          })
-                        }
-                      />
-                      Tier
-                    </label>
                     <label className="flex items-center gap-1">
                       <input
                         type="checkbox"

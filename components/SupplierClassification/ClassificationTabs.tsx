@@ -143,7 +143,7 @@ function PerformanceTab({ perf }: { perf: PerformanceSpendResult }) {
   );
 }
 
-/** Two-tab card: Kraljic matrix and Performance vs spend, each chart + profiles. */
+/** Two-tab card: Exposure positioning (Kraljic) and Performance positioning, each chart + profiles. */
 export function ClassificationTabs({
   kraljic,
   perf,
@@ -159,7 +159,7 @@ export function ClassificationTabs({
         <CardTitle>Classification views</CardTitle>
         <PillTabs
           className="mt-2"
-          tabs={[["kraljic", "Kraljic matrix"], ["performance", "Performance vs spend"]] as const}
+          tabs={[["kraljic", "Exposure positioning"], ["performance", "Performance positioning"]] as const}
           active={tab}
           onChange={setTab}
         />

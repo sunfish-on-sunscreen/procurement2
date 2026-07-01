@@ -51,8 +51,6 @@ export type ReportInput = {
 
 const ACTION_VERB: Record<RecommendationAction, string> = {
   promote: "Promote",
-  demote: "Demote",
-  review: "Review tier for",
   engage: "Engage",
   mitigate: "Mitigate risk for",
   improve: "Improve",
@@ -127,7 +125,6 @@ export type ReportContext = {
   bPct: number;
   cN: number;
   cPct: number;
-  coreNonA: number;
   // kraljic
   stratN: number;
   stratPct: number;
@@ -136,7 +133,6 @@ export type ReportContext = {
   bottN: number;
   routN: number;
   strategicNames: string[];
-  underTiered: number;
   spendMedianLog: number;
   riskMedian: number;
   // performance
@@ -208,10 +204,6 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
   const A = abc?.summary.A ?? { n: 0, total_spend: 0, pct_of_spend: 0 };
   const B = abc?.summary.B ?? { n: 0, total_spend: 0, pct_of_spend: 0 };
   const C = abc?.summary.C ?? { n: 0, total_spend: 0, pct_of_spend: 0 };
-  const coreNonA =
-    abc?.classifications.filter((c) => c.tier === "Core" && c.abc_class !== "A")
-      .length ?? 0;
-
   const kr = a.kraljic;
   const qprof = (q: KraljicQuadrant): QuadrantProfile =>
     kr?.quadrant_profiles.find((p) => p.quadrant === q) ?? {
@@ -229,12 +221,6 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
     .filter((x) => x.quadrant === "Strategic")
     .slice(0, 2)
     .map((x) => x.supplier_name);
-  const underTiered = (kr?.quadrant_assignments ?? []).filter(
-    (x) =>
-      x.tier === "Standard" &&
-      (x.quadrant === "Strategic" || x.quadrant === "Leverage"),
-  ).length;
-
   const ps = a.performanceSpend;
   const zone = (z: string) => ps?.zone_profiles.find((p) => p.zone === z);
   const stars = zone("Stars");
@@ -290,7 +276,6 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
     bPct: B.pct_of_spend * 100,
     cN: C.n,
     cPct: C.pct_of_spend * 100,
-    coreNonA,
     stratN: strat.n_suppliers,
     stratPct: strat.pct_of_total_spend,
     levN: lev.n_suppliers,
@@ -298,7 +283,6 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
     bottN: qprof("Bottleneck").n_suppliers,
     routN: qprof("Routine").n_suppliers,
     strategicNames,
-    underTiered,
     spendMedianLog: kr?.axis_thresholds.spend_median ?? 0,
     riskMedian: kr?.axis_thresholds.risk_median ?? 0,
     starsN: stars?.n_suppliers ?? 0,
@@ -380,11 +364,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.aPct,
       )} of spend, while the long tail of ${c.cN} contributes only ${pct(
         c.cPct,
-      )}. The priority is to govern the high-value group tightly${
-        c.coreNonA > 0
-          ? ` and to revisit ${c.coreNonA} top-tier designation(s) that no longer match where the money actually goes`
-          : ""
-      }.`,
+      )}. The priority is to govern the high-value group tightly.`,
     kraljic: (c) =>
       `Mapped by value and replaceability, ${c.stratN} suppliers are business-critical and hard to replace, holding ${pct(
         c.stratPct,
@@ -454,11 +434,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.aPct,
       )} of spend, ${c.bN} Class B (${pct(c.bPct)}), and ${c.cN} Class C (${pct(
         c.cPct,
-      )}).${
-        c.coreNonA > 0
-          ? ` Notably, ${c.coreNonA} Core-tier supplier(s) fell into non-A classes — their assigned tier no longer tracks realised spend, worth a review.`
-          : ""
-      }`,
+      )}).`,
     kraljic: (c) =>
       `Kraljic segmentation maps suppliers on profit impact (spend) against supply risk. ${c.stratN} suppliers fall in the Strategic quadrant (high spend, high risk — ${pct(
         c.stratPct,
@@ -510,11 +486,6 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
             )} — high-spend suppliers underperforming on quality/delivery.`,
           ]
         : []),
-      ...(c.underTiered > 0
-        ? [
-            `Review ${c.underTiered} Standard-tier supplier(s) sitting in high-impact quadrants for promotion.`,
-          ]
-        : []),
     ],
     recommendedPriorities: (c) =>
       `The actions below are ranked by impact score and ready to assign. Work the list top-down: each item names the supplier (or process stage), the recommended move, and the evidence behind it.${
@@ -555,11 +526,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.cPct,
       )}). The A-share of ${pct(
         c.aPct,
-      )} is broadly consistent with an 80/20 concentration.${
-        c.coreNonA > 0
-          ? ` ${c.coreNonA} Core-tier supplier(s) fall outside Class A, a tier/spend discordance worth flagging though not necessarily an error — tier reflects relationship policy, ABC reflects realised spend.`
-          : ""
-      }`,
+      )} is broadly consistent with an 80/20 concentration.`,
     kraljic: (c) =>
       `Quadrants are assigned by a median split of log-spend (median ≈ ${c.spendMedianLog.toFixed(
         1,
@@ -682,19 +649,9 @@ export function generateExecutiveSummary(input: ReportInput): {
   const key_findings = T.keyFindings(ctx);
 
   const recommendations: string[] = [];
-  if (ctx.coreNonA > 0) {
-    recommendations.push(
-      `Reclassify ${ctx.coreNonA} supplier(s) whose legacy tier no longer matches their actual spend and ABC class.`,
-    );
-  }
   for (const nm of ctx.strategicNames) {
     recommendations.push(
       `Establish senior-level relationship management for ${nm} (Strategic quadrant — high spend and high supply risk).`,
-    );
-  }
-  if (ctx.underTiered > 0) {
-    recommendations.push(
-      `Review ${ctx.underTiered} Standard-tier supplier(s) sitting in the Strategic or Leverage quadrant — their spend impact suggests they are promotion candidates.`,
     );
   }
   if (ctx.cmpSignificant) {

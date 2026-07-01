@@ -9,10 +9,8 @@ import { Badge } from "@/components/ui/badge";
 
 const ACTION_COLORS: Record<RecommendationAction, string> = {
   engage: "#ef4444", // red — most urgent
-  review: "#f59e0b", // amber
   mitigate: "#f97316", // orange
   promote: "#10b981", // green
-  demote: "#64748b", // slate
   improve: "#3b82f6", // blue
 };
 
@@ -83,12 +81,7 @@ export function ActionRecommendationCard({
   // Title + subtitle adapt to the recommendation type.
   let title = r.supplier_name ?? "Process";
   let subtitle: string | null = null;
-  if (r.type === "tier_reclassification") {
-    subtitle =
-      r.recommended_tier === "review"
-        ? "Flag for tier review"
-        : `Currently ${r.current_tier} → Recommended ${r.recommended_tier}`;
-  } else if (r.type === "critical_issues_engagement") {
+  if (r.type === "critical_issues_engagement") {
     subtitle = r.kraljic_quadrant ? `${r.kraljic_quadrant} quadrant` : null;
   } else if (r.type === "bottleneck_risk") {
     subtitle = r.country ? `Country: ${r.country}` : null;
@@ -113,11 +106,6 @@ export function ActionRecommendationCard({
       metrics.push({ label: "Supply risk", value: r.supply_risk_score.toFixed(1), big: true });
     if (r.total_spend_usd != null)
       metrics.push({ label: "Spend", value: usd(r.total_spend_usd) });
-  } else if (r.type === "tier_reclassification") {
-    if (r.total_spend_usd != null)
-      metrics.push({ label: "Spend", value: usd(r.total_spend_usd), big: true });
-    if (r.performance_score != null)
-      metrics.push({ label: "Performance", value: r.performance_score.toFixed(1) });
   }
 
   return (
@@ -126,11 +114,6 @@ export function ActionRecommendationCard({
         <div className="flex flex-wrap items-center gap-2">
           <ActionBadge action={r.action} />
           <span className="font-semibold">{title}</span>
-          {r.supplier_name && r.current_tier && (
-            <Badge variant="outline" className="text-xs font-normal">
-              {r.current_tier}
-            </Badge>
-          )}
         </div>
         {subtitle && (
           <div className="text-xs text-muted-foreground">{subtitle}</div>

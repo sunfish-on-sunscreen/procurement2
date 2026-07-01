@@ -231,14 +231,11 @@ def abc_analysis(purchases, suppliers, metrics):
         return "C"
 
     spend["abc_class"] = spend["cumulative_pct"].apply(classify)
-    tier_map = dict(zip(suppliers["externalId"], suppliers["tier"])) if len(suppliers) else {}
-    spend["tier"] = spend["supplierExternalId"].map(tier_map).fillna("Unknown")
 
     classifications = [
         {
             "supplier_id": str(r["supplierExternalId"]),
             "supplier_name": str(r["supplierName"]),
-            "tier": str(r["tier"]),
             "total": num(r["total"]),
             "rank": int(r["rank"]),
             "pct": num(r["pct"], 6),
@@ -258,24 +255,10 @@ def abc_analysis(purchases, suppliers, metrics):
             "pct_of_spend": num((st / grand) if grand else 0.0, 6),
         }
 
-    ct = pd.crosstab(spend["tier"], spend["abc_class"])
-    crosstab = {str(t): {str(c): int(ct.loc[t, c]) for c in ct.columns} for t in ct.index}
-
-    # Class-major crosstab over the declared tiers (for the ABC × Tier insight).
-    abc_vs_tier = {}
-    for cls in ["A", "B", "C"]:
-        sub = spend[spend["abc_class"] == cls]
-        abc_vs_tier[cls] = {
-            t: int((sub["tier"] == t).sum())
-            for t in ["Core", "Established", "Standard"]
-        }
-
     return {
         "thresholds": [0.80, 0.95],
         "classifications": classifications,
         "summary": summary,
-        "crosstab": crosstab,
-        "abc_vs_tier": abc_vs_tier,
     }
 
 
@@ -536,9 +519,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         else pd.DataFrame()
     )
 
-    def tier_of(s):
-        return str(sup_meta.loc[s, "tier"]) if s in sup_meta.index else "Unknown"
-
     def name_of(s):
         return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
 
@@ -555,7 +535,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         "top_critical_issues": [],
         "top_hidden_gems": [],
         "performance_by_quadrant": {},
-        "tier_mismatch_by_zone": {},
     }
 
     # Suppliers needing both spend AND a performance score (and a quadrant).
@@ -581,7 +560,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         {
             "supplier_id": s,
             "supplier_name": name_of(s),
-            "tier": tier_of(s),
             "log_spend": num(log_spend_map[s]),
             "total_spend_usd": num(total_spend_map[s]),
             "performance_score": num(perf_of(s)),
@@ -625,26 +603,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
             num(np.mean([perf_of(s) for s in qmembers])) if qmembers else 0
         )
 
-    # Tier mismatches by zone: the declared tier that's "wrong" for each zone.
-    def _is_mismatch(zone, tier):
-        if zone == "Stars":
-            return tier != "Core"  # high-spend high-perf under-classified
-        if zone == "Critical Issues":
-            return tier == "Core"  # labeled Core but underperforming
-        if zone == "Hidden Gems":
-            return tier == "Standard"  # small-but-excellent, promotion candidate
-        if zone == "Long Tail":
-            return tier == "Core"  # labeled Core but low/low
-        return False
-
-    tier_mismatch_by_zone = {}
-    for z in ["Stars", "Critical Issues", "Hidden Gems", "Long Tail"]:
-        members = [r for r in rows if r["zone"] == z]
-        tier_mismatch_by_zone[z] = {
-            "mismatched": sum(1 for r in members if _is_mismatch(z, r["tier"])),
-            "total": len(members),
-        }
-
     return {
         "suppliers": rows,
         "zone_profiles": zone_profiles,
@@ -655,7 +613,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         "top_critical_issues": top_critical_issues,
         "top_hidden_gems": top_hidden_gems,
         "performance_by_quadrant": performance_by_quadrant,
-        "tier_mismatch_by_zone": tier_mismatch_by_zone,
     }
 
 
@@ -856,9 +813,6 @@ def kraljic_analysis(purchases, suppliers, metrics):
         else pd.DataFrame()
     )
 
-    def tier_of(s):
-        return str(sup_meta.loc[s, "tier"]) if s in sup_meta.index else "Unknown"
-
     def name_of(s):
         return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
 
@@ -889,7 +843,6 @@ def kraljic_analysis(purchases, suppliers, metrics):
             {
                 "supplier_id": s,
                 "supplier_name": name_of(s),
-                "tier": tier_of(s),
                 "log_spend": num(spend_map[s]),
                 "supply_risk_score": risk_total,
                 "risk_components": risk_components,
@@ -899,7 +852,6 @@ def kraljic_analysis(purchases, suppliers, metrics):
 
     grand_total = sum(total_spend_map[s] for s in sids) or 1.0
     quadrant_profiles = []
-    quadrant_vs_tier = {}
     for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
         members = [s for s in sids if quad_map[s] == q]
         tot = sum(total_spend_map[s] for s in members)
@@ -915,17 +867,11 @@ def kraljic_analysis(purchases, suppliers, metrics):
                 "median_spend": num(np.median([spend_map[s] for s in members])) if members else None,
             }
         )
-        tier_counts = {}
-        for s in members:
-            t = tier_of(s)
-            tier_counts[t] = tier_counts.get(t, 0) + 1
-        quadrant_vs_tier[q] = tier_counts
 
     result = {
         "quadrant_assignments": quadrant_assignments,
         "quadrant_profiles": quadrant_profiles,
         "axis_thresholds": {"spend_median": num(spend_med), "risk_median": num(risk_med)},
-        "quadrant_vs_tier": quadrant_vs_tier,
     }
     return result, risk_map, comp_map, quad_map
 
@@ -965,9 +911,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         if len(metrics)
         else pd.DataFrame()
     )
-
-    def tier_of(s):
-        return str(sup_meta.loc[s, "tier"]) if s in sup_meta.index else "Unknown"
 
     def name_of(s):
         return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
@@ -1018,51 +961,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
 
     recs = []
 
-    # CATEGORY 1: tier reclassification (one verdict per supplier — bijective).
-    for s in sids:
-        t = tier_of(s)
-        z = zone_of(s)
-        q = quad_map.get(s)
-        action = rec_tier = reasoning = None
-        sev = 0.0
-        if t in ("Standard", "Established") and z == "Stars" and q in ("Strategic", "Leverage"):
-            action, rec_tier, sev = "promote", "Core", 1.0
-            reasoning = (
-                f"Currently {t} but performs strongly under high spend (Stars zone, "
-                f"{q} quadrant). Evidence: spend {usd(total_spend_map[s])}, "
-                f"performance {perf_of(s):.1f}."
-            )
-        elif t == "Core" and z == "Critical Issues":
-            # Review (NOT demote): underperforming, but the tier may still fit.
-            action, rec_tier, sev = "review", "review", 0.9
-            reasoning = (
-                f"Currently Core but underperforming on high spend (Critical "
-                f"Issues zone). Evidence: spend {usd(total_spend_map[s])}, performance "
-                f"{perf_of(s):.1f} (below {perf_med:.1f} median)."
-            )
-        elif t == "Core" and (z == "Long Tail" or q == "Routine"):
-            action, rec_tier, sev = "demote", "Established", 0.6
-            reasoning = (
-                f"Currently Core but low spend and low impact ({z} zone, "
-                f"{q} quadrant). Evidence: spend {usd(total_spend_map[s])}, "
-                f"performance {perf_of(s):.1f}."
-            )
-        if action:
-            recs.append({
-                "type": "tier_reclassification",
-                "action": action,
-                "supplier_id": s,
-                "supplier_name": name_of(s),
-                "current_tier": t,
-                "recommended_tier": rec_tier,
-                "reasoning": reasoning,
-                "impact_score": num(min(100.0, spend_norm(s) * sev)),
-                "total_spend_usd": num(total_spend_map[s]),
-                "performance_score": num(perf_of(s)),
-                "kraljic_quadrant": q,
-            })
-
-    # CATEGORY 2: critical-issues engagement (top 5 by spend).
+    # CATEGORY 1: critical-issues engagement (top 5 by spend).
     crit = sorted(
         [s for s in sids if zone_of(s) == "Critical Issues"],
         key=lambda s: total_spend_map[s],
@@ -1075,7 +974,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "action": "engage",
             "supplier_id": s,
             "supplier_name": name_of(s),
-            "current_tier": tier_of(s),
             "reasoning": (
                 f"High-spend supplier with concerning performance. Spend exposure "
                 f"{usd(total_spend_map[s])}, performance score {perf_of(s):.1f} "
@@ -1088,7 +986,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "kraljic_quadrant": quad_map.get(s),
         })
 
-    # CATEGORY 3: hidden-gems promotion (top 5 by performance).
+    # CATEGORY 2: hidden-gems promotion (top 5 by performance).
     gems = sorted(
         [s for s in sids if zone_of(s) == "Hidden Gems"],
         key=lambda s: perf_of(s),
@@ -1102,19 +1000,17 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "action": "promote",
             "supplier_id": s,
             "supplier_name": name_of(s),
-            "current_tier": tier_of(s),
             "reasoning": (
                 f"High-performance supplier (score {perf_of(s):.1f}) with currently "
                 f"small spend exposure ({usd(total_spend_map[s])}). Strong candidate "
-                f"for expanded scope. Evaluate for tier promotion and/or expanded "
-                f"share of wallet."
+                f"for expanded scope — evaluate for an expanded share of wallet."
             ),
             "impact_score": num(min(100.0, surplus / denom * 100.0)),
             "total_spend_usd": num(total_spend_map[s]),
             "performance_score": num(perf_of(s)),
         })
 
-    # CATEGORY 4: bottleneck risk mitigation (top 5 by supply risk).
+    # CATEGORY 3: bottleneck risk mitigation (top 5 by supply risk).
     bottleneck = sorted(
         [s for s in sids if quad_map.get(s) == "Bottleneck"],
         key=lambda s: risk_map.get(s, 0.0),
@@ -1128,7 +1024,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "action": "mitigate",
             "supplier_id": s,
             "supplier_name": name_of(s),
-            "current_tier": tier_of(s),
             "reasoning": (
                 f"Low-spend supplier ({usd(total_spend_map[s])}) with high supply risk "
                 f"(score {risk_map[s]:.1f}). Single-source: {'yes' if ss >= 1 else 'no'}, "
@@ -1142,7 +1037,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "total_spend_usd": num(total_spend_map[s]),
         })
 
-    # CATEGORY 5: process improvement (non-supplier-specific; up to 3).
+    # CATEGORY 4: process improvement (non-supplier-specific; up to 3).
     pq = purchases.copy()
     pq["quadrant"] = pq["supplierExternalId"].map(quad_map)
     fails = []
@@ -1190,7 +1085,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     recs.sort(key=lambda r: r["impact_score"] if r["impact_score"] is not None else 0.0, reverse=True)
 
     by_category = {
-        "tier_reclassification": 0,
         "critical_issues_engagement": 0,
         "hidden_gems_promotion": 0,
         "bottleneck_risk": 0,

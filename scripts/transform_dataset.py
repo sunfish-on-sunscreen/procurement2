@@ -26,16 +26,14 @@ import route tags purchases with (COALESCE(invoiceDate, prDate)) — so the
 transformer's per-period groups line up exactly with the DB periods.
 
 Pipeline (fully deterministic — no rng):
-  1. Tier rename (Strategic->Core, Preferred->Established, Approved->Standard);
-     idempotent on already-renamed input.
-  2. Expand metrics to one row per active supplier-period with per-period
+  1. Expand metrics to one row per active supplier-period with per-period
      purchase-derived inputs + constant soft inputs.
-  3. Five sub-scores (quality/delivery/service/process) from inputs with
+  2. Five sub-scores (quality/delivery/service/process) from inputs with
      FIXED industry bounds.
-  4. risk_score: deterministic 100 - weighted(country, complaints, single-source),
+  3. risk_score: deterministic 100 - weighted(country, complaints, single-source),
      higher = safer.
-  5. composite_score (weights 0.25/0.25/0.15/0.20/0.15).
-  6. Drop the obsolete Purchases.automation_period column if present.
+  4. composite_score (weights 0.25/0.25/0.15/0.20/0.15).
+  5. Drop the obsolete Purchases.automation_period column if present.
 
 Strict input validation (Decision C): the raw workbook must NOT contain any of
 the derived score columns. If found, the run aborts with a clear message.
@@ -57,7 +55,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RAW_XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data_raw.xlsx")  # input
 XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data.xlsx")  # output (imported)
 
-TIER_MAP = {"Strategic": "Core", "Preferred": "Established", "Approved": "Standard"}
 
 # The derived columns this transformer COMPUTES — they must NOT appear in the
 # raw input workbook (Decision C). Kept in sync with SCORE_COLS below.
@@ -66,7 +63,7 @@ DERIVED_COLS = [
     "risk_score", "composite_score",
 ]
 
-# Composite weights (Batch 3a spec) and new tier thresholds.
+# Composite weights (Batch 3a spec).
 WEIGHTS = {
     "quality_score": 0.25,
     "delivery_score": 0.25,
@@ -108,7 +105,7 @@ SCORE_COLS = [
 # (no per-period source); the purchase-derived inputs are recomputed per period.
 IDENTITY_COLS = [
     "supplier_id", "supplier_name", "country", "category",
-    "product_description", "tier",
+    "product_description",
 ]
 SOFT_COLS = [
     "defect_rate_pct", "complaint_count_annual", "rfx_response_rate_pct",
@@ -305,7 +302,7 @@ def main():
     # Requires the per-period `period` column; the first per-period run (whose
     # baseline is the old one-row-per-supplier output) has no comparable key,
     # so the diff is skipped.
-    need = ["supplier_id", "period", "supplier_name", "tier", *SCORE_COLS]
+    need = ["supplier_id", "period", "supplier_name", *SCORE_COLS]
     old_scores = None
     if os.path.exists(XLSX):
         try:
@@ -315,11 +312,7 @@ def main():
         except Exception:
             old_scores = None
 
-    # --- 1. Tier rename (idempotent on already-renamed input) ------------- #
-    suppliers["tier"] = suppliers["tier"].map(lambda t: TIER_MAP.get(t, t))
-    metrics["tier"] = metrics["tier"].map(lambda t: TIER_MAP.get(t, t))
-
-    # --- 2. Expand to one row per active supplier-period ------------------- #
+    # --- 1. Expand to one row per active supplier-period ------------------- #
     # Purchase-derived inputs aggregated per period; soft + identity constant.
     metrics = build_period_metrics(metrics, purchases)
     print(
@@ -328,7 +321,7 @@ def main():
         f"{sorted(metrics['period'].unique().tolist())})"
     )
 
-    # --- 3-5. Sub-scores + risk + composite, FIXED bounds (Decision B/C) --- #
+    # --- 2-4. Sub-scores + risk + composite, FIXED bounds (Decision B/C) --- #
     # Bounds rationale (see methodology doc):
     #   defect_rate 0-10% (Toyota near-zero; >1% investigate; 10% unacceptable)
     #   complaint_count 0-10 (>10/yr = severe relationship issue)
@@ -339,9 +332,7 @@ def main():
     metrics = compute_scores(metrics)
     metrics = metrics[OUT_COLS].copy()
 
-    # (tier_mismatch + calculated_tier removed — unreliable diagnostic, dropped.)
-
-    # --- 6. (Batch 5) Drop Purchases.automation_period -------------------- #
+    # --- 5. (Batch 5) Drop Purchases.automation_period -------------------- #
     if "automation_period" in purchases.columns:
         purchases = purchases.drop(columns=["automation_period"])
         print("  dropped Purchases.automation_period")
@@ -349,7 +340,6 @@ def main():
         print("  Purchases.automation_period already absent (no-op)")
 
     print("AFTER:")
-    print("  tier:", suppliers["tier"].value_counts().to_dict())
     summarize("risk_score", metrics["risk_score"])
     print(
         "  single_source_risk flagged:",

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   TriangleAlert,
-  ArrowUpDown,
   ShieldAlert,
   Gem,
   Settings,
@@ -32,7 +31,6 @@ type CatMeta = {
 // Display order: most urgent first.
 const CATEGORY_ORDER: RecommendationCategory[] = [
   "critical_issues_engagement",
-  "tier_reclassification",
   "bottleneck_risk",
   "hidden_gems_promotion",
   "process_improvement",
@@ -43,11 +41,6 @@ const CATEGORY_META: Record<RecommendationCategory, CatMeta> = {
     label: "Critical Issues Engagement",
     icon: TriangleAlert,
     color: "#ef4444",
-  },
-  tier_reclassification: {
-    label: "Tier Reclassification",
-    icon: ArrowUpDown,
-    color: "#f59e0b",
   },
   bottleneck_risk: {
     label: "Bottleneck Risk Mitigation",

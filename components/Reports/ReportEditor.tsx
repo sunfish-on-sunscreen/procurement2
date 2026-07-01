@@ -89,18 +89,8 @@ export function ReportEditor({
   // Single cross-chart pin (Batch 6b). Lifted here so every chart + the detail
   // panel read from one source. Clears on period change (different data).
   const [pinnedSupplierId, setPinnedSupplierId] = useState<string | null>(null);
-  // Settings sidebar open state, lifted (Batch 6c) so a section's tier chip can
-  // open it and scroll to the tier filter.
+  // Settings sidebar open state, lifted (Batch 6c).
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const openTierFilter = useCallback(() => {
-    setSidebarOpen(true);
-    requestAnimationFrame(() => {
-      document
-        .getElementById("sidebar-tier-filter")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, []);
 
   const span = periodSpan(config.period, yearById);
   const startDate = span?.startDate ?? "";
@@ -275,7 +265,6 @@ export function ReportEditor({
                 config={config}
                 supplierCategory={supplierCategory}
                 embedded
-                onOpenTierFilter={openTierFilter}
               />
             ) : null}
           </div>

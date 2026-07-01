@@ -63,7 +63,6 @@ export type CycleSupplierDetail = {
     id: string;
     name: string;
     category: string | null;
-    tier: string | null;
     country: string | null;
     abc_class: AbcClass | null;
     kraljic_quadrant: KraljicQuadrant | null;

@@ -38,8 +38,7 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
     <div className="rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="font-medium">{d.supplier_name}</div>
       <div className="text-muted-foreground">
-        <span style={{ color: QUADRANT_COLORS[d.quadrant] }}>{d.quadrant}</span>{" "}
-        &middot; {d.tier}
+        <span style={{ color: QUADRANT_COLORS[d.quadrant] }}>{d.quadrant}</span>
       </div>
       <div className="mt-1 text-muted-foreground">
         {spendMoneyAndShare(Math.expm1(d.log_spend), total)} &middot; Risk{" "}
