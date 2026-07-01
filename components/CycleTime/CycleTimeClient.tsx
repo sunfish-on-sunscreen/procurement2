@@ -124,9 +124,9 @@ export function CycleTimeClient({
 
   const anomalyFilter: AnomalyFilter | null =
     activeFilter === "slow_pos"
-      ? { rows: cycleTime.anomalies, label: "Slow POs (z > 2σ)", onClear: clear }
+      ? { rows: cycleTime.anomalies, label: "Outlier POs (z > 2σ)", onClear: clear }
       : activeFilter === "stage_anomaly"
-        ? { rows: stageAnomalies, label: "Stage anomalies (one stage > 60% of cycle)", onClear: clear }
+        ? { rows: stageAnomalies, label: "Stage-dominated POs (one stage > 60% of cycle)", onClear: clear }
         : null;
 
   const rosterFilter: RosterFilter | null =

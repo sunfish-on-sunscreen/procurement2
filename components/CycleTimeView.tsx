@@ -370,7 +370,7 @@ function CycleByQuadrantTable({ data }: { data: CycleTimeResult }) {
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>Cycle Time by Supplier Type</CardTitle>
+        <CardTitle>Cycle Time by Kraljic quadrant</CardTitle>
         <CardDescription>Total cycle days per Kraljic quadrant.</CardDescription>
       </CardHeader>
       <CardContent>
@@ -427,7 +427,7 @@ function ThreeWayMatchTable({ data }: { data: CycleTimeResult }) {
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>3-Way Match by Supplier Type</CardTitle>
+        <CardTitle>3-Way Match by Kraljic quadrant</CardTitle>
         <CardDescription>
           Share of POs passing the 3-way match, by Kraljic quadrant.
         </CardDescription>
@@ -488,7 +488,7 @@ function AnomaliesTable({
   return (
     <Card id="cycle-anomalies" className={cardElevation}>
       <CardHeader>
-        <CardTitle>Anomalies</CardTitle>
+        <CardTitle>Outlier POs</CardTitle>
         <CardDescription>
           POs with cycle time more than 2 standard deviations above the mean
           (Z-score &gt; 2), worth investigating.

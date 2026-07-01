@@ -19,11 +19,11 @@ type CardMeta = {
 const CARDS: CardMeta[] = [
   {
     key: "slow_pos",
-    title: "Slow POs",
+    title: "Outlier POs",
     color: "var(--warning)",
     icon: Timer,
     desc: "POs significantly slower than the typical cycle (z > 2σ).",
-    cta: "View slow POs",
+    cta: "View outlier POs",
   },
   {
     key: "high_iqr",
@@ -35,11 +35,11 @@ const CARDS: CardMeta[] = [
   },
   {
     key: "stage_anomaly",
-    title: "Stage anomalies",
+    title: "Stage-dominated POs",
     color: "var(--destructive)",
     icon: TriangleAlert,
     desc: "POs where a single stage takes over 60% of the total cycle.",
-    cta: "View anomalies",
+    cta: "View stage-dominated POs",
   },
 ];
 
@@ -101,8 +101,8 @@ function AnomalyCard({
 }
 
 /**
- * Three anomaly action cards (mirrors Cross-classification insights): Slow POs,
- * Inconsistent suppliers, Stage anomalies. Clicking a card filters + smooth-
+ * Three anomaly action cards (mirrors Cross-classification insights): Outlier POs,
+ * Inconsistent suppliers, Stage-dominated POs. Clicking a card filters + smooth-
  * scrolls to the relevant table (handled by the parent CycleTimeClient).
  */
 export function CycleTimeAnomalyCards({
