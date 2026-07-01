@@ -529,12 +529,53 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
   );
 }
 
+// ---- Distribution interpretation (dashboard-only; below the box plot) ------ #
+// Two self-omitting lines read from the already-computed distribution + anomalies.
+function DistributionInsight({ data }: { data: CycleTimeResult }) {
+  const { mean, median } = data.distribution;
+  // Skew fires only when the average meaningfully exceeds the median (≥ 0.5 day).
+  const skew = mean != null && median != null && mean - median >= 0.5 ? { mean, median } : null;
+  const outCds = data.anomalies
+    .map((a) => a.cycle_days)
+    .filter((v): v is number => v != null);
+  // Outlier-direction fires only when every outlier is slower than the median.
+  const slow =
+    median != null && outCds.length > 0 && outCds.every((v) => v > median)
+      ? { max: Math.max(...outCds) }
+      : null;
+  if (!skew && !slow) return null;
+  return (
+    <ul
+      className="mt-3 list-disc space-y-1 pl-5 pt-3 text-sm text-muted-foreground"
+      style={{ borderTop: "0.5px solid var(--border)" }}
+    >
+      {skew && (
+        <li>
+          Slow-skewed — the average{" "}
+          <strong className="font-medium text-foreground">{skew.mean.toFixed(1)} d</strong> edges above
+          the median{" "}
+          <strong className="font-medium text-foreground">{skew.median.toFixed(1)} d</strong>; a few
+          slow POs pull it right while the fast side stays compact.
+        </li>
+      )}
+      {slow && (
+        <li>
+          Outliers are all delays — every outlier sits on the slow side (up to{" "}
+          <strong className="font-medium text-foreground">{slow.max} d</strong>), so the risk is
+          one-directional.
+        </li>
+      )}
+    </ul>
+  );
+}
+
 export function CycleTimeView({
   data,
   embedded = false,
   showAnomaliesTable = true,
   showMonthlyTrend = true,
   showStatGrid = true,
+  showDistributionInsight = false,
   onOutlierClick,
 }: {
   data: CycleTimeResult;
@@ -548,6 +589,9 @@ export function CycleTimeView({
   // The dashboard renders the stat grid itself (above the anomaly flags, with a 5th
   // "Slowest stage" card); reports + range-compute keep it here (default true).
   showStatGrid?: boolean;
+  // Dashboard-only interpretation lines below the box plot (skew + outlier
+  // direction). Off by default so reports/range-compute keep the box plot as-is.
+  showDistributionInsight?: boolean;
   // Dashboard: clicking a box-plot outlier dot opens that supplier's detail panel.
   // Omitted in reports → dots keep their pin-in-editor behaviour.
   onOutlierClick?: (supplierId: string) => void;
@@ -590,6 +634,7 @@ export function CycleTimeView({
             interactive={embedded}
             onOutlierClick={onOutlierClick}
           />
+          {showDistributionInsight && <DistributionInsight data={data} />}
         </CardContent>
       </Card>
 

@@ -197,6 +197,7 @@ export function CycleTimeClient({
         showAnomaliesTable={false}
         showMonthlyTrend={false}
         showStatGrid={false}
+        showDistributionInsight
         onOutlierClick={setSelectedSupplierId}
       />
 

@@ -51,7 +51,9 @@ export function CycleTimeBoxPlot({
   const lo = Math.min(d.min, 0);
   const hi = dataMax;
   const pad = (hi - lo) * 0.06 || 1;
-  const xmin = lo - pad;
+  // Clamp the axis to 0 — cycle days can't be negative, and the padding below the
+  // minimum would otherwise render a spurious negative tick at the far left.
+  const xmin = Math.max(0, lo - pad);
   const xmax = hi + pad;
 
   const W = 560;
