@@ -44,7 +44,7 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
         <span className="font-medium" style={{ color: ZONE_COLORS[d.zone] }}>{d.zone}</span>
       </div>
       <div className="text-muted-foreground">
-        Kraljic:{" "}
+        Exposure:{" "}
         <span style={{ color: QUADRANT_COLORS[d.kraljic_quadrant] }}>{d.kraljic_quadrant}</span>
       </div>
       <div className="mt-1 text-muted-foreground">

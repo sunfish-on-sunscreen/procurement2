@@ -20,7 +20,7 @@ export default async function SupplierClassificationPage() {
   const source = await resolveAnalysisSource(selection);
 
   const title = "Supplier classification";
-  const subtitle = "Combined Kraljic + performance analysis";
+  const subtitle = "Combined exposure and performance positioning";
 
   if (source.kind === "empty") {
     return (

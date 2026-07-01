@@ -363,7 +363,7 @@ function QuadrantPeers({
   if (!quadrant) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        Not classified into a Kraljic quadrant in this period.
+        Not assigned an Exposure position (Kraljic matrix quadrant) in this period.
       </p>
     );
   }

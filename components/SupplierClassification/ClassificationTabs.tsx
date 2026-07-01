@@ -62,7 +62,7 @@ function KraljicTab({ kraljic }: { kraljic: KraljicResult | null }) {
   if (!kraljic) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        No Kraljic data for this period.
+        No Exposure positioning data for this period.
       </p>
     );
   }

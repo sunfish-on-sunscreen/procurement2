@@ -214,8 +214,8 @@ export function CrossClassificationCard({
       <CardHeader>
         <CardTitle>Cross-classification insights</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Suppliers flagged by combining their Kraljic quadrant with the period
-          performance median. Click a name to open its detail, or &ldquo;View suppliers&rdquo; to
+          Suppliers flagged by combining their Exposure position (Kraljic matrix
+          quadrant) with the period performance median. Click a name to open its detail, or &ldquo;View suppliers&rdquo; to
           filter the table.
         </p>
       </CardHeader>

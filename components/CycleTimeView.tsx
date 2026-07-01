@@ -370,8 +370,8 @@ function CycleByQuadrantTable({ data }: { data: CycleTimeResult }) {
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>Cycle Time by Kraljic quadrant</CardTitle>
-        <CardDescription>Total cycle days per Kraljic quadrant.</CardDescription>
+        <CardTitle>Cycle Time by Exposure positioning</CardTitle>
+        <CardDescription>Total cycle days per Exposure position (Kraljic matrix quadrants).</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -427,9 +427,9 @@ function ThreeWayMatchTable({ data }: { data: CycleTimeResult }) {
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>3-Way Match by Kraljic quadrant</CardTitle>
+        <CardTitle>3-Way Match by Exposure positioning</CardTitle>
         <CardDescription>
-          Share of POs passing the 3-way match, by Kraljic quadrant.
+          Share of POs passing the 3-way match, by Exposure position (Kraljic matrix quadrants).
         </CardDescription>
       </CardHeader>
       <CardContent>
