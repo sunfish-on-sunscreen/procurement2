@@ -1,4 +1,4 @@
-import type { KraljicQuadrant } from "@/lib/analysis-types";
+import type { KraljicQuadrant, PerformanceZone } from "@/lib/analysis-types";
 
 /** One row of the Spend Overview supplier ranking table (period/range-scoped). */
 export type SupplierRankingRow = {
@@ -27,6 +27,9 @@ export type SpendDetail = {
     // the ranking table). Null when the supplier is absent from that period.
     abcClass: "A" | "B" | "C" | null;
     kraljicQuadrant: KraljicQuadrant | null;
+    // Performance-vs-Spend zone for the SELECTED period (period-scoped, parallel
+    // to kraljicQuadrant). Null when absent from that period.
+    zone: PerformanceZone | null;
     // Period-scoped performance (P2). `score` is the SELECTED period's composite
     // (single-year) or the range composite (range, computed from aggregated raw
     // inputs). `previousScore` drives the single-year delta arrow; `latestScore`

@@ -5,6 +5,7 @@ import {
   getAnalysisResult,
   type AbcResult,
   type KraljicResult,
+  type PerformanceSpendResult,
 } from "@/lib/analysis-types";
 import { getRangeAnalyses } from "@/lib/range-analyses";
 import { computeScores } from "@/lib/score-methodology";
@@ -155,6 +156,7 @@ export async function GET(
   // With no span, fall back to the latest period's analysis (backward compat).
   let abcClass: SpendDetail["supplier"]["abcClass"] = null;
   let kraljicQuadrant: SpendDetail["supplier"]["kraljicQuadrant"] = null;
+  let zone: SpendDetail["supplier"]["zone"] = null;
   if (start && end) {
     const analyses = await getRangeAnalyses(start, end);
     abcClass =
@@ -162,19 +164,23 @@ export async function GET(
     kraljicQuadrant =
       analyses?.kraljic?.quadrant_assignments.find((q) => q.supplier_id === id)
         ?.quadrant ?? null;
+    zone =
+      analyses?.performance_spend?.suppliers.find((s) => s.supplier_id === id)?.zone ?? null;
   } else {
     const latestPeriod = await prisma.reportingPeriod.findFirst({
       orderBy: { startDate: "desc" },
       select: { id: true },
     });
     if (latestPeriod) {
-      const [abc, kraljic] = await Promise.all([
+      const [abc, kraljic, perf] = await Promise.all([
         getAnalysisResult<AbcResult>(latestPeriod.id, "abc"),
         getAnalysisResult<KraljicResult>(latestPeriod.id, "kraljic"),
+        getAnalysisResult<PerformanceSpendResult>(latestPeriod.id, "performance_spend"),
       ]);
       abcClass = abc?.classifications.find((c) => c.supplier_id === id)?.abc_class ?? null;
       kraljicQuadrant =
         kraljic?.quadrant_assignments.find((q) => q.supplier_id === id)?.quadrant ?? null;
+      zone = perf?.suppliers.find((s) => s.supplier_id === id)?.zone ?? null;
     }
   }
 
@@ -341,6 +347,7 @@ export async function GET(
       country: supplier?.country ?? null,
       abcClass,
       kraljicQuadrant,
+      zone,
       performance,
       subScores,
     },
