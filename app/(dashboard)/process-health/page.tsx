@@ -14,8 +14,8 @@ export default async function CycleTimePage() {
   const selection = await getCurrentPeriodSelection();
   const source = await resolveAnalysisSource(selection);
 
-  const title = "Cycle Time — Process Health Monitoring";
-  const subtitle = "Procure-to-pay timing across the supplier base";
+  const title = "Process Health Monitoring";
+  const subtitle = "Procure-to-pay process health across the supplier base";
   const label = source.kind === "empty" ? "" : source.periodLabel;
 
   let content: React.ReactNode;
