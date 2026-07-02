@@ -6,9 +6,10 @@ import {
   type CycleBreakdown,
   type CycleSupplierRow,
   type CycleFlagKey,
+  type CycleStageKey,
   type SupplierFlagState,
 } from "@/lib/cycle-time-types";
-import { ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
+import { CHART_COLORS, ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
 import { cardElevation, cn } from "@/lib/utils";
 import {
   Card,
@@ -46,6 +47,26 @@ const CHIPS: { key: CycleFlagKey; label: string }[] = [
 // Chip — color-mix tint + token text; null → muted "—".
 function Chip({ color, label }: { color: string | null; label: string | null }) {
   if (!color || !label) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span
+      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// Slowest-stage chip (tinted, matches the detail panel's StageChip).
+const STAGE_COLOR: Record<CycleStageKey, string> = {
+  pr_to_po: CHART_COLORS[0],
+  po_to_delivery: CHART_COLORS[1],
+  delivery_to_invoice: CHART_COLORS[2],
+  invoice_to_payment: CHART_COLORS[3],
+};
+
+function StageChip({ stage, label }: { stage: CycleStageKey; label: string }) {
+  const color = STAGE_COLOR[stage];
   return (
     <span
       className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
@@ -203,10 +224,11 @@ function BySupplier({
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[44px] text-right">#</TableHead>
                 <SortHead label="Supplier" sortKey="supplier_name" active={sort.key === "supplier_name"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
                 <SortHead label="Median (d)" sortKey="median_cycle" active={sort.key === "median_cycle"} dir={sort.dir} onSort={toggle} align="right" />
-                <SortHead label="Typical range (d)" sortKey="iqr" active={sort.key === "iqr"} dir={sort.dir} onSort={toggle} align="right" />
                 <SortHead label="POs" sortKey="po_count" active={sort.key === "po_count"} dir={sort.dir} onSort={toggle} align="right" />
+                <SortHead label="Slowest stage" sortKey="slowest_stage_label" active={sort.key === "slowest_stage_label"} dir={sort.dir} onSort={toggle} defaultDir="asc" width="w-[150px]" />
                 <SortHead label="ABC" sortKey="abc_class" active={sort.key === "abc_class"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[64px]" />
                 <SortHead label="Exposure" sortKey="kraljic_quadrant" active={sort.key === "kraljic_quadrant"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[120px]" />
                 <SortHead label="Performance" sortKey="composite" active={sort.key === "composite"} dir={sort.dir} onSort={toggle} align="right" width="w-[140px]" />
@@ -214,7 +236,7 @@ function BySupplier({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sorted.map((r) => (
+              {sorted.map((r, i) => (
                 <TableRow
                   key={r.supplier_id}
                   onClick={() => onSupplierClick(r.supplier_id)}
@@ -224,12 +246,13 @@ function BySupplier({
                       : "hover:bg-muted/40"
                   }`}
                 >
+                  <TableCell className="text-right tabular-nums text-muted-foreground">{i + 1}</TableCell>
                   <TableCell className="font-medium">{r.supplier_name}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.median_cycle.toFixed(1)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {r.p25.toFixed(0)}–{r.p75.toFixed(0)}
-                  </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{r.po_count}</TableCell>
+                  <TableCell>
+                    <StageChip stage={r.slowest_stage} label={r.slowest_stage_label} />
+                  </TableCell>
                   <TableCell className="text-center">
                     <Chip color={r.abc_class ? ABC_COLORS[r.abc_class] : null} label={r.abc_class} />
                   </TableCell>

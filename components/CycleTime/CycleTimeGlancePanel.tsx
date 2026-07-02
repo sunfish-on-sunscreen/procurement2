@@ -7,10 +7,10 @@ import { cardElevation } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const STAGES = [
-  { key: "pr_to_po", label: "PR → PO" },
-  { key: "po_to_delivery", label: "PO → Delivery" },
-  { key: "delivery_to_invoice", label: "Delivery → Invoice" },
-  { key: "invoice_to_payment", label: "Invoice → Payment" },
+  { key: "pr_to_po", label: "PR to PO" },
+  { key: "po_to_delivery", label: "PO to Delivery" },
+  { key: "delivery_to_invoice", label: "Delivery to Invoice" },
+  { key: "invoice_to_payment", label: "Invoice to Payment" },
 ] as const;
 
 const QUAD_ORDER: KraljicQuadrant[] = ["Strategic", "Leverage", "Bottleneck", "Routine"];
@@ -162,7 +162,7 @@ export function CycleTimeGlancePanel({
   if (exception) {
     bullets.push(
       <li key="exc">
-        <strong>{exception.supplier_name}</strong> is the exception — Invoice → Payment dominates
+        <strong>{exception.supplier_name}</strong> is the exception — Invoice to Payment dominates
         its cycle ({exception.slowest_stage_pct}%).
       </li>,
     );
@@ -213,7 +213,7 @@ export function CycleTimeGlancePanel({
                 <strong>{slowestPct}%</strong> of the cycle
                 {prToPoMean != null && (
                   <>
-                    , while PR → PO approval averages just {d1(prToPoMean)} days — the delay is
+                    , while PR to PO approval averages just {d1(prToPoMean)} days — the delay is
                     downstream, not internal
                   </>
                 )}

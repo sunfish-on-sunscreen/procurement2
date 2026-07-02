@@ -17,10 +17,10 @@ import { StageByCategoryChart } from "@/components/charts/StageByCategoryChart";
 import { StageDecompositionTable } from "@/components/CycleTime/StageDecompositionTable";
 
 const STAGES = [
-  { key: "pr_to_po", label: "PR → PO" },
-  { key: "po_to_delivery", label: "PO → Delivery" },
-  { key: "delivery_to_invoice", label: "Delivery → Invoice" },
-  { key: "invoice_to_payment", label: "Invoice → Payment" },
+  { key: "pr_to_po", label: "PR to PO" },
+  { key: "po_to_delivery", label: "PO to Delivery" },
+  { key: "delivery_to_invoice", label: "Delivery to Invoice" },
+  { key: "invoice_to_payment", label: "Invoice to Payment" },
 ] as const;
 
 type StageKey = (typeof STAGES)[number]["key"];
