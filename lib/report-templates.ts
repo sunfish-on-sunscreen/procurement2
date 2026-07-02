@@ -187,10 +187,10 @@ type Analyses = {
 };
 
 const STAGE_LABELS: Record<string, string> = {
-  pr_to_po: "PR→PO",
-  po_to_delivery: "PO→Delivery",
-  delivery_to_invoice: "Delivery→Invoice",
-  invoice_to_payment: "Invoice→Payment",
+  pr_to_po: "PR to PO",
+  po_to_delivery: "PO to Delivery",
+  delivery_to_invoice: "Delivery to Invoice",
+  invoice_to_payment: "Invoice to Payment",
 };
 
 export function deriveReportContext(a: Analyses, period: string): ReportContext {

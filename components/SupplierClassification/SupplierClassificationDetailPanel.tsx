@@ -210,7 +210,7 @@ function QuadrantTenureCard({
       </p>
     ) : (
       <p className="text-sm text-muted-foreground">
-        Moved <span className="font-medium text-foreground">{first.kraljicQuadrant}</span> →{" "}
+        Moved <span className="font-medium text-foreground">{first.kraljicQuadrant}</span> to{" "}
         <span className="font-medium text-foreground">{last.kraljicQuadrant}</span>.
       </p>
     );
@@ -225,7 +225,7 @@ function QuadrantTenureCard({
       {stability}
       {activeQ.length > 1 && (
         <div className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">
-          {activeQ.map((p) => `${p.year} ${p.kraljicQuadrant}`).join(" → ")}
+          {activeQ.map((p) => `${p.year} ${p.kraljicQuadrant}`).join(" to ")}
         </div>
       )}
     </div>
@@ -627,7 +627,7 @@ export function SupplierClassificationDetailPanel({
                 <p className="text-sm text-muted-foreground">No activity in this period</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {span.short} · {fmtActivityDate(st.earliestDate, !selectedYear)} →{" "}
+                  {span.short} · {fmtActivityDate(st.earliestDate, !selectedYear)} to{" "}
                   {fmtActivityDate(st.latestDate, !selectedYear)}
                 </p>
               )}

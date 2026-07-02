@@ -292,9 +292,9 @@ export default async function MethodologyPage() {
                 cycle-time distribution.
               </li>
               <li>
-                <strong>Stage-level descriptive statistics</strong>: PR→PO,
-                PO→delivery, delivery→invoice, and invoice→payment subprocess
-                durations.
+                <strong>Stage-level descriptive statistics</strong>: PR to PO,
+                PO to delivery, delivery to invoice, and invoice to payment
+                subprocess durations.
               </li>
               <li>
                 <strong>Z-score anomaly detection</strong>: POs with cycle time
