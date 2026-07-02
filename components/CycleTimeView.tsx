@@ -22,13 +22,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { StatBlock } from "@/components/ui/stat-block";
 import { MonthlyCycleTrendChart } from "@/components/charts/MonthlyCycleTrendChart";
 import { CycleTimeBoxPlot } from "@/components/charts/CycleTimeBoxPlot";
 import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
 import { StageDecompositionTable } from "@/components/CycleTime/StageDecompositionTable";
+import type { ControlExposure } from "@/lib/cycle-time-types";
 import { SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
-import { cardElevation } from "@/lib/utils";
+import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -132,7 +134,41 @@ type MatchRow = {
   is_worst: boolean;
 };
 
-function ThreeWayMatchTable({ data }: { data: CycleTimeResult }) {
+// Spend-at-risk narrative — data-honest: states the magnitude + that it's diffuse,
+// and that failures are NOT tied to payment time / supplier quality / PO size
+// (all tested null). Self-omits the "at risk" framing when nothing failed.
+function ControlInsight({ c }: { c: ControlExposure }) {
+  if (c.n_failed === 0) {
+    return (
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        No POs failed the 3-way match this period — no spend at risk.
+      </p>
+    );
+  }
+  const oneIn = Math.round(c.n_total / c.n_failed);
+  const byCount = c.n_total > 0 ? (c.n_failed / c.n_total) * 100 : 0;
+  return (
+    <p className="text-sm leading-relaxed text-muted-foreground">
+      Roughly 1 in {oneIn} POs ({c.n_failed} of {c.n_total}) failed the 3-way match this period,
+      carrying{" "}
+      <strong className="font-medium text-foreground">{formatCompactCurrency(c.failed_spend)}</strong>{" "}
+      of spend. The exposure is diffuse, not concentrated — spread across{" "}
+      <strong className="font-medium text-foreground">{c.n_failing_suppliers}</strong> of{" "}
+      {c.n_total_suppliers} active suppliers, at average-sized POs (its {c.pct_at_risk.toFixed(1)}%
+      share by value ≈ its {byCount.toFixed(1)}% share by count). Failures are not tied to slower
+      payment, weaker suppliers, or bigger POs — a broad control-process signal rather than a few bad
+      actors or high-risk deals.
+    </p>
+  );
+}
+
+function ThreeWayMatchTable({
+  data,
+  control,
+}: {
+  data: CycleTimeResult;
+  control?: ControlExposure;
+}) {
   const rows: MatchRow[] = QUAD_ORDER.map((q, i) => ({
     order: i,
     quadrant: q,
@@ -144,37 +180,84 @@ function ThreeWayMatchTable({ data }: { data: CycleTimeResult }) {
     "order",
     "asc",
   );
+
+  const quadTable = (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <SortHead label="Quadrant" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+          <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
+          <SortHead label="Pass Rate" sortKey="pass_rate_pct" active={sort.key === "pass_rate_pct"} dir={sort.dir} onSort={toggle} align="right" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sorted.map((m) => (
+          <TableRow key={m.quadrant}>
+            <TableCell className="font-medium">{m.quadrant}</TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">{m.n}</TableCell>
+            <TableCell
+              className={`text-right tabular-nums ${m.is_worst ? "font-semibold text-destructive" : ""}`}
+            >
+              {m.pass_rate_pct != null ? `${m.pass_rate_pct.toFixed(1)}%` : "—"}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+
+  // Reports / range-compute don't pass `control` → keep the original bare table.
+  if (!control) {
+    return (
+      <Card className={cardElevation}>
+        <CardHeader>
+          <CardTitle>3-Way Match by Exposure positioning</CardTitle>
+          <CardDescription>
+            Share of POs passing the 3-way match, by Exposure position (Kraljic matrix quadrants).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>{quadTable}</CardContent>
+      </Card>
+    );
+  }
+
+  // Dashboard: spend-at-risk control framing (headline + insight), quadrant table demoted.
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>3-Way Match by Exposure positioning</CardTitle>
+        <CardTitle>3-Way Match — Control Exposure</CardTitle>
         <CardDescription>
-          Share of POs passing the 3-way match, by Exposure position (Kraljic matrix quadrants).
+          Spend that passed through POs where PO, delivery, and invoice didn&apos;t reconcile.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <SortHead label="Quadrant" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
-              <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
-              <SortHead label="Pass Rate" sortKey="pass_rate_pct" active={sort.key === "pass_rate_pct"} dir={sort.dir} onSort={toggle} align="right" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sorted.map((m) => (
-              <TableRow key={m.quadrant}>
-                <TableCell className="font-medium">{m.quadrant}</TableCell>
-                <TableCell className="text-right tabular-nums text-muted-foreground">{m.n}</TableCell>
-                <TableCell
-                  className={`text-right tabular-nums ${m.is_worst ? "font-semibold text-destructive" : ""}`}
-                >
-                  {m.pass_rate_pct != null ? `${m.pass_rate_pct.toFixed(1)}%` : "—"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <CardContent className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatBlock
+            size="comfortable"
+            label="Spend through failed matches"
+            value={formatCompactCurrency(control.failed_spend)}
+            sublabel="PO / delivery / invoice didn't reconcile"
+          />
+          <StatBlock
+            size="comfortable"
+            label="Share of total spend"
+            value={`${control.pct_at_risk.toFixed(1)}%`}
+            sublabel={`of ${formatCompactCurrency(control.total_spend)}`}
+          />
+          <StatBlock
+            size="comfortable"
+            label="Failed POs"
+            value={String(control.n_failed)}
+            sublabel={`across ${control.n_failing_suppliers} suppliers`}
+          />
+        </div>
+        <ControlInsight c={control} />
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+            Pass rate by exposure positioning
+          </h4>
+          {quadTable}
+        </div>
       </CardContent>
     </Card>
   );
@@ -300,6 +383,7 @@ export function CycleTimeView({
   showStatGrid = true,
   showStageDecomposition = true,
   showDistributionInsight = false,
+  controlExposure,
   onOutlierClick,
 }: {
   data: CycleTimeResult;
@@ -319,6 +403,9 @@ export function CycleTimeView({
   // Dashboard-only interpretation lines below the box plot (skew + outlier
   // direction). Off by default so reports/range-compute keep the box plot as-is.
   showDistributionInsight?: boolean;
+  // Dashboard-only spend-at-risk data for the 3-way-match section. Omitted in
+  // reports/range-compute → the bare pass-rate table renders as before.
+  controlExposure?: ControlExposure;
   // Dashboard: clicking a box-plot outlier dot opens that supplier's detail panel.
   // Omitted in reports → dots keep their pin-in-editor behaviour.
   onOutlierClick?: (supplierId: string) => void;
@@ -381,7 +468,7 @@ export function CycleTimeView({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CycleByQuadrantTable data={data} />
-        <ThreeWayMatchTable data={data} />
+        <ThreeWayMatchTable data={data} control={controlExposure} />
       </div>
 
       {showAnomaliesTable && <AnomaliesTable data={data.anomalies} />}

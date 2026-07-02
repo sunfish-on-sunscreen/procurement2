@@ -102,6 +102,20 @@ export type CycleBreakdown = {
   // outliers); z_score is over the in-span cycle population. Optional so any
   // older cached/consumer shape stays valid.
   stageAnomalies?: CycleAnomaly[];
+  // Spend-at-risk control metric: the value of POs that FAILED the 3-way match,
+  // over the same span. Optional so older consumers stay valid.
+  controlExposure?: ControlExposure;
+};
+
+/** 3-way-match spend-at-risk summary (failed-match value ÷ total spend). */
+export type ControlExposure = {
+  failed_spend: number; // Σ value of POs that failed the 3-way match
+  total_spend: number; // Σ value of all POs in the span
+  pct_at_risk: number; // failed_spend / total_spend * 100
+  n_failed: number; // count of failed-match POs
+  n_total: number; // count of all POs in the span
+  n_failing_suppliers: number; // distinct suppliers with ≥1 failed match
+  n_total_suppliers: number; // distinct suppliers active in the span
 };
 
 // --- Fractional per-stage monthly occupancy (GET /api/cycle-time/stage-occupancy)

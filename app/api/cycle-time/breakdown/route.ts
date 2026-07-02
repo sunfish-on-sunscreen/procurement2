@@ -75,6 +75,8 @@ export async function GET(request: Request) {
       deliveryToInvoiceDays: true,
       invoiceToPaymentDays: true,
       totalCycleDays: true,
+      threeWayMatchPass: true,
+      totalValueUsd: true,
     },
   });
 
@@ -223,6 +225,21 @@ export async function GET(request: Request) {
     }))
     .sort((a, b) => (b.cycle_days ?? 0) - (a.cycle_days ?? 0));
 
-  const result: CycleBreakdown = { bySupplier, byCategory, stageAnomalies };
+  // ---- 3-way-match control exposure (spend-at-risk) ----------------------- #
+  // Value of POs that FAILED the 3-way match vs total spend, over the same span.
+  const failedPos = purchases.filter((p) => !p.threeWayMatchPass);
+  const failedSpend = failedPos.reduce((s, p) => s + p.totalValueUsd, 0);
+  const totalSpend = purchases.reduce((s, p) => s + p.totalValueUsd, 0);
+  const controlExposure = {
+    failed_spend: failedSpend,
+    total_spend: totalSpend,
+    pct_at_risk: totalSpend > 0 ? (failedSpend / totalSpend) * 100 : 0,
+    n_failed: failedPos.length,
+    n_total: purchases.length,
+    n_failing_suppliers: new Set(failedPos.map((p) => p.supplierExternalId)).size,
+    n_total_suppliers: new Set(purchases.map((p) => p.supplierExternalId)).size,
+  };
+
+  const result: CycleBreakdown = { bySupplier, byCategory, stageAnomalies, controlExposure };
   return NextResponse.json(result);
 }
