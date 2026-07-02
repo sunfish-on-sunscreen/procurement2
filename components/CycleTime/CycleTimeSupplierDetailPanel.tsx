@@ -138,14 +138,21 @@ function PoList({
           <PoHead label="Invoice date" sortKey="invoice_date" active={sort.key === "invoice_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
           <PoHead label="Cycle days" sortKey="total_cycle_days" active={sort.key === "total_cycle_days"} dir={sort.dir} onSort={toggle} align="right" />
           <th className="py-1.5 text-left font-medium">Slowest stage</th>
-          <th className="py-1.5 text-left font-medium">Flags</th>
+          <th className="py-1.5 text-left font-medium">Anomalies</th>
         </tr>
       </thead>
       <tbody>
         {sorted.map((p) => {
           const isStageDom = stageDominatedPoIds.has(p.po_id);
+          const isFlagged = p.is_anomaly || isStageDom;
           return (
-            <tr key={p.po_id} className="border-b last:border-0">
+            <tr
+              key={p.po_id}
+              className="border-b last:border-0"
+              // Faint amber tint on any flagged row (outlier or stage-dom, same
+              // treatment) so anomalous rows are scannable at a glance.
+              style={isFlagged ? { backgroundColor: "color-mix(in srgb, var(--warning) 9%, transparent)" } : undefined}
+            >
               <td className="py-1.5 font-medium">{p.po_id}</td>
               <td className="py-1.5 tabular-nums text-muted-foreground">{p.invoice_date ?? "—"}</td>
               <td className="py-1.5 text-right tabular-nums">{p.total_cycle_days}</td>
@@ -153,7 +160,7 @@ function PoList({
                 <StageChip stage={p.slowest_stage} label={p.slowest_stage_label} />
               </td>
               <td className="py-1.5">
-                {p.is_anomaly || isStageDom ? (
+                {isFlagged ? (
                   <span className="flex flex-wrap gap-1">
                     {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
                     {isStageDom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
