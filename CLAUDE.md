@@ -8,7 +8,7 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **HEAD as of last doc update:
-> `158849b`.**
+> `5c8c930`.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -28,6 +28,77 @@ Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
 Classification, Cycle Time (process-health monitoring), Action Dashboard
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects).
+
+### Cycle Time page overhaul (`a919b7a` → `5c8c930`)
+The Cycle Time (Process Health) **dashboard** was substantially rebuilt. ⚠️
+`CycleTimeView` is **SHARED** with reports + range-compute (`ReportDocument`,
+`RangeCompute`); every dashboard-only change is gated by a `showX`/prop so
+**reports/range-compute pass none → render the ORIGINAL layout unchanged**. The
+gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGrid`,
+`showStageDecomposition` (all default **true** = reports keep it), plus opt-in
+`showDistributionInsight` (default false), `controlExposure`, `onOutlierClick`.
+
+- **Naming/jargon (`a919b7a`, `42a4bbb`, `32c5323`):** "Slow POs"→**Outlier POs**;
+  "Stage anomalies"→**Stage-dominated POs**; "Supplier Type"→Kraljic quadrant;
+  Kraljic/Perf-vs-spend tabs + labels → **Exposure positioning / Performance
+  positioning** (Kraljic cited as the framework in descriptions only; methodology
+  keeps formal "Kraljic"); **IQR → "Typical range"**, **Mean → "Average"**, dropped
+  the σ and `n =` stat sublabels. `useTableSort` fixed so nulls sort last + numeric
+  columns stay numeric. Methodology §3.4 now documents Typical range/IQR (linear
+  quantiles) + the 3 supplier flags.
+- **Glance = narrative (`eaef83d`, `c8e5d15`):** "Cycle at a glance" is prose
+  (lead + "Where the time goes" + "Worth noting" bullets + hint); its old KPI row
+  was removed (duplicated the stat grid + flags).
+- **Anomaly section (`85ed1a3`):** the 3 flag cards are **supplier-level** (Has
+  outlier POs / Inconsistent / Has stage-dominated POs, muted cards) that filter
+  the SINGLE roster (synced with roster filter chips; chart+table filter together);
+  a **Flags** column replaced "slowest stage"; the two PO tables collapsed — PO
+  detail lives in the drill-down's "flagged POs" section. Reports keep the Outlier
+  POs table via `showAnomaliesTable`.
+- **Stat grid + interactions (`c8e5d15`):** extracted **`CycleStatGrid`** (Median /
+  Typical range / Average / Range + optional 5th **Slowest stage** card via
+  `includeSlowest`, dashboard-only); flipped so the stat grid sits ABOVE the anomaly
+  flags; **box-plot outlier dots are clickable** → open the same supplier detail
+  panel as roster rows (`onOutlierClick`; lifted `selectedSupplierId` in
+  `CycleTimeClient`).
+- **Distribution insight (`67f88a2`):** dashboard-only shape lines under the box
+  plot (slow-skew + one-directional-outliers, self-omitting) via
+  `showDistributionInsight`; box-plot **x-axis clamped to 0** (everywhere).
+- (a) **Stage breakdown merged section (`11ee645`, + `df1b2b8`/`4c000ec`):** ONE
+  dashboard-only "Stage breakdown" card = **pipeline chart** (row 1) + 50/50 row of
+  **decomposition table + a self-omitting 4-paragraph stage insight** (left) and
+  **category stacked bars** (right). The decomposition table is **gated out of the
+  dashboard's `CycleTimeView` via `showStageDecomposition={false}`** but kept in
+  reports. The **pipeline chart** (`StageOccupancyChart`, route
+  `/api/cycle-time/stage-occupancy`) replaced the Monthly Cycle Time Trend on the
+  dashboard (trend kept in reports via `showMonthlyTrend`); it is **whole-integer
+  "POs active" per stage per month on the 303 invoiceDate-tagged population** (was
+  fractional/339 lifecycle-overlap — ⚠️ boundary-month undercounting ACCEPTED
+  pending a supervisor decision on the 303-vs-339 population; fractional/339 version
+  preserved in a spec doc). New files: `StageBreakdownSection`,
+  `StageDecompositionTable` (extracted from CycleTimeView),
+  `StageByCategoryChart`, `StageOccupancyChart`, `CycleStatGrid`; **deleted**
+  `StageOccupancySection`.
+- (b) **Period-vs-Period Comparison REMOVED (`6fc1339`):** the interactive
+  date-picker widget + `ComparisonResult` + the `/api/analyses/cycle-compare` route
+  + `runCycleCompare` (`lib/python.ts`) + the `--comparison-*` Python CLI path are
+  all **deleted** (dashboard + reports). ⚠️ **KEPT:** `_comparison_block` + the
+  default midpoint-split `period_comparison` emit + the `PeriodComparison` type —
+  they still feed the **glance stability sentence** and the **report cycle-time
+  narrative prose**. Cycle-time now always does the midpoint split (no CLI override).
+- (c) **3-Way Match → "Control Exposure" reframe (`5c8c930`, dashboard-only):** the
+  bare pass-rate table became a **spend-at-risk** card — headline **$37.1M /
+  13.6% of spend / 38 POs across 22 suppliers** + a data-honest "diffuse, not
+  concentrated" insight (explicitly: failures are NOT tied to payment time, supplier
+  quality, or PO size — all tested null) + the quadrant pass-rate table **demoted**
+  below. Powered by a new **`controlExposure` aggregate on `/api/cycle-time/breakdown`**
+  (added `threeWayMatchPass` + `totalValueUsd` to its select), passed via a **gated
+  optional `controlExposure` prop**; reports pass nothing → **keep the bare
+  pass-rate table**.
+- (d) **Mean-based "% of cycle" (`11ee645`):** the slowest-stage share is now
+  `stage_mean ÷ Σ(4 stage means)` = **49%** consistently across the **glance**,
+  the **Slowest-stage stat card**, and the **Stage-breakdown insight** (was
+  median-based 47% on the glance/card).
 
 ### Recent work (post-Batch-6, through `3d0757a`)
 - **Cycle Time modernization** (`478fc69`, `39c73b2`, `6da0708`, `ff46c9a`,
