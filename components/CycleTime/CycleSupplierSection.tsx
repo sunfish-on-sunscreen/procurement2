@@ -277,7 +277,7 @@ function BySupplier({
                 <SortHead label="ABC" sortKey="abc_class" active={sort.key === "abc_class"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[64px]" />
                 <SortHead label="Exposure" sortKey="kraljic_quadrant" active={sort.key === "kraljic_quadrant"} dir={sort.dir} onSort={toggle} align="center" defaultDir="asc" width="w-[120px]" />
                 <SortHead label="Performance" sortKey="composite" active={sort.key === "composite"} dir={sort.dir} onSort={toggle} align="right" width="w-[140px]" />
-                <TableHead className="w-[220px]">Flags</TableHead>
+                <TableHead className="w-[220px]">Anomalies</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
