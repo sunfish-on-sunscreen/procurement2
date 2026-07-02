@@ -540,6 +540,11 @@ export function SupplierClassificationDetailPanel({
     ? kraljic?.quadrant_assignments.find((q) => q.supplier_id === supplierId)
     : undefined;
 
+  // This supplier's period-scoped Performance-vs-Spend zone (identity subline).
+  const myZone = supplierId
+    ? perf.suppliers.find((p) => p.supplier_id === supplierId)?.zone ?? null
+    : null;
+
   return (
     <Dialog open={!!supplierId} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent
@@ -553,7 +558,7 @@ export function SupplierClassificationDetailPanel({
             {s && (
               <p className="truncate text-xs text-muted-foreground">
                 {(() => {
-                  const parts = [s.category, s.abcClass, s.kraljicQuadrant].filter(Boolean);
+                  const parts = [s.category, s.abcClass, s.kraljicQuadrant, myZone].filter(Boolean);
                   if (parts.length === 0 && !s.country) return s.id;
                   return (
                     <>
