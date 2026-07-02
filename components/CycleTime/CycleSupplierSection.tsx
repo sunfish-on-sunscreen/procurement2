@@ -3,20 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
-import {
   type CycleBreakdown,
   type CycleSupplierRow,
   type CycleFlagKey,
   type SupplierFlagState,
 } from "@/lib/cycle-time-types";
-import { CHART_COLORS, ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
+import { ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
 import { cardElevation, cn } from "@/lib/utils";
 import {
   Card,
@@ -33,13 +25,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ChartFrame } from "@/components/charts/ChartFrame";
 import { PerfBar, SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { CycleTimeSupplierDetailPanel } from "@/components/CycleTime/CycleTimeSupplierDetailPanel";
-
-const truncate = (s: string, n: number) =>
-  s.length > n ? `${s.slice(0, n - 1)}…` : s;
 
 // Supplier-flag identity — small colour dot + text label (never colour alone).
 const FLAG_META: Record<CycleFlagKey, { label: string; color: string }> = {
@@ -125,25 +113,6 @@ function FilterChips({
   );
 }
 
-function SupplierBarTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload: { full: string; median: number; iqr: number; po_count: number } }>;
-}) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div className="max-w-[240px] rounded-md border bg-background p-2 text-xs shadow-sm">
-      <div className="font-medium">{d.full}</div>
-      <div className="mt-1 text-muted-foreground">
-        Median {d.median.toFixed(1)} d · Typical range {d.iqr.toFixed(1)} d · {d.po_count} PO(s)
-      </div>
-    </div>
-  );
-}
-
 // Sortable shadcn TableHead + shared SortArrow.
 function SortHead({
   label,
@@ -197,20 +166,11 @@ function BySupplier({
   onSupplierClick: (id: string) => void;
   selectedSupplierId: string | null;
 }) {
-  // Single filter drives BOTH the chart and the table (fixes the prior split
-  // where the chart stayed unfiltered). `rows` arrives median-desc from the API,
-  // so the filtered slice stays "the slowest N among the flagged set".
+  // The anomaly filter drives the table. `rows` arrives median-desc from the API,
+  // so the filtered slice stays "the slowest among the flagged set".
   const filteredRows = activeFlag
     ? rows.filter((r) => flagsBySupplier.get(r.supplier_id)?.[activeFlag])
     : rows;
-
-  const top = filteredRows.slice(0, 15).map((r) => ({
-    name: truncate(r.supplier_name, 22),
-    full: r.supplier_name,
-    median: r.median_cycle,
-    iqr: r.iqr,
-    po_count: r.po_count,
-  }));
 
   const { sorted, sort, toggle } = useTableSort<CycleSupplierRow, string>(
     filteredRows,
@@ -224,9 +184,8 @@ function BySupplier({
       <CardHeader>
         <CardTitle>Cycle Time by Supplier</CardTitle>
         <CardDescription>
-          Median procure-to-pay days per supplier in the selected period. The 15
-          slowest are charted; the full roster is in the table below. Click a row
-          for the per-supplier drill-down. Use the anomaly filters to focus on
+          Median procure-to-pay days per supplier in the selected period. Click a
+          row for the per-supplier drill-down. Use the anomaly filters to focus on
           suppliers with outlier, inconsistent, or stage-dominated cycles.
         </CardDescription>
       </CardHeader>
@@ -240,33 +199,7 @@ function BySupplier({
           )}
         </div>
 
-        {top.length > 0 ? (
-          <ChartFrame height={Math.max(220, top.length * 26 + 24)}>
-            <BarChart data={top} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-              <XAxis
-                type="number"
-                tick={{ fontSize: 10 }}
-                tickFormatter={(v) => `${v}d`}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={140}
-                tick={{ fontSize: 10 }}
-                interval={0}
-              />
-              <Tooltip content={<SupplierBarTooltip />} cursor={{ fillOpacity: 0.06 }} />
-              <Bar dataKey="median" fill={CHART_COLORS[0]} radius={[0, 3, 3, 0]} isAnimationActive={false} />
-            </BarChart>
-          </ChartFrame>
-        ) : (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            {activeFlag ? "No suppliers match this anomaly." : "No supplier activity in this period."}
-          </p>
-        )}
-
-        {filteredRows.length > 0 && (
+        {filteredRows.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -313,6 +246,10 @@ function BySupplier({
               ))}
             </TableBody>
           </Table>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {activeFlag ? "No suppliers match this anomaly." : "No supplier activity in this period."}
+          </p>
         )}
       </CardContent>
     </Card>
