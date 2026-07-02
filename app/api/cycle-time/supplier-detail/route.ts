@@ -172,6 +172,7 @@ export async function GET(request: Request) {
       country: supplier?.country ?? null,
       abc_class: abcClass,
       kraljic_quadrant: perf?.kraljic_quadrant ?? null,
+      zone: perf?.zone ?? null,
       composite: perf?.performance_score != null ? round2(perf.performance_score) : null,
     },
     cycle: {

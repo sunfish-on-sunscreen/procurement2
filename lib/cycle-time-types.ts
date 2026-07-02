@@ -1,7 +1,7 @@
 /** Per-supplier + per-category cycle-time breakdown (period/range-scoped),
  * computed on demand from the Purchase table by /api/cycle-time/breakdown. */
 
-import type { KraljicQuadrant, CycleAnomaly } from "@/lib/analysis-types";
+import type { KraljicQuadrant, PerformanceZone, CycleAnomaly } from "@/lib/analysis-types";
 
 /** The four procure-to-pay stages, in order, with display labels. */
 export const CYCLE_STAGES = [
@@ -70,6 +70,8 @@ export type CycleSupplierDetail = {
     country: string | null;
     abc_class: AbcClass | null;
     kraljic_quadrant: KraljicQuadrant | null;
+    // Performance-vs-Spend zone (period-scoped, parallel to kraljic_quadrant).
+    zone: PerformanceZone | null;
     composite: number | null;
   };
   cycle: {

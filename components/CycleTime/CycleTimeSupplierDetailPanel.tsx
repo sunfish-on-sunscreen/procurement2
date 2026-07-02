@@ -12,11 +12,12 @@ import {
   Legend,
 } from "recharts";
 import type { CycleSupplierDetail, CycleStageKey } from "@/lib/cycle-time-types";
-import { ABC_COLORS, QUADRANT_COLORS, CHART_COLORS } from "@/lib/chart-colors";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import { panelElevation } from "@/lib/utils";
 import { periodSpanLabel } from "@/lib/panel-format";
 import { useTableSort } from "@/lib/use-table-sort";
 import { Button } from "@/components/ui/button";
+import { CountryFlag } from "@/components/CountryFlag";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
@@ -29,25 +30,6 @@ const STAGE_COLOR: Record<CycleStageKey, string> = {
   delivery_to_invoice: CHART_COLORS[2],
   invoice_to_payment: CHART_COLORS[3],
 };
-
-// Classification chip — color-mix tint + token text; null → muted placeholder.
-function Chip({ color, label }: { color: string | null; label: string }) {
-  if (!color) {
-    return (
-      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-        {label}
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
-    >
-      {label}
-    </span>
-  );
-}
 
 function StageChip({ stage, label }: { stage: CycleStageKey; label: string }) {
   const color = STAGE_COLOR[stage];
@@ -244,7 +226,22 @@ export function CycleTimeSupplierDetailPanel({
             </DialogTitle>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
-                {[s.category, s.country].filter(Boolean).join(" · ") || s.id}
+                {(() => {
+                  const parts = [s.category, s.abc_class, s.kraljic_quadrant, s.zone].filter(Boolean);
+                  if (parts.length === 0 && !s.country) return s.id;
+                  return (
+                    <>
+                      {parts.join(" · ")}
+                      {s.country && (
+                        <>
+                          {parts.length > 0 ? " · " : ""}
+                          {s.country}
+                          <CountryFlag code={s.country} />
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </p>
             )}
             <p className="mt-0.5 text-[11px] text-muted-foreground" title={span.full}>
@@ -265,24 +262,7 @@ export function CycleTimeSupplierDetailPanel({
 
         {current?.data && s && cyc && (
           <>
-            {/* Section 2: classification context */}
-            <div className="border-b p-4">
-              <h4 className="mb-2 text-sm font-medium text-muted-foreground">Classification context</h4>
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip color={s.abc_class ? ABC_COLORS[s.abc_class] : null} label={s.abc_class ? `Class ${s.abc_class}` : "Class —"} />
-                <span className="text-xs text-muted-foreground">Exposure</span>
-                <Chip color={s.kraljic_quadrant ? QUADRANT_COLORS[s.kraljic_quadrant] : null} label={s.kraljic_quadrant ?? "—"} />
-                <span className="text-sm text-muted-foreground">
-                  Performance{" "}
-                  <span className="font-medium text-foreground tabular-nums">
-                    {s.composite != null ? s.composite.toFixed(2) : "—"}
-                  </span>
-                  {s.composite != null ? " / 100" : ""}
-                </span>
-              </div>
-            </div>
-
-            {/* Section 3: cycle stats */}
+            {/* Section 2: cycle stats */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Cycle stats</h4>
               <div className="grid grid-cols-3 gap-3">
