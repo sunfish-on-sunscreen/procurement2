@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   );
 
   // Per-supplier Purchase aggregate over the span. Filter mirrors the Python
-  // load (COALESCE(invoiceDate, prDate)) so totals reconcile with spend_overview.
+  // load (COALESCE(paymentDate, prDate)) so totals reconcile with spend_overview.
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T23:59:59`);
   const agg = await prisma.$queryRaw<
@@ -66,8 +66,8 @@ export async function POST(request: Request) {
            COUNT(*)::int AS po_count,
            SUM("totalValueUsd")::float8 AS total_spend
     FROM "Purchase"
-    WHERE COALESCE("invoiceDate", "prDate") >= ${start}
-      AND COALESCE("invoiceDate", "prDate") <= ${end}
+    WHERE COALESCE("paymentDate", "prDate") >= ${start}
+      AND COALESCE("paymentDate", "prDate") <= ${end}
     GROUP BY "supplierExternalId"
   `);
   const aggById = new Map(agg.map((r) => [r.id, r]));

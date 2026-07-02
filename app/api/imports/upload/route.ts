@@ -162,16 +162,16 @@ export async function POST(request: Request) {
   }
 
   // 9. Auto-create reporting periods from the YEARS present in Purchases.
-  // Periods are keyed by INVOICE date (when spend is realized), falling back to
-  // PR date for any row missing an invoice. This is what surfaces e.g. a 2026
-  // period from invoices that arrive after their 2025 POs.
+  // Periods are keyed by PAYMENT date (when cash leaves), falling back to
+  // PR date for any row missing a payment. This is what surfaces e.g. a 2026
+  // period from payments that settle after their 2025 POs.
   let years: number[];
   try {
     years = [
       ...new Set(
         purchasesParsed.data.map((r) =>
-          (r.invoice_date
-            ? parseExcelDate(r.invoice_date)
+          (r.payment_date
+            ? parseExcelDate(r.payment_date)
             : parseExcelDate(r.pr_date)
           ).getUTCFullYear(),
         ),
@@ -219,6 +219,7 @@ export async function POST(request: Request) {
     purchaseData = purchasesParsed.data.map((r) => {
       const prDate = parseExcelDate(r.pr_date);
       const invoiceDate = parseExcelDate(r.invoice_date);
+      const paymentDate = parseExcelDate(r.payment_date);
       return {
         poId: r.po_id,
         supplierExternalId: r.supplier_id,
@@ -233,7 +234,7 @@ export async function POST(request: Request) {
         poDate: parseExcelDate(r.po_date),
         deliveryDate: parseExcelDate(r.delivery_date),
         invoiceDate,
-        paymentDate: parseExcelDate(r.payment_date),
+        paymentDate,
         prToPoDays: r.pr_to_po_days,
         poToDeliveryDays: r.po_to_delivery_days,
         deliveryToInvoiceDays: r.delivery_to_invoice_days,
@@ -241,10 +242,10 @@ export async function POST(request: Request) {
         totalCycleDays: r.total_cycle_days,
         onTimeDelivery: r.on_time_delivery,
         threeWayMatchPass: r.three_way_match_pass,
-        // Tag each purchase to the period for the YEAR it was invoiced (when
-        // spend is realized), falling back to its pr_date year if no invoice.
+        // Tag each purchase to the period for the YEAR it was paid (when cash
+        // leaves), falling back to its pr_date year if no payment.
         periodId: yearToPeriodId.get(
-          (invoiceDate ?? prDate).getUTCFullYear(),
+          (paymentDate ?? prDate).getUTCFullYear(),
         )!,
       };
     });
@@ -255,7 +256,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Each metric row is scoped to its own period (the `period` invoice-year).
+  // Each metric row is scoped to its own period (the `period` payment-year).
   // Map it to that year's periodId; fall back to the latest year if a metric
   // row's year somehow isn't among the detected purchase years (shouldn't
   // happen — metric periods are derived from the same purchases).

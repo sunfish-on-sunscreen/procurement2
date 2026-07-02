@@ -40,7 +40,7 @@ export async function GET(
       select: {
         itemDescription: true,
         totalValueUsd: true,
-        invoiceDate: true,
+        paymentDate: true,
         prDate: true,
         supplierName: true,
       },
@@ -94,7 +94,7 @@ export async function GET(
   const periodsOut: SupplierEvolution["periods"] = analysesByPeriod.map(
     ({ period, abc, kraljic, perf }) => {
       const inPeriod = purchases.filter((pu) => {
-        const d = pu.invoiceDate ?? pu.prDate;
+        const d = pu.paymentDate ?? pu.prDate;
         return d != null && d >= period.startDate && d <= period.endDate;
       });
       let spend = 0;

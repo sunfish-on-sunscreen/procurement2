@@ -1,11 +1,11 @@
 /**
  * One-time migration: re-tag Purchase rows (and the catalog Supplier /
- * SupplierMetric rows) to reporting periods keyed by INVOICE date instead of
- * PR date. Mirrors the upload route's new tagging logic so a migrated database
+ * SupplierMetric rows) to reporting periods keyed by PAYMENT date instead of
+ * PR date. Mirrors the upload route's tagging logic so a migrated database
  * matches a fresh import.
  *
  * Usage:
- *   npx tsx scripts/migrate-period-tags.ts            # tag by invoice date (default)
+ *   npx tsx scripts/migrate-period-tags.ts            # tag by payment date (default)
  *   npx tsx scripts/migrate-period-tags.ts --by=pr    # REVERT: tag by PR date
  *
  * Reversibility: the mapping is deterministic from each row's own dates, so
@@ -19,14 +19,14 @@ import { PrismaClient } from "../lib/generated/prisma/client";
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-type By = "invoice" | "pr";
+type By = "payment" | "pr";
 
 function parseArgs(): By {
   const arg = process.argv.find((a) => a.startsWith("--by="));
   const by = arg?.split("=")[1];
   if (by === "pr") return "pr";
-  if (by === "invoice" || by === undefined) return "invoice";
-  throw new Error(`Unknown --by value: ${by} (expected "invoice" or "pr")`);
+  if (by === "payment" || by === undefined) return "payment";
+  throw new Error(`Unknown --by value: ${by} (expected "payment" or "pr")`);
 }
 
 async function ensurePeriod(year: number): Promise<string> {
@@ -47,7 +47,7 @@ async function main() {
   console.log(`Re-tagging periods by ${by.toUpperCase()} date...`);
 
   const purchases = await prisma.purchase.findMany({
-    select: { id: true, prDate: true, invoiceDate: true },
+    select: { id: true, prDate: true, paymentDate: true },
   });
   if (purchases.length === 0) {
     console.log("No purchases found; nothing to migrate.");
@@ -58,7 +58,7 @@ async function main() {
   const idsByYear = new Map<number, string[]>();
   for (const p of purchases) {
     const ref =
-      by === "invoice" ? (p.invoiceDate ?? p.prDate) : p.prDate;
+      by === "payment" ? (p.paymentDate ?? p.prDate) : p.prDate;
     const year = ref.getUTCFullYear();
     if (!idsByYear.has(year)) idsByYear.set(year, []);
     idsByYear.get(year)!.push(p.id);

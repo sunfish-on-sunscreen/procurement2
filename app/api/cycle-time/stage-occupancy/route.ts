@@ -24,8 +24,8 @@ type StageKey = "pr_active" | "po_active" | "delivery_active" | "invoice_active"
  * PO counts as a whole +1 in EVERY window month the gap touches. A PO that moves
  * through two stages in one month counts +1 in both, so per-month totals across
  * the stages can exceed the PO count (intended). Population = POs tagged to the
- * window by invoiceDate — the SAME filter the breakdown route + the rest of the
- * page use (303 for 2025). Stage-months that fall outside the window (e.g. a
+ * window by paymentDate — the SAME filter the breakdown route + the rest of the
+ * page use. Stage-months that fall outside the window (e.g. a
  * PO's PR stage in the prior December) are simply not counted; the x-axis is not
  * extended into the neighbouring year. Login required; any role.
  */
@@ -64,11 +64,11 @@ export async function GET(request: Request) {
     }
   }
 
-  // Population: POs tagged to the window by invoiceDate — same filter the
-  // breakdown route + the rest of the page use (303 for 2025).
+  // Population: POs tagged to the window by paymentDate — same filter the
+  // breakdown route + the rest of the page use.
   const purchases = await prisma.purchase.findMany({
     where: {
-      invoiceDate: {
+      paymentDate: {
         gte: new Date(`${start}T00:00:00`),
         lte: new Date(`${end}T23:59:59`),
       },

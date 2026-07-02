@@ -78,7 +78,7 @@ export async function GET(request: Request) {
   // mean/std used by the anomaly flag) and the supplier identity, in parallel.
   const [allPurchases, supplier] = await Promise.all([
     prisma.purchase.findMany({
-      where: { invoiceDate: dateFilter },
+      where: { paymentDate: dateFilter },
       select: {
         poId: true,
         supplierExternalId: true,

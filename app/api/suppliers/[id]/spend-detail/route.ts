@@ -38,8 +38,8 @@ export async function GET(
   const { id } = await params;
 
   // Optional period scope. Both must be valid YYYY-MM-DD with end >= start;
-  // omit both for all-time (backward compat). invoiceDate is non-null here, so
-  // filtering it matches the COALESCE(invoiceDate, prDate) tag the ranking uses.
+  // omit both for all-time (backward compat). paymentDate is non-null here, so
+  // filtering it matches the COALESCE(paymentDate, prDate) tag the ranking uses.
   const sp = new URL(request.url).searchParams;
   const start = sp.get("start");
   const end = sp.get("end");
@@ -132,7 +132,7 @@ export async function GET(
   const purchases = await prisma.purchase.findMany({
     where: {
       supplierExternalId: id,
-      ...(dateFilter ? { invoiceDate: dateFilter } : {}),
+      ...(dateFilter ? { paymentDate: dateFilter } : {}),
     },
     select: {
       poId: true,
@@ -326,7 +326,7 @@ export async function GET(
   // rank/percent are null.
   const spendBySupplier = await prisma.purchase.groupBy({
     by: ["supplierExternalId"],
-    where: dateFilter ? { invoiceDate: dateFilter } : {},
+    where: dateFilter ? { paymentDate: dateFilter } : {},
     _sum: { totalValueUsd: true },
   });
   const activeSupplierCount = spendBySupplier.length;

@@ -10,7 +10,7 @@ Two modes:
       {spend_overview, abc, cycle_time, performance_spend, kraljic,
       recommendations} to STDOUT. No DB writes.
 
-Data is filtered by Purchase invoice date — COALESCE(invoiceDate, prDate) — so a
+Data is filtered by Purchase payment date — COALESCE(paymentDate, prDate) — so a
 period's compute covers exactly the rows tagged to it at import. Suppliers and
 metrics are derived from the suppliers that appear in the filtered purchases.
 Progress logs go to STDERR so Mode B's stdout stays pure JSON.
@@ -98,15 +98,15 @@ def _df(conn, query, params):
 def load_frames(conn, start_ts, end_ts):
     """Load purchases in [start_ts, end_ts] plus the suppliers/metrics for the
     suppliers that appear in those purchases (deduped across periods)."""
-    # Filter by INVOICE date (when spend is realized), falling back to PR date
-    # for any row without an invoice. This mirrors the period TAG assigned at
-    # import (invoiceDate ?? prDate), so a period's compute covers exactly the
+    # Filter by PAYMENT date (when cash actually leaves), falling back to PR date
+    # for any row without a payment. This mirrors the period TAG assigned at
+    # import (paymentDate ?? prDate), so a period's compute covers exactly the
     # rows tagged to it.
     purchases = _df(
         conn,
         'SELECT * FROM "Purchase" '
-        'WHERE COALESCE("invoiceDate", "prDate") >= %s '
-        'AND COALESCE("invoiceDate", "prDate") <= %s',
+        'WHERE COALESCE("paymentDate", "prDate") >= %s '
+        'AND COALESCE("paymentDate", "prDate") <= %s',
         (start_ts, end_ts),
     )
     if len(purchases) == 0:
@@ -183,13 +183,13 @@ def spend_overview(purchases, suppliers, metrics):
             for _, r in rows.iterrows()
         ]
 
-    # Realized spend is bucketed by INVOICE date (spend isn't realized until an
-    # invoice exists). Rows without an invoice date are excluded from the trend
-    # only — they still count toward every other aggregation above.
+    # Spend is bucketed by PAYMENT date (matches the period tag). Rows without a
+    # payment date are excluded from the trend only — they still count toward
+    # every other aggregation above.
     pm = purchases.copy()
-    pm["_invoice"] = pd.to_datetime(pm["invoiceDate"], errors="coerce")
-    pm = pm.dropna(subset=["_invoice"])
-    pm["month"] = pm["_invoice"].dt.strftime("%Y-%m")
+    pm["_pay"] = pd.to_datetime(pm["paymentDate"], errors="coerce")
+    pm = pm.dropna(subset=["_pay"])
+    pm["month"] = pm["_pay"].dt.strftime("%Y-%m")
     mt = pm.groupby("month")["totalValueUsd"].sum().sort_index()
     mc = pm.groupby("month").size()
     monthly_trend = [
@@ -272,10 +272,10 @@ def abc_analysis(purchases, suppliers, metrics):
 #    (a fixed midpoint split).
 # --------------------------------------------------------------------------- #
 def _coalesced_date(purchases):
-    """Invoice date when present, else PR date — mirrors the period tag."""
-    inv = pd.to_datetime(purchases["invoiceDate"], errors="coerce")
+    """Payment date when present, else PR date — mirrors the period tag."""
+    pay = pd.to_datetime(purchases["paymentDate"], errors="coerce")
     pr = pd.to_datetime(purchases["prDate"], errors="coerce")
-    return inv.fillna(pr)
+    return pay.fillna(pr)
 
 
 def _desc_stats(values):

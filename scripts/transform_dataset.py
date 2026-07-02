@@ -21,8 +21,8 @@ inputs, so delivery + process (45% of the composite) vary by year while the
 rest stays flat. This is fully deterministic (no rng) and fabricates nothing.
 A supplier-period with zero purchase activity gets NO row.
 
-Period grouping uses ``(invoice_date or pr_date).year`` — the same key the
-import route tags purchases with (COALESCE(invoiceDate, prDate)) — so the
+Period grouping uses ``(payment_date or pr_date).year`` — the same key the
+import route tags purchases with (COALESCE(paymentDate, prDate)) — so the
 transformer's per-period groups line up exactly with the DB periods.
 
 Pipeline (fully deterministic — no rng):
@@ -127,7 +127,7 @@ OUT_COLS = (
 def build_period_metrics(metrics, purchases):
     """Expand the per-supplier snapshot into one row per active supplier-period.
 
-    Purchase-derived inputs are re-aggregated per period (invoice-year, with a
+    Purchase-derived inputs are re-aggregated per period (payment-year, with a
     pr_date fallback — mirrors the import route's period tag); soft + identity
     inputs are carried constant from the supplier's snapshot row. Aggregation
     formulas reproduce the snapshot definitions exactly, so summing across all
@@ -135,9 +135,9 @@ def build_period_metrics(metrics, purchases):
     soft_by_sid = metrics.set_index("supplier_id")
 
     pu = purchases.copy()
-    inv = pd.to_datetime(pu["invoice_date"], errors="coerce")
+    pay = pd.to_datetime(pu["payment_date"], errors="coerce")
     pr = pd.to_datetime(pu["pr_date"], errors="coerce")
-    pu["period"] = inv.fillna(pr).dt.year.astype("Int64")
+    pu["period"] = pay.fillna(pr).dt.year.astype("Int64")
 
     rows = []
     for (sid, year), g in pu.groupby(["supplier_id", "period"], sort=True):

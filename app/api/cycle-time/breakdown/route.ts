@@ -32,7 +32,7 @@ const round1 = (x: number) => Math.round(x * 10) / 10;
 
 /**
  * Per-supplier (median/IQR/PO count/slowest stage) and per-category (stage
- * means) cycle-time breakdown for the selected span. Filters by invoice date
+ * means) cycle-time breakdown for the selected span. Filters by payment date
  * (1:1 non-null, matches the period tag). Login required; any role.
  */
 export async function GET(request: Request) {
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
 
   const purchases = await prisma.purchase.findMany({
     where: {
-      invoiceDate: {
+      paymentDate: {
         gte: new Date(`${start}T00:00:00`),
         lte: new Date(`${end}T23:59:59`),
       },
