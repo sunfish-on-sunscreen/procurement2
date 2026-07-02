@@ -41,13 +41,14 @@ export type CycleSupplierRow = {
 };
 
 // --- Per-supplier drill-down (GET /api/cycle-time/supplier-detail) ---------- #
-/** One stage's median for a supplier vs the portfolio median, for the panel's
- * per-stage comparison. */
-export type CycleStageMedian = {
+/** One stage's mean for a supplier vs the portfolio mean, for the panel's
+ * per-stage comparison. Mean-based so it agrees with the mean-based
+ * "Slowest stage" chip and the page-wide mean % of cycle. */
+export type CycleStageComparison = {
   key: CycleStageKey;
   label: string;
-  supplier_median: number;
-  portfolio_median: number;
+  supplier_mean: number;
+  portfolio_mean: number;
 };
 
 /** One PO in the supplier's selected-span history. `is_anomaly` mirrors the
@@ -80,7 +81,7 @@ export type CycleSupplierDetail = {
     slowest_stage: CycleStageKey;
     slowest_stage_label: string;
   };
-  stages: CycleStageMedian[];
+  stages: CycleStageComparison[];
   pos: CyclePoRow[];
 };
 

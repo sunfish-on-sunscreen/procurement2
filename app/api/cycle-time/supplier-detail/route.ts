@@ -27,7 +27,7 @@ function quantile(sorted: number[], q: number): number {
   return next != null ? sorted[base] + rest * (next - sorted[base]) : sorted[base];
 }
 
-const median = (xs: number[]) => quantile([...xs].sort((a, b) => a - b), 0.5);
+const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
 
 const STAGE_FIELD: Record<CycleStageKey, "prToPoDays" | "poToDeliveryDays" | "deliveryToInvoiceDays" | "invoiceToPaymentDays"> = {
   pr_to_po: "prToPoDays",
@@ -120,14 +120,15 @@ export async function GET(request: Request) {
       ? Math.sqrt(allCycles.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1))
       : 0;
 
-  // Per-stage medians: this supplier vs the whole portfolio.
+  // Per-stage means: this supplier vs the whole portfolio. Mean-based so the
+  // panel's per-stage bars agree with the mean-based "Slowest stage" chip.
   const stages = CYCLE_STAGES.map((s) => {
     const field = STAGE_FIELD[s.key];
     return {
       key: s.key,
       label: s.label,
-      supplier_median: round2(median(mine.map((p) => p[field]))),
-      portfolio_median: round2(median(allPurchases.map((p) => p[field]))),
+      supplier_mean: round2(avg(mine.map((p) => p[field]))),
+      portfolio_mean: round2(avg(allPurchases.map((p) => p[field]))),
     };
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, TriangleAlert } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -65,8 +65,8 @@ function StageChip({ stage, label }: { stage: CycleStageKey; label: string }) {
 function StageBars({ stages }: { stages: CycleSupplierDetail["stages"] }) {
   const data = stages.map((s) => ({
     name: s.label,
-    supplier: s.supplier_median,
-    portfolio: s.portfolio_median,
+    supplier: s.supplier_mean,
+    portfolio: s.portfolio_mean,
   }));
   return (
     <ChartFrame height={200}>
@@ -74,8 +74,8 @@ function StageBars({ stages }: { stages: CycleSupplierDetail["stages"] }) {
         <CartesianGrid strokeDasharray="3 3" horizontal={false} />
         <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}d`} />
         <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10 }} interval={0} />
-        <Tooltip formatter={(v, n) => [`${Number(v).toFixed(2)} d`, n === "supplier" ? "This supplier" : "Portfolio median"]} cursor={{ fillOpacity: 0.06 }} />
-        <Legend wrapperStyle={{ fontSize: 11 }} formatter={(n) => (n === "supplier" ? "This supplier" : "Portfolio median")} />
+        <Tooltip formatter={(v, n) => [`${Number(v).toFixed(2)} d`, n === "supplier" ? "This supplier" : "Portfolio average"]} cursor={{ fillOpacity: 0.06 }} />
+        <Legend wrapperStyle={{ fontSize: 11 }} formatter={(n) => (n === "supplier" ? "This supplier" : "Portfolio average")} />
         <Bar dataKey="supplier" fill={CHART_COLORS[0]} radius={[0, 3, 3, 0]} isAnimationActive={false} />
         <Bar dataKey="portfolio" fill={CHART_COLORS[4]} radius={[0, 3, 3, 0]} isAnimationActive={false} />
       </BarChart>
@@ -115,7 +115,15 @@ function PoHead({
   );
 }
 
-function PoList({ pos }: { pos: CycleSupplierDetail["pos"] }) {
+function PoList({
+  pos,
+  stageDominatedPoIds,
+}: {
+  pos: CycleSupplierDetail["pos"];
+  // Span-scoped stage-dominated PO ids (one stage > 60% of cycle) — merged in from
+  // the roster so both flag types (outlier + stage-dom) live in this one table.
+  stageDominatedPoIds: Set<string>;
+}) {
   const { sorted, sort, toggle } = useTableSort<CycleSupplierDetail["pos"][number], string>(
     pos,
     (r, k) => (r as unknown as Record<string, number | string | boolean | null>)[k] as number | string | null,
@@ -130,37 +138,39 @@ function PoList({ pos }: { pos: CycleSupplierDetail["pos"] }) {
           <PoHead label="Invoice date" sortKey="invoice_date" active={sort.key === "invoice_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
           <PoHead label="Cycle days" sortKey="total_cycle_days" active={sort.key === "total_cycle_days"} dir={sort.dir} onSort={toggle} align="right" />
           <th className="py-1.5 text-left font-medium">Slowest stage</th>
+          <th className="py-1.5 text-left font-medium">Flags</th>
         </tr>
       </thead>
       <tbody>
-        {sorted.map((p) => (
-          <tr key={p.po_id} className="border-b last:border-0">
-            <td className="py-1.5 font-medium">
-              <span className="inline-flex items-center gap-1">
-                {p.is_anomaly && (
-                  <TriangleAlert
-                    className="h-3 w-3 text-destructive"
-                    aria-label="Cycle-time anomaly (>2σ)"
-                  />
+        {sorted.map((p) => {
+          const isStageDom = stageDominatedPoIds.has(p.po_id);
+          return (
+            <tr key={p.po_id} className="border-b last:border-0">
+              <td className="py-1.5 font-medium">{p.po_id}</td>
+              <td className="py-1.5 tabular-nums text-muted-foreground">{p.invoice_date ?? "—"}</td>
+              <td className="py-1.5 text-right tabular-nums">{p.total_cycle_days}</td>
+              <td className="py-1.5">
+                <StageChip stage={p.slowest_stage} label={p.slowest_stage_label} />
+              </td>
+              <td className="py-1.5">
+                {p.is_anomaly || isStageDom ? (
+                  <span className="flex flex-wrap gap-1">
+                    {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
+                    {isStageDom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
                 )}
-                {p.po_id}
-              </span>
-            </td>
-            <td className="py-1.5 tabular-nums text-muted-foreground">{p.invoice_date ?? "—"}</td>
-            <td className={`py-1.5 text-right tabular-nums ${p.is_anomaly ? "font-semibold text-destructive" : ""}`}>
-              {p.total_cycle_days}
-            </td>
-            <td className="py-1.5">
-              <StageChip stage={p.slowest_stage} label={p.slowest_stage_label} />
-            </td>
-          </tr>
-        ))}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
 }
 
-// ---- Flagged POs (outlier and/or stage-dominated) -------------------------- #
+// ---- Flag badge (outlier / stage-dominated) — used in the PO table's Flags col #
 function FlagBadge({ color, label }: { color: string; label: string }) {
   return (
     <span
@@ -169,39 +179,6 @@ function FlagBadge({ color, label }: { color: string; label: string }) {
       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
       {label}
     </span>
-  );
-}
-
-function FlaggedPos({
-  pos,
-  stageDominatedPoIds,
-}: {
-  pos: CycleSupplierDetail["pos"];
-  stageDominatedPoIds: Set<string>;
-}) {
-  const flagged = pos
-    .map((p) => ({ ...p, is_stage_dom: stageDominatedPoIds.has(p.po_id) }))
-    .filter((p) => p.is_anomaly || p.is_stage_dom)
-    .sort((a, b) => b.total_cycle_days - a.total_cycle_days);
-
-  if (flagged.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">No flagged POs for this supplier in this period.</p>
-    );
-  }
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {flagged.map((p) => (
-        <li key={p.po_id} className="flex items-center justify-between gap-2 text-xs">
-          <span className="font-medium">{p.po_id}</span>
-          <span className="tabular-nums text-muted-foreground">{p.total_cycle_days} d</span>
-          <span className="flex flex-wrap justify-end gap-1">
-            {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
-            {p.is_stage_dom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
-          </span>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -286,6 +263,7 @@ export function CycleTimeSupplierDetailPanel({
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Classification context</h4>
               <div className="flex flex-wrap items-center gap-2">
                 <Chip color={s.abc_class ? ABC_COLORS[s.abc_class] : null} label={s.abc_class ? `Class ${s.abc_class}` : "Class —"} />
+                <span className="text-xs text-muted-foreground">Exposure</span>
                 <Chip color={s.kraljic_quadrant ? QUADRANT_COLORS[s.kraljic_quadrant] : null} label={s.kraljic_quadrant ?? "—"} />
                 <span className="text-sm text-muted-foreground">
                   Performance{" "}
@@ -314,26 +292,18 @@ export function CycleTimeSupplierDetailPanel({
             {/* Section 4: per-stage breakdown vs portfolio */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">
-                Per-stage median — this supplier vs portfolio
+                Per-stage average — this supplier vs portfolio
               </h4>
               <StageBars stages={current.data.stages} />
             </div>
 
-            {/* Section 5: this supplier's flagged POs */}
-            <div className="border-b p-4">
-              <h4 className="mb-2 text-sm font-medium text-muted-foreground">
-                This supplier&apos;s flagged POs
-              </h4>
-              <FlaggedPos pos={current.data.pos} stageDominatedPoIds={stageDominatedPoIds} />
-            </div>
-
-            {/* Section 6: PO list */}
+            {/* Section 5: PO list (outlier + stage-dom flags merged into one table) */}
             <div className="p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">
                 Purchase orders ({cyc.po_count})
               </h4>
               {current.data.pos.length > 0 ? (
-                <PoList pos={current.data.pos} />
+                <PoList pos={current.data.pos} stageDominatedPoIds={stageDominatedPoIds} />
               ) : (
                 <p className="py-6 text-center text-sm text-muted-foreground">
                   No invoices in this period.
