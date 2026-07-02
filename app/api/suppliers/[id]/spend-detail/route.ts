@@ -144,6 +144,7 @@ export async function GET(
       totalValueUsd: true,
       prDate: true,
       invoiceDate: true,
+      paymentDate: true,
       // Inputs for the range composite (A7): aggregated below into delivery /
       // process means over the in-span POs.
       poToDeliveryDays: true,
@@ -217,14 +218,15 @@ export async function GET(
       itemDescription: p.itemDescription,
       prDate: iso(p.prDate),
       invoiceDate: iso(p.invoiceDate),
+      paymentDate: iso(p.paymentDate),
       quantity: p.quantity,
       unit: p.unit,
       unitPriceUsd: p.unitPriceUsd,
       totalValueUsd: p.totalValueUsd,
     }))
     .sort((a, b) =>
-      (b.invoiceDate ?? b.prDate ?? "").localeCompare(
-        a.invoiceDate ?? a.prDate ?? "",
+      (b.paymentDate ?? b.prDate ?? "").localeCompare(
+        a.paymentDate ?? a.prDate ?? "",
       ),
     );
 

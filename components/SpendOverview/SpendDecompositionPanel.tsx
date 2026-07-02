@@ -124,7 +124,7 @@ function PoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ pa
 
 function PosTimeChart({ detail }: { detail: SpendDetail }) {
   const data: PoDatum[] = [...detail.pos]
-    .map((p) => ({ date: p.invoiceDate ?? p.prDate ?? "—", value: p.totalValueUsd, poId: p.poId, item: p.itemDescription }))
+    .map((p) => ({ date: p.paymentDate ?? p.prDate ?? "—", value: p.totalValueUsd, poId: p.poId, item: p.itemDescription }))
     .sort((a, b) => a.date.localeCompare(b.date));
   const dateRange =
     data.length > 0 ? `${data[0].date} to ${data[data.length - 1].date}` : "—";
@@ -140,7 +140,7 @@ function PosTimeChart({ detail }: { detail: SpendDetail }) {
           <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[2, 2, 0, 0]} isAnimationActive={false} />
         </BarChart>
       </ChartFrame>
-      <p className="mt-2 text-xs text-muted-foreground">{detail.pos.length} invoice(s) · {dateRange}.</p>
+      <p className="mt-2 text-xs text-muted-foreground">{detail.pos.length} invoice(s) · {dateRange} · by payment date.</p>
     </div>
   );
 }
@@ -171,7 +171,7 @@ function ItemTable({ detail }: { detail: SpendDetail }) {
 
 function PosTable({ detail }: { detail: SpendDetail }) {
   const rows = [...detail.pos].sort((a, b) =>
-    (b.invoiceDate ?? b.prDate ?? "").localeCompare(a.invoiceDate ?? a.prDate ?? ""),
+    (b.paymentDate ?? b.prDate ?? "").localeCompare(a.paymentDate ?? a.prDate ?? ""),
   );
   return (
     <table className="w-full border-collapse text-xs">
@@ -179,7 +179,7 @@ function PosTable({ detail }: { detail: SpendDetail }) {
         <tr className="border-b text-left text-muted-foreground">
           <th className="py-1.5 font-medium">PO ID</th>
           <th className="py-1.5 font-medium">Item</th>
-          <th className="py-1.5 font-medium">Date</th>
+          <th className="py-1.5 font-medium">Payment date</th>
           <th className="py-1.5 text-right font-medium">Total</th>
         </tr>
       </thead>
@@ -188,7 +188,7 @@ function PosTable({ detail }: { detail: SpendDetail }) {
           <tr key={p.poId} className="border-b">
             <td className="py-1.5 font-medium">{p.poId}</td>
             <td className="py-1.5">{p.itemDescription}</td>
-            <td className="py-1.5 text-muted-foreground">{p.invoiceDate ?? p.prDate ?? "—"}</td>
+            <td className="py-1.5 text-muted-foreground">{p.paymentDate ?? p.prDate ?? "—"}</td>
             <td className="py-1.5 text-right">{usd0.format(p.totalValueUsd)}</td>
           </tr>
         ))}

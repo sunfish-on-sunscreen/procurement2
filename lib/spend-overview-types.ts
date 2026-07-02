@@ -76,6 +76,7 @@ export type SpendDetail = {
     itemDescription: string;
     prDate: string | null;
     invoiceDate: string | null;
+    paymentDate: string | null;
     quantity: number;
     unit: string;
     unitPriceUsd: number;
