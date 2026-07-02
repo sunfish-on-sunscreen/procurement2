@@ -110,9 +110,9 @@ export function CycleTimeAnomalyCards({
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>Anomaly flags</CardTitle>
+        <CardTitle>Anomalies</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Suppliers tripping each flag. Click one to filter the roster below.
+          Suppliers tripping each anomaly. Click one to filter the roster below.
         </p>
       </CardHeader>
       <CardContent>

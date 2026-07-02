@@ -226,8 +226,8 @@ function BySupplier({
         <CardDescription>
           Median procure-to-pay days per supplier in the selected period. The 15
           slowest are charted; the full roster is in the table below. Click a row
-          for the per-supplier drill-down. Use the flags to focus on suppliers with
-          outlier, inconsistent, or stage-dominated cycles.
+          for the per-supplier drill-down. Use the anomaly filters to focus on
+          suppliers with outlier, inconsistent, or stage-dominated cycles.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -262,7 +262,7 @@ function BySupplier({
           </ChartFrame>
         ) : (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            {activeFlag ? "No suppliers match this flag." : "No supplier activity in this period."}
+            {activeFlag ? "No suppliers match this anomaly." : "No supplier activity in this period."}
           </p>
         )}
 
