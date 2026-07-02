@@ -121,18 +121,19 @@ export type ControlExposure = {
   n_total_suppliers: number; // distinct suppliers active in the span
 };
 
-// --- Fractional per-stage monthly occupancy (GET /api/cycle-time/stage-occupancy)
-/** One month's time-weighted count of POs active in each of the 4 stages, using
- * "[X] active" framing (X has occurred; the PO is in the phase after it). Each
- * value = Σ over POs of (days that stage's gap overlapped the month ÷ days in the
- * month), so a PO live all month contributes 1.0 spread across its stages.
- * Payment is the exit — there is no payment series. Rounded to 1dp. */
+// --- Whole-integer per-stage monthly occupancy (GET /api/cycle-time/stage-occupancy)
+/** One month's whole-integer count of POs active in each of the 4 procure-to-pay
+ * stages, plus payment events. Each stage spans from its milestone to the NEXT
+ * milestone; a PO counts as a whole +1 in EVERY window month its span touches
+ * (occupancy), so per-month totals across the stages can exceed the PO count.
+ * Payment is the terminal milestone — counted +1 in its own payment month. */
 export type StageOccupancyRow = {
   month: string; // "YYYY-MM"
   pr_active: number; // prDate → poDate
   po_active: number; // poDate → deliveryDate
   delivery_active: number; // deliveryDate → invoiceDate
   invoice_active: number; // invoiceDate → paymentDate
+  payment: number; // payment milestone, counted in its own month (terminal)
 };
 
 export type StageOccupancy = { months: StageOccupancyRow[] };

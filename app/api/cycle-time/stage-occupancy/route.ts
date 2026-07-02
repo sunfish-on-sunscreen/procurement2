@@ -19,15 +19,17 @@ type StageKey = "pr_active" | "po_active" | "delivery_active" | "invoice_active"
 
 /**
  * Whole-integer monthly count of POs active in each of the 4 procure-to-pay
- * stages, for the selected span, using "[X] active" framing (X has occurred; the
- * PO is in the phase after it). For each PO and each stage-gap [start, end), the
- * PO counts as a whole +1 in EVERY window month the gap touches. A PO that moves
- * through two stages in one month counts +1 in both, so per-month totals across
- * the stages can exceed the PO count (intended). Population = POs tagged to the
- * window by paymentDate — the SAME filter the breakdown route + the rest of the
- * page use. Stage-months that fall outside the window (e.g. a
- * PO's PR stage in the prior December) are simply not counted; the x-axis is not
- * extended into the neighbouring year. Login required; any role.
+ * stages, plus payment events, for the selected span, using "[X] active" framing
+ * (X has occurred; the PO is in the phase after it). For each PO and each
+ * stage-gap [start, end), the PO counts as a whole +1 in EVERY window month the
+ * gap touches. A PO that moves through two stages in one month counts +1 in both,
+ * so per-month totals across the stages can exceed the PO count (intended).
+ * Payment is the terminal milestone (no next), so it is counted +1 in its own
+ * payment month. Population = POs tagged to the window by paymentDate — the SAME
+ * filter the breakdown route + the rest of the page use. Stage-months that fall
+ * outside the window (e.g. a PO's PR stage in the prior December) are simply not
+ * counted; the x-axis is not extended into the neighbouring year. Login required;
+ * any role.
  */
 export async function GET(request: Request) {
   const session = await getSession();
@@ -88,7 +90,9 @@ export async function GET(request: Request) {
     po_active: 0,
     delivery_active: 0,
     invoice_active: 0,
+    payment: 0,
   }));
+  const monthIndex = new Map(months.map((mo, i) => [mo.key, i]));
 
   for (const p of purchases) {
     const pr = epochDay(p.prDate);
@@ -109,6 +113,9 @@ export async function GET(request: Request) {
         if (touches) acc[i][g.key] += 1;
       }
     });
+    // Payment is the terminal milestone: +1 in its own payment month.
+    const payIdx = monthIndex.get(p.paymentDate.toISOString().slice(0, 7));
+    if (payIdx != null) acc[payIdx].payment += 1;
   }
 
   const rows: StageOccupancyRow[] = acc;

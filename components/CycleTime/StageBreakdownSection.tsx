@@ -193,7 +193,7 @@ export function StageBreakdownSection({
       <CardContent className="space-y-6">
         {/* Row 1: pipeline chart */}
         <div>
-          <SubHeading>Procure-to-pay pipeline, by month (POs active in each stage)</SubHeading>
+          <SubHeading>Procure-to-pay pipeline, by month (POs active per stage, plus payments)</SubHeading>
           {current?.err ? (
             <p className="py-6 text-center text-sm text-destructive">{current.err}</p>
           ) : !current?.data ? (

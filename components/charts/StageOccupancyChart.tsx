@@ -13,12 +13,14 @@ import { ChartFrame } from "./ChartFrame";
 import { CHART_COLORS } from "@/lib/chart-colors";
 import type { StageOccupancyRow } from "@/lib/cycle-time-types";
 
-// Same colour family as the stage tags elsewhere on the page (CHART_COLORS[0–3]).
+// Same colour family as the stage tags elsewhere on the page (CHART_COLORS[0–4]).
+// Four occupancy spans + the terminal payment event.
 const SERIES = [
   { key: "pr_active", label: "PR active", color: CHART_COLORS[0] },
   { key: "po_active", label: "PO active", color: CHART_COLORS[1] },
   { key: "delivery_active", label: "Delivery active", color: CHART_COLORS[2] },
   { key: "invoice_active", label: "Invoice active", color: CHART_COLORS[3] },
+  { key: "payment", label: "Payment", color: CHART_COLORS[4] },
 ] as const;
 
 type OccTooltipProps = {
@@ -43,9 +45,10 @@ function OccupancyTooltip({ active, payload }: OccTooltipProps) {
 }
 
 /**
- * Whole-integer count of POs active in each of the four stages per month. Four
- * lines; no rolling-average overlay. Y = number of POs in that stage during the
- * month (a PO is counted once in every stage it touches, so per-month totals can
+ * Whole-integer count of POs active in each of the four procure-to-pay stages per
+ * month, plus a terminal Payment line (payments made that month). Five lines; no
+ * rolling-average overlay. Y = number of POs in that stage during the month (a PO
+ * is counted once in every stage-month its span touches, so per-month totals can
  * exceed the PO count). Fed span-scoped data from the API route.
  */
 export function StageOccupancyChart({ data }: { data: StageOccupancyRow[] }) {
