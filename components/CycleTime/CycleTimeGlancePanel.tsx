@@ -80,6 +80,15 @@ export function CycleTimeGlancePanel({
   const slowest = stageMeans.reduce((m, c) => (c.mean > m.mean ? c : m), stageMeans[0]);
   const slowestPct = stageTotal > 0 ? Math.round((slowest.mean / stageTotal) * 100) : 0;
   const prToPoMean = cycleTime.stage_breakdown.pr_to_po?.mean ?? null;
+  // "The delay is downstream, not internal" is only true when PR→PO (the internal
+  // approval step) is actually a SMALL stage. Derive the direction from live shares
+  // rather than assuming it: small = below the average stage share. If PR→PO is a
+  // meaningful share we flip the wording; if it IS the slowest stage we self-omit.
+  const prToPoPct =
+    stageTotal > 0 && prToPoMean != null ? (prToPoMean / stageTotal) * 100 : null;
+  const avgStageShare = stageMeans.length > 0 ? 100 / stageMeans.length : 0;
+  const prToPoIsSmall = prToPoPct != null && prToPoPct < avgStageShare;
+  const prToPoIsSlowest = slowest.label === "PR to PO";
 
   // YoY trend vs the previous period (single-year mode only; parent passes null in range).
   let trend: { dir: "down" | "up"; pct: number; prev: number } | null = null;
@@ -211,12 +220,19 @@ export function CycleTimeGlancePanel({
               <p>
                 <strong>{slowest.label}</strong> is the binding constraint at{" "}
                 <strong>{slowestPct}%</strong> of the cycle
-                {prToPoMean != null && (
-                  <>
-                    , while PR to PO approval averages just {d1(prToPoMean)} days — the delay is
-                    downstream, not internal
-                  </>
-                )}
+                {prToPoMean != null &&
+                  !prToPoIsSlowest &&
+                  (prToPoIsSmall ? (
+                    <>
+                      , while PR to PO approval averages just {d1(prToPoMean)} days — the delay is
+                      downstream, not internal
+                    </>
+                  ) : (
+                    <>
+                      , with PR to PO approval averaging {d1(prToPoMean)} days — a meaningful share of
+                      the delay is internal
+                    </>
+                  ))}
                 .
                 {slowestQuad && (
                   <>

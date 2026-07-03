@@ -64,10 +64,25 @@ export function InsightsPanel({
   const cN = abc.summary.C.n;
   const aPct = abc.summary.A.pct_of_spend * 100;
   const cPct = abc.summary.C.pct_of_spend * 100;
+  // Let the Class-A spend share pick the adjective — don't hardcode "heavily
+  // concentrated" (it would contradict a genuinely distributed spend base).
+  const concentrationWord =
+    aPct >= 70 ? "heavily concentrated" : aPct >= 50 ? "concentrated" : "relatively distributed";
+  const isConcentrated = aPct >= 50;
 
   // Categories (descending).
   const categories = [...spendOverview.by_category].sort((a, b) => b.total - a.total);
   const topCategory = categories[0];
+  const secondCategory = categories[1] ?? null;
+  const topCatPct = topCategory ? share(topCategory.total, total) : 0;
+  // "Dominates" only when the top category's share is genuinely large — ≥ 40% or
+  // ≥ 1.5× the second category. Otherwise it is merely "the largest".
+  const topCatDominates =
+    topCategory != null &&
+    (topCatPct >= 40 ||
+      (secondCategory != null &&
+        secondCategory.total > 0 &&
+        topCategory.total >= 1.5 * secondCategory.total));
   const top3 = categories.slice(0, 3);
   const top3Pct = share(
     top3.reduce((s, c) => s + c.total, 0),
@@ -116,19 +131,21 @@ export function InsightsPanel({
         <p>
           Adaro spent <strong>{formatCompactCurrency(total)}</strong> across{" "}
           {num0.format(spendOverview.total_pos)} invoices with{" "}
-          {num0.format(spendOverview.active_suppliers)} suppliers {phrase}. Spend is
-          heavily concentrated: the top {aN} suppliers (Class A) account for{" "}
+          {num0.format(spendOverview.active_suppliers)} suppliers {phrase}. Spend is{" "}
+          {concentrationWord}: the top {aN} suppliers (Class A) account for{" "}
           <strong>{pct1(aPct)}</strong> of total expenditure, while the bottom {cN}{" "}
-          suppliers (Class C) contribute just {pct1(cPct)}. This Pareto distribution is
-          typical of capital-intensive mining procurement.
+          suppliers (Class C) contribute just {pct1(cPct)}.
+          {isConcentrated &&
+            " This Pareto distribution is typical of capital-intensive mining procurement."}
         </p>
 
         {topCategory && (
           <div className="space-y-1">
             <h3 className="font-medium">Where the money goes</h3>
             <p>
-              <strong>{topCategory.category}</strong> dominates at{" "}
-              {formatCompactCurrency(topCategory.total)} ({pct1(share(topCategory.total, total))})
+              <strong>{topCategory.category}</strong>{" "}
+              {topCatDominates ? "dominates at" : "is the largest at"}{" "}
+              {formatCompactCurrency(topCategory.total)} ({pct1(topCatPct)})
               of total spend, reflecting Adaro&apos;s mining operations. The top{" "}
               {top3.length} categories — {top3.map((c) => c.category).join(", ")} — together
               account for {pct1(top3Pct)} of all spend.
@@ -168,7 +185,7 @@ export function InsightsPanel({
               <li>
                 Spend spans {categories.length} categor{categories.length === 1 ? "y" : "ies"};
                 the top {catsTo80} cover 80% of it, so diversification is{" "}
-                {catsTo80 <= 2 ? "narrow" : "moderate"}.
+                {catsTo80 <= 2 ? "narrow" : catsTo80 <= 5 ? "moderate" : "broad"}.
               </li>
             )}
           </ul>
