@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, BarChart3, Table as TableIcon } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { PillTabs } from "@/components/PillTabs";
+import { ViewToggle, type View } from "@/components/ViewToggle";
 
 const usd0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -35,24 +36,8 @@ function fmtActivityDate(iso: string, withYear: boolean): string {
 }
 
 type Tab = "byItem" | "pos" | "evolution";
-type View = "chart" | "table";
 
 const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-
-function ViewToggle({ view, setView }: { view: View; setView: (v: View) => void }) {
-  return (
-    <div className="mb-2 flex justify-end">
-      <button
-        type="button"
-        onClick={() => setView(view === "chart" ? "table" : "chart")}
-        className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-      >
-        {view === "chart" ? <TableIcon className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
-        {view === "chart" ? "View as table" : "View as chart"}
-      </button>
-    </div>
-  );
-}
 
 // ---- Tab 1: spend by item (horizontal bars) ------------------------------- #
 type ItemDatum = { name: string; full: string; value: number; count: number; avg: number; pct: number };
