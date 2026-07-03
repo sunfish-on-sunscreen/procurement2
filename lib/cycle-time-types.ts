@@ -19,6 +19,18 @@ export type CycleStageKey = (typeof CYCLE_STAGES)[number]["key"];
 export type CycleFlagKey = "has_outlier" | "inconsistent" | "has_stage_dom";
 export type SupplierFlagState = Record<CycleFlagKey, boolean>;
 
+/** Plain-language hover explanations for the three supplier-level cycle flags —
+ * shared by the roster pills, the anomaly cards, and the detail-card badge so the
+ * wording stays consistent everywhere the flag surfaces. */
+export const FLAG_TOOLTIP: Record<CycleFlagKey, string> = {
+  has_outlier:
+    "Outlier: this supplier has at least one PO whose total cycle time ran more than 2σ above the period mean.",
+  inconsistent:
+    "Inconsistent: this supplier's cycle times vary more widely than typical for this period's supplier base — its interquartile spread exceeds the variability threshold set across all suppliers. It's a supplier-level pattern, not tied to any single PO, so a supplier can be flagged in one period and not another.",
+  has_stage_dom:
+    "Stage-dominated: this supplier has at least one PO where a single stage took over 60% of the total cycle time.",
+};
+
 export type AbcClass = "A" | "B" | "C";
 
 export type CycleSupplierRow = {
@@ -91,6 +103,17 @@ export type CycleSupplierDetail = {
   };
   stages: CycleStageComparison[];
   pos: CyclePoRow[];
+};
+
+/** Portfolio-level cycle context for the supplier detail card's stat comparison:
+ *  the population median + typical range (from cycle_time.distribution) and every
+ *  supplier's median (from the breakdown roster) for percentile ranking. All
+ *  display-derived from data the dashboard already has — no new compute. */
+export type CyclePortfolioContext = {
+  median: number | null;
+  p25: number | null;
+  p75: number | null;
+  supplierMedians: number[];
 };
 
 export type CycleCategoryRow = {

@@ -145,6 +145,16 @@ export function CycleTimeClient({
     has_stage_dom: stageAnomalies.length,
   };
 
+  // Portfolio cycle context for the drill-down panel's stat comparison: the
+  // population median/typical-range (cycle_time.distribution) + every supplier's
+  // median (roster) for percentile ranking. Display-derived, no new compute.
+  const portfolio = {
+    median: cycleTime.distribution.median,
+    p25: cycleTime.distribution.p25,
+    p75: cycleTime.distribution.p75,
+    supplierMedians: roster.map((r) => r.median_cycle),
+  };
+
   // Single active flag drives cards + chips (shared state). Cards scroll to the
   // roster; chips (already at the roster) don't. Clicking the active one clears.
   const setFlag = (k: CycleFlagKey | null, opts?: { scroll?: boolean }) => {
@@ -226,6 +236,7 @@ export function CycleTimeClient({
           onSelectFlag={handleChipSelect}
           selectedSupplierId={selectedSupplierId}
           onSupplierClick={setSelectedSupplierId}
+          portfolio={portfolio}
         />
       ) : (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">

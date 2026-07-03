@@ -8,6 +8,8 @@ import {
   type CycleFlagKey,
   type CycleStageKey,
   type SupplierFlagState,
+  type CyclePortfolioContext,
+  FLAG_TOOLTIP,
 } from "@/lib/cycle-time-types";
 import { CHART_COLORS, ABC_COLORS, QUADRANT_COLORS } from "@/lib/chart-colors";
 import { cardElevation, cn } from "@/lib/utils";
@@ -86,7 +88,8 @@ function FlagPills({ flags }: { flags?: SupplierFlagState }) {
       {on.map((k) => (
         <span
           key={k}
-          className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+          title={FLAG_TOOLTIP[k]}
+          className="inline-flex cursor-help items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
         >
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: FLAG_META[k].color }} />
           {FLAG_META[k].label}
@@ -289,6 +292,7 @@ export function CycleSupplierSection({
   onSelectFlag,
   selectedSupplierId,
   onSupplierClick,
+  portfolio,
 }: {
   startDate: string;
   endDate: string;
@@ -303,6 +307,9 @@ export function CycleSupplierSection({
   // outlier dots open the same panel as roster rows. `null` closes it.
   selectedSupplierId: string | null;
   onSupplierClick: (id: string | null) => void;
+  // Portfolio cycle context (population median/range + all supplier medians),
+  // forwarded to the drill-down panel for its cycle-stats comparison.
+  portfolio?: CyclePortfolioContext;
 }) {
   // Keyed state (no synchronous setState in the effect — matches the
   // SpendDecompositionPanel pattern the eslint config requires). The result is
@@ -371,6 +378,12 @@ export function CycleSupplierSection({
         startDate={startDate}
         endDate={endDate}
         stageDominatedPoIds={stageDominatedPoIds}
+        inconsistent={
+          selectedSupplierId
+            ? !!flagsBySupplier.get(selectedSupplierId)?.inconsistent
+            : false
+        }
+        portfolio={portfolio}
         onClose={() => onSupplierClick(null)}
       />
     </>

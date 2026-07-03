@@ -1,7 +1,7 @@
 "use client";
 
 import { Timer, Activity, Layers } from "lucide-react";
-import type { CycleFlagKey } from "@/lib/cycle-time-types";
+import { type CycleFlagKey, FLAG_TOOLTIP } from "@/lib/cycle-time-types";
 import { cardElevation, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -53,6 +53,7 @@ function AnomalyCard({
   if (count === 0) {
     return (
       <div
+        title={FLAG_TOOLTIP[meta.key]}
         className="flex cursor-not-allowed flex-col gap-2 rounded-lg border bg-muted/20 p-4 text-left opacity-50"
         aria-disabled="true"
       >
@@ -71,6 +72,7 @@ function AnomalyCard({
       type="button"
       onClick={onSelect}
       aria-pressed={active}
+      title={FLAG_TOOLTIP[meta.key]}
       className={cn(
         "flex flex-col gap-2 rounded-lg border bg-muted/30 p-4 text-left transition-colors",
         active ? "ring-2 ring-inset ring-foreground/40" : "hover:bg-muted/50",
