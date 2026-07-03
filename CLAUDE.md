@@ -8,7 +8,7 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **HEAD as of last doc update:
-> `a96c38e`.**
+> `44c904c`.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -29,7 +29,52 @@ Classification, Process Health Monitoring, Action Dashboard
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects).
 
-### MOST RECENT SESSION (`3d79e24` → `a96c38e`) — read this first
+### MOST RECENT SESSION (2026-07-03) — read this first
+
+**Insight-fragility audit — DONE (`47ffcd9` / `9c3df01` / `6fbdafc`).** 12 auto-generated
+insight/narrative surfaces audited + fixed so every adjective/direction is data-driven
+(guards / shape-detection / self-omit / drop) — see roadmap (a). Bundled the AD rec
+reword (#6 "weakest match compliance") + AD stage-arrows "→"→"to", now LIVE.
+
+**Recompute ran + verified (fresh DB).** `compute_analyses.py` edits (audit #6, AD stage
+arrows "to") live (`46d6276`). SAFE procedure: idempotent `Purchase.periodId` re-tag
+(already paymentDate-correct, distribution **306/313/28**) → `compute_analyses.py
+--period-id` ×3 (computedAt 10:49) → `DELETE FROM "AnalysisResult" WHERE "periodId" IS
+NULL`. ⚠️ Aggregates **byte-identical** (2025: 313 POs / $283,596,813.69 / 50 suppliers /
+control $42.47M) — only rec strings changed. ⚠️ `.env` has a UTF-8 BOM → standalone
+Python must read `DATABASE_URL` with `encoding="utf-8-sig"` (Node passes it in, so the
+app path is unaffected).
+
+**Process Health supplier-card overhaul (`267926e` + `44c904c`) — DISPLAY-ONLY, no
+recompute.** The cycle-time drill-down (`CycleTimeSupplierDetailPanel`) was rebuilt:
+- **PO block = ONE Table⇄Chart toggle** (shared `components/ViewToggle.tsx`, extracted
+  from `SpendDecompositionPanel`; default **Table**). TABLE = the 5-milestone date table
+  (PR·PO·Delivery·Invoice·Payment). CHART = the cycle-consistency line chart.
+- **Consistency line chart:** cycle days per PO, x = **order sequence by payment date**
+  (integer axis, not calendar). ⚠️ **WHOLE-LINE colour = the supplier's Inconsistent flag
+  verdict** (black = flagged, blue = consistent). A prior **windowed-IQR segmenting was
+  BROKEN + REMOVED** — it tested a 4-order-window IQR against a full-history-calibrated
+  threshold (**scope mismatch**), so flagged suppliers whose spread came from gradual
+  drift showed an all-blue line under their own flag. **Do NOT reintroduce
+  windowed-vs-full-history.** Unified anomaly dot (red = Outlier and/or Stage-dom, blue =
+  normal; hover reveals which); rich tooltip (PO id, order #, badges, cycle, slowest, 5
+  dates); own-median ref line; <3-PO "not enough POs" degradation.
+- **`FLAG_TOOLTIP`** (cycle-time-types) explains the 3 flags on roster pills / anomaly
+  cards / a supplier-level "Flagged Inconsistent" note above the chart.
+- **Cycle stats restyled to the Supplier-Classification aesthetic** (soft `rounded-xl
+  bg-card ring-1 ring-foreground/10` cards): median **delta badge with INVERTED colours**
+  (slower = red/↑, faster = green/↓ vs the **population** median), a **spread chip driven
+  by the Inconsistent flag** (never contradicts it), and a **speed-rank gauge**. Portfolio
+  context (`CyclePortfolioContext` = population median/p25/p75 + roster medians) plumbed
+  CycleTimeClient → CycleSupplierSection → panel.
+
+⚠️ **Inconsistent flag = supplier-level, client-side, NO recompute.** In `CycleTimeClient`
+(~L124): `iqrCutoff = 1.5 × median(all suppliers' full-history IQRs)`; `inconsistent =
+supplier's full-history IQR > iqrCutoff`. The consistency line colour, the "Flagged
+Inconsistent" note, AND the spread chip are all driven by this one `inconsistent` value,
+so they cannot contradict each other. Roadmap (a)–(e) all complete; no major pending items.
+
+### PRIOR SESSION (`3d79e24` → `a96c38e`)
 
 **Period tagging: invoiceDate → paymentDate app-wide (`462a5ef`).** The date that
 tags a PO to a period is now **`COALESCE(paymentDate, prDate)`** (was invoiceDate),
