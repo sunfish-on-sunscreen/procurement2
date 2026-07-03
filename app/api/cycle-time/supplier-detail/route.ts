@@ -82,7 +82,11 @@ export async function GET(request: Request) {
       select: {
         poId: true,
         supplierExternalId: true,
+        prDate: true,
+        poDate: true,
+        deliveryDate: true,
         invoiceDate: true,
+        paymentDate: true,
         prToPoDays: true,
         poToDeliveryDays: true,
         deliveryToInvoiceDays: true,
@@ -155,7 +159,11 @@ export async function GET(request: Request) {
       const z = std > 0 ? (p.totalCycleDays - mean) / std : 0;
       return {
         po_id: p.poId,
+        pr_date: iso(p.prDate),
+        po_date: iso(p.poDate),
+        delivery_date: iso(p.deliveryDate),
         invoice_date: iso(p.invoiceDate),
+        payment_date: iso(p.paymentDate),
         total_cycle_days: p.totalCycleDays,
         slowest_stage: slow.key,
         slowest_stage_label: labelOf(slow.key),

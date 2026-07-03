@@ -55,7 +55,13 @@ export type CycleStageComparison = {
  * cycle_time analysis flag (total cycle > 2σ above the span mean). */
 export type CyclePoRow = {
   po_id: string;
+  // The 5 procure-to-pay milestone dates (ISO YYYY-MM-DD; null if absent). The
+  // cycle spans pr_date → payment_date, so payment_date − pr_date == total_cycle_days.
+  pr_date: string | null;
+  po_date: string | null;
+  delivery_date: string | null;
   invoice_date: string | null;
+  payment_date: string | null;
   total_cycle_days: number;
   slowest_stage: CycleStageKey;
   slowest_stage_label: string;

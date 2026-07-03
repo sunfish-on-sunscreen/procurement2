@@ -23,6 +23,17 @@ import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { SortArrow } from "@/components/RankingCells";
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** ISO "2025-02-03" → compact "Feb 3 '25" (null → "—"); year kept so range-mode
+ * POs across years stay unambiguous. */
+function fmtMilestone(isoDate: string | null): string {
+  if (!isoDate) return "—";
+  const [y, m, d] = isoDate.split("-");
+  const mi = Number(m) - 1;
+  if (mi < 0 || mi > 11 || !d) return isoDate;
+  return `${MONTHS[mi]} ${Number(d)} '${y.slice(2)}`;
+}
+
 // Slowest-stage colour family — same mapping the per-supplier section uses.
 const STAGE_COLOR: Record<CycleStageKey, string> = {
   pr_to_po: CHART_COLORS[0],
@@ -113,49 +124,57 @@ function PoList({
     "desc",
   );
   return (
-    <table className="w-full border-collapse text-xs">
-      <thead>
-        <tr className="border-b text-muted-foreground">
-          <PoHead label="PO ID" sortKey="po_id" active={sort.key === "po_id"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
-          <PoHead label="Invoice date" sortKey="invoice_date" active={sort.key === "invoice_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
-          <PoHead label="Cycle days" sortKey="total_cycle_days" active={sort.key === "total_cycle_days"} dir={sort.dir} onSort={toggle} align="right" />
-          <th className="py-1.5 text-left font-medium">Slowest stage</th>
-          <th className="py-1.5 text-left font-medium">Anomalies</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.map((p) => {
-          const isStageDom = stageDominatedPoIds.has(p.po_id);
-          const isFlagged = p.is_anomaly || isStageDom;
-          return (
-            <tr
-              key={p.po_id}
-              className="border-b last:border-0"
-              // Faint amber tint on any flagged row (outlier or stage-dom, same
-              // treatment) so anomalous rows are scannable at a glance.
-              style={isFlagged ? { backgroundColor: "color-mix(in srgb, var(--warning) 9%, transparent)" } : undefined}
-            >
-              <td className="py-1.5 font-medium">{p.po_id}</td>
-              <td className="py-1.5 tabular-nums text-muted-foreground">{p.invoice_date ?? "—"}</td>
-              <td className="py-1.5 text-right tabular-nums">{p.total_cycle_days}</td>
-              <td className="py-1.5">
-                <StageChip stage={p.slowest_stage} label={p.slowest_stage_label} />
-              </td>
-              <td className="py-1.5">
-                {isFlagged ? (
-                  <span className="flex flex-wrap gap-1">
-                    {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
-                    {isStageDom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    // Horizontal scroll is a safety net — the 5 compact date columns fit the 680px
+    // dialog on normal widths, but long PO IDs / narrow viewports can overflow.
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <PoHead label="PO ID" sortKey="po_id" active={sort.key === "po_id"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+            <PoHead label="PR" sortKey="pr_date" active={sort.key === "pr_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+            <PoHead label="PO" sortKey="po_date" active={sort.key === "po_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+            <PoHead label="Delivery" sortKey="delivery_date" active={sort.key === "delivery_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+            <PoHead label="Invoice" sortKey="invoice_date" active={sort.key === "invoice_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+            <PoHead label="Payment" sortKey="payment_date" active={sort.key === "payment_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+            <PoHead label="Cycle days" sortKey="total_cycle_days" active={sort.key === "total_cycle_days"} dir={sort.dir} onSort={toggle} align="right" />
+            <th className="py-1.5 pl-3 text-left font-medium">Anomalies</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((p) => {
+            const isStageDom = stageDominatedPoIds.has(p.po_id);
+            const isFlagged = p.is_anomaly || isStageDom;
+            return (
+              <tr
+                key={p.po_id}
+                className="border-b last:border-0"
+                // Faint amber tint on any flagged row (outlier or stage-dom, same
+                // treatment) so anomalous rows are scannable at a glance.
+                style={isFlagged ? { backgroundColor: "color-mix(in srgb, var(--warning) 9%, transparent)" } : undefined}
+              >
+                <td className="py-1.5 pr-3 font-medium">{p.po_id}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums text-muted-foreground">{fmtMilestone(p.pr_date)}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums text-muted-foreground">{fmtMilestone(p.po_date)}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums text-muted-foreground">{fmtMilestone(p.delivery_date)}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums text-muted-foreground">{fmtMilestone(p.invoice_date)}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums text-muted-foreground">{fmtMilestone(p.payment_date)}</td>
+                <td className="py-1.5 text-right tabular-nums">{p.total_cycle_days}</td>
+                <td className="py-1.5 pl-3">
+                  {isFlagged ? (
+                    <span className="flex flex-wrap gap-1">
+                      {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
+                      {isStageDom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -293,7 +312,7 @@ export function CycleTimeSupplierDetailPanel({
                 <PoList pos={current.data.pos} stageDominatedPoIds={stageDominatedPoIds} />
               ) : (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  No invoices in this period.
+                  No purchase orders in this period.
                 </p>
               )}
             </div>
