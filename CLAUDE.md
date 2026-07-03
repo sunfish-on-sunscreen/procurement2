@@ -88,9 +88,18 @@ names (bd5f59e); Reports `STAGE_LABELS`, Classification card (quadrant-tenure tr
 + "Moved X to Y" + activity date range), methodology stage-stats line (a96c38e) —
 all "to". ⚠️ **Value-transition arrows KEPT as "→"** (report `median A → B`,
 `PerformanceTrajectory` score before→after, methodology `benchmark → neutral`,
-`+8% → 5`). ⚠️ **PENDING:** Action Dashboard stage arrows are Python-emitted
-(`compute_analyses.py` ~L1060 → `scope: "Stage: PR→PO"`, baked into cached
-`recommendations`) — still "→", to be folded into the next recompute.
+`+8% → 5`). ⚠️ **PENDING (next recompute) — TWO committed-but-not-live Python edits**
+baked into cached `recommendations`, both in `compute_analyses.py`, cleared by ONE
+Mode-A recompute for every period + a range-cache clear
+(`DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL`):
+1. **Stage arrows** (~L1060 → `scope: "Stage: PR→PO"`) — still render "→", should be
+   "to" (roadmap (e)).
+2. **Audit #6 (`47ffcd9`) — `compute_analyses.py:1052`** reworded "concentrated
+   process compliance issue" → "the weakest match compliance among quadrants"
+   (removes a claim that CONTRADICTED the softened dashboard control-exposure insight
+   in `47ffcd9`).
+Until the recompute runs, the Action Dashboard still shows the OLD "concentrated"
+wording **and** the "→" arrows.
 
 **Process Health rename (`3d79e24`).** "Cycle Time" → **Process Health Monitoring**;
 URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.ts`).
@@ -121,10 +130,25 @@ URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.
   (dead — the raw perf score was intentionally dropped from that card).
 
 ### PENDING (roadmap — next session)
-- (a) **Insight-fragility audit** — review auto-generated insight prose for claims
-  that could silently break on data/population changes.
+- (a) ✅ **DONE — Insight-fragility audit** (`47ffcd9` / `9c3df01` / `6fbdafc`, 12
+  insights fixed). Every insight/narrative surface was audited for hardcoded
+  adjectives/directions that mislead on data shifts; fixed via guards /
+  shape-detection / self-omit / drop. **Batch 1** (`47ffcd9`): stage-insight
+  shape-detection + dropped occupancy claim, report basis label invoice→payment,
+  control-exposure softened to facts-only, AD rec reword (⚠️ see recompute note
+  below — #6 not yet live). **Batch 2** (`9c3df01`): cycle-glance downstream/internal
+  now from live PR→PO share; spend-glance diversification cap bug (now reaches
+  "broad") + "dominates" / "heavily concentrated" gated. **Batch 3** (`6fbdafc`):
+  report-templates — skew direction, dropped uncomputed volatility claim, top-2
+  co-dominance (single- vs two-market), concentration adjective scaled,
+  value-at-risk self-omits when the critical zone is empty. Already-robust insights
+  (distribution insight, classification-at-a-glance, anomaly cards, evolution
+  insights, per-tab lines, ABC templates) were confirmed sound and left untouched.
 - (b) **Stage insight → flexible templates** — the 4-paragraph `StageInsight`
   (`StageBreakdownSection`) is rigid; move to flexible/self-omitting templates.
+  ⚠️ PARTIALLY DONE in `47ffcd9`: ¶2 is now shape-detected
+  (two-stage / single-dominant / even-spread) and ¶1's "dominates" is guarded;
+  ¶3/¶4 remain fixed-shape.
 - (c) **defense doc stage narrative** — update to the current mean-based shares:
   **PO→Delivery 41% · Invoice→Payment 32%** (range/all-years basis; note single-year
   2025 differs — PO→Delivery ~48%).
@@ -132,6 +156,8 @@ URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.
   date table (PR / PO / delivery / invoice / payment) to the drill-down panel.
 - (e) **Action Dashboard Python stage arrows → "to"** — edit `compute_analyses.py`
   (~L1060 stage labels); requires a recompute to appear (fold into the next one).
+  ⚠️ **Bundle with the `compute_analyses.py:1052` reword (audit #6, `47ffcd9`)** —
+  same file, one recompute clears both (see recompute note below).
 
 ### Cycle Time page overhaul (`a919b7a` → `5c8c930`)
 The Cycle Time (Process Health) **dashboard** was substantially rebuilt. ⚠️
