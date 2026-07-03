@@ -88,18 +88,26 @@ names (bd5f59e); Reports `STAGE_LABELS`, Classification card (quadrant-tenure tr
 + "Moved X to Y" + activity date range), methodology stage-stats line (a96c38e) —
 all "to". ⚠️ **Value-transition arrows KEPT as "→"** (report `median A → B`,
 `PerformanceTrajectory` score before→after, methodology `benchmark → neutral`,
-`+8% → 5`). ⚠️ **PENDING (next recompute) — TWO committed-but-not-live Python edits**
-baked into cached `recommendations`, both in `compute_analyses.py`, cleared by ONE
-Mode-A recompute for every period + a range-cache clear
-(`DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL`):
-1. **Stage arrows** (~L1060 → `scope: "Stage: PR→PO"`) — still render "→", should be
-   "to" (roadmap (e)).
-2. **Audit #6 (`47ffcd9`) — `compute_analyses.py:1052`** reworded "concentrated
-   process compliance issue" → "the weakest match compliance among quadrants"
-   (removes a claim that CONTRADICTED the softened dashboard control-exposure insight
-   in `47ffcd9`).
-Until the recompute runs, the Action Dashboard still shows the OLD "concentrated"
-wording **and** the "→" arrows.
+`+8% → 5`). ✅ **RESOLVED (recompute ran 2026-07-03) — both Python recommendation
+edits are now LIVE** in the cached `recommendations` (verified from a fresh DB read):
+1. **Stage arrows** (`compute_analyses.py` ~L1060) → "to" (`46d6276`). Now emits
+   `scope: "Stage: Invoice to Payment"` (the arrow fix only surfaces where a stage
+   rec fires — Invoice→Payment mean >8 — i.e. 2024 + the full range; 2025/2026
+   single-year emit no stage rec, unchanged).
+2. **Audit #6 (`47ffcd9`) — `compute_analyses.py:1052`** "concentrated process
+   compliance issue" → "the weakest match compliance among quadrants" (removes the
+   claim that contradicted the softened dashboard control-exposure insight).
+Recompute procedure used (the SAFE one — NOT the migrate-script SupplierMetric
+clobber): idempotent `Purchase.periodId` re-tag (0 rows — already paymentDate-correct,
+distribution **306/313/28**) → `compute_analyses.py --period-id` for all 3 periods
+(exit 0, 6/6 upserted each, `computedAt` 2026-07-03 10:49) → `DELETE FROM
+"AnalysisResult" WHERE "periodId" IS NULL` (24 range rows cleared; regenerates lazily
+via Mode B, which also emits the new strings). ⚠️ **Aggregates byte-identical
+before↔after** (same paymentDate population): **313 POs / $283,596,813.69 / 50
+suppliers / ABC 10-9-31 / Kraljic 8-17-16-9 / control $42.47M (14.98%, 41 POs, 24
+suppliers)** — only the recommendation strings changed. ⚠️ The `.env` has a UTF-8 BOM
+on line 1, so standalone Python must load `DATABASE_URL` with `encoding="utf-8-sig"`
+(or have it passed in the env, as Node does when it spawns the script).
 
 **Process Health rename (`3d79e24`).** "Cycle Time" → **Process Health Monitoring**;
 URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.ts`).
@@ -154,10 +162,11 @@ URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.
   2025 differs — PO→Delivery ~48%).
 - (d) **Date table on the Process Health supplier card** — add a per-PO 5-milestone
   date table (PR / PO / delivery / invoice / payment) to the drill-down panel.
-- (e) **Action Dashboard Python stage arrows → "to"** — edit `compute_analyses.py`
-  (~L1060 stage labels); requires a recompute to appear (fold into the next one).
-  ⚠️ **Bundle with the `compute_analyses.py:1052` reword (audit #6, `47ffcd9`)** —
-  same file, one recompute clears both (see recompute note below).
+- (e) ✅ **DONE (`46d6276` + recompute 2026-07-03)** — Action Dashboard stage arrows
+  → "to" (`compute_analyses.py` ~L1060) AND the bundled audit-#6 reword
+  (`:1052`, `47ffcd9`) are both LIVE after the recompute. Verified from a fresh DB
+  read (computedAt 10:49, new strings present, aggregates byte-identical — see the
+  "RESOLVED" recompute note above for the full procedure + numbers).
 
 ### Cycle Time page overhaul (`a919b7a` → `5c8c930`)
 The Cycle Time (Process Health) **dashboard** was substantially rebuilt. ⚠️
