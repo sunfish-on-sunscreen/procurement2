@@ -8,7 +8,7 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **HEAD as of last doc update:
-> `5c8c930`.**
+> `a96c38e`.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -25,9 +25,113 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
 Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
-Classification, Cycle Time (process-health monitoring), Action Dashboard
+Classification, Process Health Monitoring, Action Dashboard
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects).
+
+### MOST RECENT SESSION (`3d79e24` → `a96c38e`) — read this first
+
+**Period tagging: invoiceDate → paymentDate app-wide (`462a5ef`).** The date that
+tags a PO to a period is now **`COALESCE(paymentDate, prDate)`** (was invoiceDate),
+consistently across: Python `load_frames` + BOTH monthly-trend bucketings,
+`transform_dataset.py` per-period metric bucketing, upload route (`periodId` write
++ year detection), `spend-overview` aggregate, all cycle-time routes
+(breakdown / stage-occupancy / supplier-detail), `spend-detail` (both filters),
+`evolution` bucketing, and `migrate-period-tags.ts` (default `--by` now `payment`,
+`--by=pr` kept). paymentDate is non-null on all 647 POs → the `prDate` fallback
+never fires. **Left untouched (not tags):** display-value `invoiceDate` returns +
+the stage-occupancy stage-math boundary. Calc logic (medians, composite weights,
+ABC 80/95, Kraljic median splits, `total_cycle_days = paymentDate − prDate`) is
+UNCHANGED — only the per-period population shifted.
+- ⚠️ **DO NOT run `migrate-period-tags.ts`** against the current per-period model —
+  its `supplierMetric.updateMany({ periodId: maxYear })` collapses all per-period
+  `SupplierMetric` rows onto the latest period (corrupts per-period metrics). The
+  re-tag was done via a **targeted `Purchase.periodId` UPDATE** (Purchase only) +
+  `python compute_analyses.py --period-id <id>` per period +
+  `DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL` (range-cache clear).
+  (`compute_analyses.py` reads metrics by the period's date bounds, not by
+  `Purchase.periodId`, so it doesn't depend on that column.)
+- **Recomputed + verified (2025, paymentDate basis):** 313 POs · $283.6M · 50
+  active suppliers (55 roster) · ABC A10/B9/C31 · Kraljic Strategic8 / Leverage17 /
+  Bottleneck16 / Routine9 · zones Stars19 / Critical6 / HiddenGems6 / LongTail19 ·
+  **control exposure $42.47M / 15.0% / 41 POs / 24 suppliers** · cycle median 31.0 /
+  mean 32.58 / typical range 25–39. ⚠️ Do NOT trust Ruby's separate/larger dataset
+  numbers ($30.34M / 314 POs / 54) — that's a DIFFERENT dataset in another env, not
+  this DB.
+- ⚠️ **`SupplierMetric` per-period rows are still invoice-year bucketed** (the
+  transformer was NOT re-run — needs the enriched xlsx closed in Excel + a
+  re-import). Only affects the composite basis feeding Performance zones;
+  everything Purchase-derived is fully paymentDate-correct.
+
+**Pipeline chart = whole-integer stage-occupancy + Payment series (`a0d3a2f`).**
+Route `/api/cycle-time/stage-occupancy` is **LIVE** (queries Purchase per request,
+NOT cached). Supervisor's rule: each of the 4 stage-gaps (PR→PO, PO→Delivery,
+Delivery→Invoice, Invoice→Payment) counts a whole **+1 in EVERY window month its
+span touches** (occupancy), PLUS a 5th **Payment** series (terminal milestone,
++1 in its own payment month). `StageOccupancyRow` = `pr_active / po_active /
+delivery_active / invoice_active / payment`. Worked example (PR Jan1, PO Jan10,
+Del Feb5, Inv Mar4, Pay Mar8) → Jan: PR,PO · Feb: PO,Delivery · Mar:
+Delivery,Invoice,Payment. ⚠️ This REPLACED a brief **uncommitted "milestone
+point-events" experiment that was discarded** (git restore) — the rule is
+occupancy, not point-events. Labels: series "PR active … Invoice active, Payment",
+y-axis "POs active", heading "…(POs active per stage, plus payments)". Population =
+payment-tagged POs, so single-year has year-boundary undercount on early
+milestones (range mode is clean); occupancy series exceed the PO count by design.
+
+**Spend Overview panel "All invoices over time" → paymentDate (`420cebc`).** The
+decomposition panel's PO time-chart + table now bucket money by **paymentDate**
+(cash-basis, rule B); table header "Payment date". `SpendDetail.pos` gained
+`paymentDate`. (This was the ONE money view still on invoiceDate.)
+
+**Stage/tenure/date arrows "→" → "to" (`bd5f59e`, `a96c38e`).** Process Health stage
+names (bd5f59e); Reports `STAGE_LABELS`, Classification card (quadrant-tenure trail
++ "Moved X to Y" + activity date range), methodology stage-stats line (a96c38e) —
+all "to". ⚠️ **Value-transition arrows KEPT as "→"** (report `median A → B`,
+`PerformanceTrajectory` score before→after, methodology `benchmark → neutral`,
+`+8% → 5`). ⚠️ **PENDING:** Action Dashboard stage arrows are Python-emitted
+(`compute_analyses.py` ~L1060 → `scope: "Stage: PR→PO"`, baked into cached
+`recommendations`) — still "→", to be folded into the next recompute.
+
+**Process Health rename (`3d79e24`).** "Cycle Time" → **Process Health Monitoring**;
+URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.ts`).
+⚠️ **`/api/cycle-time/*` API paths UNCHANGED** (only the page URL moved).
+
+**Roster table + 3 supplier cards (`1c32b51` → `693ec16`).**
+- Roster columns: **# · Supplier · Median · POs · Slowest stage · ABC · Exposure ·
+  Performance · Anomalies**. Added **# rank** (unsortable, reflects current sort) +
+  sortable **Slowest stage** chip; CUT the Typical-range column + the "Cycle Time
+  by Supplier" bar chart (redundant with the sortable Median column; empty-state
+  moved onto the table guard).
+- **"Flags" renamed "Anomalies" page-wide** (`aa28fbd`/`40196ec`/`fd3c580`) — roster
+  column, panel PO-table column, anomaly-cards section title + copy. Outlier /
+  Stage-dom pills kept; flagged PO rows get a faint amber (`--warning` 9%) row tint.
+- **Panel PO table** merged the old "flagged POs" section into the main table (one
+  "Anomalies" column, no triangle icon); per-stage bars are **MEAN** (`spend_mean`/
+  `portfolio_mean` from `supplier-detail`); "Exposure" label added to the quadrant
+  chip.
+- **All 3 supplier detail cards now share ONE identity-header pattern:**
+  `name` → subline `category · ABC · Exposure(Kraljic) · Performance zone ·
+  country + CountryFlag` → "Showing {period}". The **Performance positioning zone**
+  (Stars / Critical Issues / Hidden Gems / Long Tail, `ZONE_COLORS`) was added to
+  all three sublines — Classification (`4b37eca`, from the `perf` prop), Spend
+  Overview (`68c93ef`, via new `SpendDetail.zone` populated in BOTH spend-detail
+  branches), Process Health (`693ec16`, via new `CycleSupplierDetail.zone`; also
+  DELETED that card's separate "Classification context" section + added
+  `CountryFlag`). ⚠️ `CycleSupplierDetail.composite` is now populated-but-unrendered
+  (dead — the raw perf score was intentionally dropped from that card).
+
+### PENDING (roadmap — next session)
+- (a) **Insight-fragility audit** — review auto-generated insight prose for claims
+  that could silently break on data/population changes.
+- (b) **Stage insight → flexible templates** — the 4-paragraph `StageInsight`
+  (`StageBreakdownSection`) is rigid; move to flexible/self-omitting templates.
+- (c) **defense doc stage narrative** — update to the current mean-based shares:
+  **PO→Delivery 41% · Invoice→Payment 32%** (range/all-years basis; note single-year
+  2025 differs — PO→Delivery ~48%).
+- (d) **Date table on the Process Health supplier card** — add a per-PO 5-milestone
+  date table (PR / PO / delivery / invoice / payment) to the drill-down panel.
+- (e) **Action Dashboard Python stage arrows → "to"** — edit `compute_analyses.py`
+  (~L1060 stage labels); requires a recompute to appear (fold into the next one).
 
 ### Cycle Time page overhaul (`a919b7a` → `5c8c930`)
 The Cycle Time (Process Health) **dashboard** was substantially rebuilt. ⚠️
