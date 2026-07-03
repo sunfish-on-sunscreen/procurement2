@@ -347,18 +347,45 @@ type SectionTemplates = {
 export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
   // ---- EXECUTIVE: CFO/COO. Strategic, short, business-impact framed, no names.
   executive: {
-    cover: (c) =>
-      `${c.period} procurement spend totalled ${usdM(c.totalSpend)} across ${intl.format(
+    cover: (c) => {
+      // Scale the adjective to the actual top-10 share — don't hardcode "highly
+      // concentrated" (it would contradict a genuinely distributed base).
+      const concentration =
+        c.top10Pct >= 80
+          ? "highly concentrated"
+          : c.top10Pct >= 60
+            ? "concentrated"
+            : "relatively distributed";
+      return `${c.period} procurement spend totalled ${usdM(c.totalSpend)} across ${intl.format(
         c.activeSuppliers,
-      )} active suppliers. Value is highly concentrated — the ten largest relationships absorb ${pct(
+      )} active suppliers. Value is ${concentration} — the ten largest relationships absorb ${pct(
         c.top10Pct,
-      )} of outlay — so the agenda is straightforward: protect the few suppliers that matter, apply scale where the market is competitive, and close the process gaps that tie up working capital.`,
-    spendOverview: (c) =>
-      `Spend is dominated by ${c.cat1} (${pct(c.cat1Pct)}) and ${c.cat2} (${pct(
-        c.cat2Pct,
-      )}), leaving the organisation materially exposed to those two markets. With the top ten suppliers carrying ${pct(
+      )} of outlay — so the agenda is straightforward: protect the few suppliers that matter, apply scale where the market is competitive, and close the process gaps that tie up working capital.`;
+    },
+    spendOverview: (c) => {
+      // Frame it as TWO markets only when both categories are genuinely large.
+      // A large cat1 with a small cat2 is single-market dominance (one exposure);
+      // if the top-2 share isn't high, just name the largest categories.
+      const top2 = c.cat1Pct + c.cat2Pct;
+      const CAT2_LARGE = 15;
+      let lead: string;
+      if (top2 >= 55 && c.cat2Pct >= CAT2_LARGE) {
+        lead = `Spend is dominated by ${c.cat1} (${pct(c.cat1Pct)}) and ${c.cat2} (${pct(
+          c.cat2Pct,
+        )}), leaving the organisation materially exposed to those two markets.`;
+      } else if (top2 >= 55) {
+        lead = `Spend is dominated by ${c.cat1} (${pct(c.cat1Pct)}), with ${c.cat2} (${pct(
+          c.cat2Pct,
+        )}) a distant second.`;
+      } else {
+        lead = `The largest categories are ${c.cat1} (${pct(c.cat1Pct)}) and ${c.cat2} (${pct(
+          c.cat2Pct,
+        )}).`;
+      }
+      return `${lead} With the top ten suppliers carrying ${pct(
         c.top10Pct,
-      )} of spend, negotiation leverage and continuity risk are concentrated in a small set of relationships.`,
+      )} of spend, negotiation leverage and continuity risk are concentrated in a small set of relationships.`;
+    },
     abc: (c) =>
       `A small group of suppliers drives the bulk of value: ${c.aN} account for ${pct(
         c.aPct,
@@ -371,10 +398,16 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )} of spend; another ${c.levN} carry comparable spend but sit in competitive markets (${pct(
         c.levPct,
       )}). The strategic group warrants board-level relationship ownership; the competitive group is where buying power should translate into better terms.`,
-    performanceSpend: (c) =>
-      `Crossing spend against delivered performance flags ${c.criticalN} high-value supplier(s) — ${pct(
+    performanceSpend: (c) => {
+      // No Critical-Issues suppliers → self-omit the "value-at-risk / first call"
+      // assertion (it assumes a non-empty critical zone).
+      if (c.criticalN === 0) {
+        return `Crossing spend against delivered performance flags no high-value suppliers underperforming relative to what we pay them — the high-spend base is performing in line with expectations.`;
+      }
+      return `Crossing spend against delivered performance flags ${c.criticalN} high-value supplier(s) — ${pct(
         c.criticalPct,
-      )} of spend — that are underperforming relative to what we pay them. These represent the clearest value-at-risk in the portfolio and the first call on management attention.`,
+      )} of spend — that are underperforming relative to what we pay them. These represent the clearest value-at-risk in the portfolio and the first call on management attention.`;
+    },
     cycleTime: (c) => {
       const head = `Procure-to-pay cycle time runs at a median of ${c.cycleMedian.toFixed(
         0,
@@ -516,7 +549,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.monthlyMin,
       )}–${usdM(
         c.monthlyMax,
-      )}; the series is volatile rather than seasonal, so point-in-time totals should be read against the range. The supplier spend distribution is heavy-tailed — the top ten account for ${pct(
+      )}; point-in-time totals should be read against that range. The supplier spend distribution is heavy-tailed — the top ten account for ${pct(
         c.top10Pct,
       )} — consistent with the Pareto pattern the ABC step formalises.`,
     abc: (c) =>
@@ -542,15 +575,21 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.criticalPct,
       )} of spend), and ${c.gemsN} Hidden Gems. The Critical-Issues mass is the actionable signal — high spend coincident with sub-median performance — but note the zone boundaries are population medians, so membership is relative, not absolute.`,
     cycleTime: (c) => {
+      // Derive the skew direction from mean vs median instead of asserting it.
+      const skewGap = c.cycleMean - c.cycleMedian;
+      const skewPhrase =
+        skewGap >= 0.5
+          ? `the mean of ${c.cycleMean.toFixed(1)} d exceeding the median indicates the expected right skew`
+          : skewGap <= -0.5
+            ? `the mean of ${c.cycleMean.toFixed(1)} d falling below the median indicates a left skew`
+            : `the mean of ${c.cycleMean.toFixed(1)} d sitting close to the median indicates a roughly symmetric distribution`;
       const shape = `Total cycle time (n = ${intl.format(
         c.cycleN,
       )}) has median ${c.cycleMedian.toFixed(1)} d, IQR ${c.cycleIqr.toFixed(
         1,
       )} d (P25 ${c.cycleP25.toFixed(1)}, P75 ${c.cycleP75.toFixed(
         1,
-      )}); the mean of ${c.cycleMean.toFixed(
-        1,
-      )} d exceeding the median indicates the expected right skew. The slowest sub-process is ${c.slowestStage} (mean ${c.slowestStageMean.toFixed(
+      )}); ${skewPhrase}. The slowest sub-process is ${c.slowestStage} (mean ${c.slowestStageMean.toFixed(
         1,
       )} d).`;
       const anom = ` Z-score screening flags ${c.anomalyCount} PO(s) with cycle time > 2σ above the mean as outliers.`;
