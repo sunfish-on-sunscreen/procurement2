@@ -512,7 +512,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.cat1Pct,
       )}) and ${c.cat2} (${pct(
         c.cat2Pct,
-      )}) leading. Monthly realised spend (by invoice date) ranges ${usdM(
+      )}) leading. Monthly realised spend (by payment date) ranges ${usdM(
         c.monthlyMin,
       )}–${usdM(
         c.monthlyMax,

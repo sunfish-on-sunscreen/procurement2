@@ -75,9 +75,30 @@ function StageInsight({
   const domKey = dom.key as StageKey;
   const pctOf = (m: number) => Math.round((m / total) * 100);
   const domPct = pctOf(dom.mean);
-  const others = means.filter((m) => m.key !== domKey); // stage order preserved
-  const sumOther = others.reduce((a, b) => a + b.mean, 0);
-  const aboutSame = Math.abs(sumOther - dom.mean) / dom.mean < 0.25;
+  const secondPct = pctOf(second.mean);
+
+  // Shape detection (tunable thresholds) — replaces the old fixed "one dominates,
+  // the other three are short and steady" line, which went stale when
+  // Invoice→Payment grew to ~32%. Classify the ACTUAL share distribution:
+  //   twoLarge   — the top two stages each carry a meaningful share
+  //   evenSpread — nothing stands out
+  //   otherwise  — a single largest stage (strongly dominant, or merely leading)
+  const DOM_PCT = 40; // "dominates" floor
+  const SECOND_PCT = 25; // a second "large" stage floor
+  const EVEN_MAX = 35; // below this, nothing dominates
+  const twoLarge = domPct >= SECOND_PCT && secondPct >= SECOND_PCT;
+  const evenSpread = !twoLarge && domPct < EVEN_MAX;
+  // Say "dominates" only when it is genuinely a single dominant stage (NOT a
+  // two-part split) and the margin is meaningful — top ≥ 40% or ≥ 1.5× the
+  // runner-up. Otherwise it is merely "the largest stage".
+  const isDominant =
+    !twoLarge && !evenSpread && (domPct >= DOM_PCT || dom.mean >= 1.5 * second.mean);
+
+  const ceilD = (x: number) => Math.ceil(x);
+  const otherMaxDays = ceilD(second.mean); // largest of the non-dominant stages
+  const remainingMaxDays = ceilD(ordered[2]?.mean ?? 0); // largest outside the top two
+  const twoTogetherPct = domPct + secondPct;
+
   const external = domKey === "po_to_delivery"; // the one supplier-side step
   const roughlyEven = domPct >= 40 && domPct <= 60;
 
@@ -92,20 +113,35 @@ function StageInsight({
       className="mt-3 space-y-2 border-t pt-3 text-sm leading-relaxed text-muted-foreground"
       style={{ borderTopWidth: "0.5px" }}
     >
-      {/* 1 — the bottleneck */}
+      {/* 1 — the leading stage (duration-based; no unverified occupancy claim) */}
       <p>
-        <span className="text-foreground">{dom.label}</span> dominates the cycle —{" "}
+        <span className="text-foreground">{dom.label}</span>{" "}
+        {isDominant ? "dominates the cycle" : "is the largest stage"} —{" "}
         <Num>{domPct}% of the time</Num>, ~<Num>{dom.mean.toFixed(1)} days</Num>, the wait{" "}
-        {STAGE_DESC[domKey]}. It&apos;s also the most-occupied stage every month, so it&apos;s the
-        bottleneck by both duration and volume.
+        {STAGE_DESC[domKey]}. It&apos;s the longest single stage by average duration.
       </p>
 
-      {/* 2 — all four stages */}
+      {/* 2 — shape of the distribution across all four stages (shape-detected) */}
       <p>
-        The other three are short and steady:{" "}
-        {joinAnd(others.map((o) => `${o.label} ${o.mean.toFixed(1)} d (${pctOf(o.mean)}%)`))} —{" "}
-        {external ? "internal steps" : "steps"} that together take ~<Num>{sumOther.toFixed(0)} days</Num>
-        {aboutSame ? `, about the same as the single ${dom.label} wait` : ""}.
+        {twoLarge ? (
+          <>
+            <span className="text-foreground">{dom.label}</span> (<Num>{domPct}%</Num>) and{" "}
+            <span className="text-foreground">{second.label}</span> (<Num>{secondPct}%</Num>) are the
+            two largest parts — together <Num>{twoTogetherPct}%</Num>; the remaining stages are short
+            (each under <Num>{remainingMaxDays} days</Num>).
+          </>
+        ) : evenSpread ? (
+          <>
+            The cycle is spread fairly evenly across its four stages; the largest,{" "}
+            <span className="text-foreground">{dom.label}</span>, is only <Num>{domPct}%</Num>.
+          </>
+        ) : (
+          <>
+            <span className="text-foreground">{dom.label}</span>{" "}
+            {isDominant ? "makes up" : "leads at"} <Num>{domPct}%</Num> — the other stages each stay
+            under <Num>{otherMaxDays} days</Num>.
+          </>
+        )}
       </p>
 
       {/* 3 — top categories dragging the dominant stage */}
@@ -123,7 +159,9 @@ function StageInsight({
       <p>
         {external && roughlyEven
           ? `So the cycle splits roughly evenly between the external ${dom.label} wait and internal handling — `
-          : `So ${dom.label} is where the cycle concentrates — `}
+          : evenSpread
+            ? `So no single stage dominates — `
+            : `So ${dom.label} is where the cycle concentrates — `}
         meaningful improvement means shortening {dom.label}
         {hasCats ? ` on the heaviest categories such as ${top[0].category}` : ""}, where the wait is
         longest.

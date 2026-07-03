@@ -1049,7 +1049,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "scope": f"Quadrant: {wq[0]} compliance",
             "reasoning": (
                 f"3-way match failure rate is {wq[1]:.1f}% in the {wq[0]} quadrant "
-                f"({wq[2]} POs) — concentrated process compliance issue."
+                f"({wq[2]} POs) — the weakest match compliance among quadrants."
             ),
             "impact_score": num(min(100.0, wq[1])),
         })

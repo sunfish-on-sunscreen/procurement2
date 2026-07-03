@@ -134,9 +134,10 @@ type MatchRow = {
   is_worst: boolean;
 };
 
-// Spend-at-risk narrative — data-honest: states the magnitude + that it's diffuse,
-// and that failures are NOT tied to payment time / supplier quality / PO size
-// (all tested null). Self-omits the "at risk" framing when nothing failed.
+// Spend-at-risk narrative — states only the factual magnitudes (rate, $ at risk,
+// % of spend, suppliers spanned, value-vs-count share). Deliberately makes NO
+// causal claim ("diffuse", "not tied to payment/quality/PO size") — those were a
+// baked pre-recompute test result, never re-verified. Self-omits when nothing failed.
 function ControlInsight({ c }: { c: ControlExposure }) {
   if (c.n_failed === 0) {
     return (
@@ -152,12 +153,11 @@ function ControlInsight({ c }: { c: ControlExposure }) {
       Roughly 1 in {oneIn} POs ({c.n_failed} of {c.n_total}) failed the 3-way match this period,
       carrying{" "}
       <strong className="font-medium text-foreground">{formatCompactCurrency(c.failed_spend)}</strong>{" "}
-      of spend. The exposure is diffuse, not concentrated — spread across{" "}
+      of spend — <strong className="font-medium text-foreground">{c.pct_at_risk.toFixed(1)}%</strong>{" "}
+      of the {formatCompactCurrency(c.total_spend)} total, spread across{" "}
       <strong className="font-medium text-foreground">{c.n_failing_suppliers}</strong> of{" "}
-      {c.n_total_suppliers} active suppliers, at average-sized POs (its {c.pct_at_risk.toFixed(1)}%
-      share by value ≈ its {byCount.toFixed(1)}% share by count). Failures are not tied to slower
-      payment, weaker suppliers, or bigger POs — a broad control-process signal rather than a few bad
-      actors or high-risk deals.
+      {c.n_total_suppliers} active suppliers. Those failed POs are {c.pct_at_risk.toFixed(1)}% of spend
+      by value and {byCount.toFixed(1)}% of POs by count.
     </p>
   );
 }
