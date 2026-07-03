@@ -85,13 +85,17 @@ const INCONSISTENT_NOTE_TOOLTIP =
 
 // ---- Cycle consistency: cycle days across the supplier's POs, in date order --- #
 // X = order sequence (1, 2, 3… by payment date), NOT calendar dates — orders aren't
-// evenly spaced in time, so a date axis would distort. The WHOLE line is one colour =
-// the supplier's Inconsistent verdict: black if flagged (their full-history spread
-// crossed the flag — the real test), blue if consistent. By construction it agrees
-// with the "Flagged Inconsistent" note above the chart. (A prior per-window segmenting
-// was removed: it tested a 4-order-window IQR against a full-history threshold, so
-// flagged suppliers whose spread came from gradual drift showed an all-blue line — a
-// contradiction with their own flag.)
+// evenly spaced in time, so a date axis would distort. The line is drawn against a
+// TWO-BAND "inconsistency band" = this supplier's own median ± the FLAG's threshold
+// (iqrCutoff = 1.5 × median of all suppliers' IQRs). The band half-width is the flag
+// threshold ON PURPOSE: a supplier flagged Inconsistent has IQR > iqrCutoff, so its
+// spread exceeds the half-width and its orders poke outside the band (red crossings);
+// a non-flagged supplier stays mostly inside → crossings ⟺ flagged, by construction.
+// The line is its base colour WITHIN the band and turns RED above the upper band or
+// below the lower band (both directions — too slow / too fast). The colour flips at the
+// band crossing via an injected vertex per crossing; with the monotone curve the visual
+// crossing is approximate (curve bows near the vertex), but the colour junction is
+// pinned ON the band line. (Do NOT reintroduce the old 4-order-window IQR segmenting.)
 type ConsistencyPoint = {
   po_id: string;
   order: number;
@@ -106,17 +110,32 @@ type ConsistencyPoint = {
   payment: string | null;
 };
 
+// A plotted vertex: either a REAL order (carries the full ConsistencyPoint payload) or
+// an INJECTED band-crossing (cycle = the band y, no payload/dot). `base`/`red` hold the
+// y-value only on the segments of that colour (null elsewhere) so two overlapping Lines
+// draw the in-band vs out-of-band portions; `dotCycle` hosts the anomaly dot + tooltip
+// on real orders only.
+type PlotRow = Partial<ConsistencyPoint> & {
+  order: number;
+  cycle: number;
+  injected: boolean;
+  base: number | null;
+  red: number | null;
+  dotCycle: number | null;
+};
+
 /** Unified per-order dot: red circle (larger) if the order has ANY anomaly (Outlier
  *  and/or Stage-dominated); blue circle (smaller) if normal. Hover reveals which. */
 function renderAnomalyDot(props: {
   cx?: number;
   cy?: number;
   index?: number;
-  payload?: ConsistencyPoint;
+  payload?: PlotRow;
 }) {
   const { cx, cy, index, payload } = props;
   const key = `dot-${index}`;
-  if (cx == null || cy == null) return <g key={key} />;
+  // Injected band-crossing vertices carry no order → no dot.
+  if (cx == null || cy == null || payload?.injected) return <g key={key} />;
   if (payload?.outlier || payload?.stageDom) {
     return (
       <circle key={key} cx={cx} cy={cy} r={5} fill="var(--destructive)" stroke="var(--background)" strokeWidth={1.5} />
@@ -144,11 +163,12 @@ function ConsistencyTooltip({
   payload,
 }: {
   active?: boolean;
-  payload?: Array<{ payload?: ConsistencyPoint }>;
+  payload?: Array<{ payload?: PlotRow }>;
 }) {
-  // Three Lines share one data row → read the row off whichever series is present.
+  // The lines share one data row → read the row off whichever series is present.
   const d = payload?.find((p) => p?.payload)?.payload;
-  if (!active || !d) return null;
+  // Real orders only — injected band-crossing vertices have no PO payload.
+  if (!active || !d || d.injected || d.po_id == null) return null;
   return (
     <div className="max-w-[250px] rounded-md border bg-background p-2 text-xs shadow-sm">
       <div className="flex items-center gap-1.5">
@@ -167,8 +187,9 @@ function ConsistencyTooltip({
         </div>
         <div>Slowest stage: {d.slowest}</div>
         <div className="text-[10px] tabular-nums">
-          PR {fmtMilestone(d.pr)} · PO {fmtMilestone(d.po)} · Del {fmtMilestone(d.delivery)} · Inv{" "}
-          {fmtMilestone(d.invoice)} · Pay {fmtMilestone(d.payment)}
+          PR {fmtMilestone(d.pr ?? null)} · PO {fmtMilestone(d.po ?? null)} · Del{" "}
+          {fmtMilestone(d.delivery ?? null)} · Inv {fmtMilestone(d.invoice ?? null)} · Pay{" "}
+          {fmtMilestone(d.payment ?? null)}
         </div>
       </div>
     </div>
@@ -178,14 +199,15 @@ function ConsistencyTooltip({
 function CycleConsistencyChart({
   pos,
   median,
+  bandHalfWidth,
   stageDominatedPoIds,
-  inconsistent,
 }: {
   pos: CycleSupplierDetail["pos"];
   median: number;
+  // The Inconsistent flag's threshold (iqrCutoff = 1.5 × portfolio-median IQR) used as
+  // the band half-width, so out-of-band crossings agree with the supplier-level flag.
+  bandHalfWidth: number;
   stageDominatedPoIds: Set<string>;
-  // The supplier's Inconsistent verdict — colours the whole line (black = flagged).
-  inconsistent: boolean;
 }) {
   // 1–2 points can't show a meaningful swing.
   if (pos.length < 3) {
@@ -199,7 +221,7 @@ function CycleConsistencyChart({
     (a.payment_date ?? "").localeCompare(b.payment_date ?? ""),
   );
   const n = ordered.length;
-  const data: ConsistencyPoint[] = ordered.map((p, i) => ({
+  const real: ConsistencyPoint[] = ordered.map((p, i) => ({
     po_id: p.po_id,
     order: i + 1,
     cycle: p.total_cycle_days,
@@ -212,15 +234,69 @@ function CycleConsistencyChart({
     invoice: p.invoice_date,
     payment: p.payment_date,
   }));
+
+  // Inconsistency band = this supplier's own median ± the flag threshold (iqrCutoff),
+  // floored at 0 (a negative "too fast" edge is meaningless). Half-width = the flag's
+  // threshold, so a flagged supplier (IQR > iqrCutoff) pokes out and a non-flagged one
+  // stays in.
+  const halfWidth = Math.max(0, bandHalfWidth);
+  const upper = median + halfWidth;
+  const lowerRaw = median - halfWidth;
+  const lower = Math.max(0, lowerRaw);
+  const hasLowerBand = lowerRaw > 0; // only a real "too fast" edge when > 0
+  const thresholds = hasLowerBand ? [upper, lower] : [upper];
+
+  // Build the plotted series = real orders + an interpolated vertex at each EXACT
+  // band crossing, so the colour flips ON the band line (mid-segment), not at the
+  // nearest order. For a segment (a → b) that straddles a threshold T:
+  // t = (T − y0)/(y1 − y0), inject {order: a.order + t, cycle: T}.
+  const plots: PlotRow[] = real.map((d) => ({
+    ...d,
+    injected: false,
+    base: null,
+    red: null,
+    dotCycle: d.cycle,
+  }));
+  for (let i = 0; i < real.length - 1; i++) {
+    const a = real[i];
+    const b = real[i + 1];
+    for (const T of thresholds) {
+      if ((a.cycle < T && b.cycle > T) || (a.cycle > T && b.cycle < T)) {
+        const t = (T - a.cycle) / (b.cycle - a.cycle); // 0 < t < 1
+        plots.push({ order: a.order + t, cycle: T, injected: true, base: null, red: null, dotCycle: null });
+      }
+    }
+  }
+  plots.sort((p, q) => p.order - q.order);
+
+  // Colour each segment by its MIDPOINT: red when out-of-band (above upper OR below
+  // lower), base colour when within. Because every transition has an injected vertex
+  // ON the band, no segment straddles it — red starts/ends exactly at the crossing.
+  // The two overlapping Lines share the injected vertices (value = the band y), so
+  // they meet on the band line.
+  for (let i = 0; i < plots.length - 1; i++) {
+    const a = plots[i];
+    const b = plots[i + 1];
+    const mid = (a.cycle + b.cycle) / 2;
+    const out = mid > upper || mid < lower;
+    if (out) {
+      a.red = a.cycle;
+      b.red = b.cycle;
+    } else {
+      a.base = a.cycle;
+      b.base = b.cycle;
+    }
+  }
+
   const medLabel = Number.isInteger(median) ? String(median) : median.toFixed(1);
-  const orderTicks = data.map((d) => d.order);
-  // Whole-line colour = the supplier's Inconsistent verdict (agrees with the flag note).
-  const lineColor = inconsistent ? "var(--foreground)" : CHART_COLORS[0];
+  const orderTicks = real.map((d) => d.order);
 
   return (
     <>
       <ChartFrame height={200}>
-        <LineChart data={data} margin={{ left: 4, right: 16, top: 8, bottom: 22 }}>
+        {/* type="monotone" for the bendy look — the colour junctions stay pinned on the
+            band line (injected vertices), the curve between points is approximate. */}
+        <LineChart data={plots} margin={{ left: 4, right: 16, top: 8, bottom: 22 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="order"
@@ -238,37 +314,63 @@ function CycleConsistencyChart({
               fill: "var(--muted-foreground)",
             }}
           />
-          <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}d`} domain={[0, "auto"]} width={34} />
+          <YAxis
+            tick={{ fontSize: 10 }}
+            tickFormatter={(v) => `${v}d`}
+            domain={[0, (dataMax: number) => Math.ceil(Math.max(dataMax, upper)) + 1]}
+            width={34}
+          />
           <Tooltip content={<ConsistencyTooltip />} />
+          {/* Inconsistency-band edges (dashed) + the supplier's median. */}
+          <ReferenceLine
+            y={upper}
+            stroke="var(--muted-foreground)"
+            strokeDasharray="4 4"
+            label={{ value: `+ threshold ${upper.toFixed(0)}d`, position: "insideTopRight", fontSize: 10, fill: "var(--muted-foreground)" }}
+          />
           <ReferenceLine
             y={median}
             stroke="var(--muted-foreground)"
             strokeDasharray="4 4"
-            label={{
-              value: `Their median ${medLabel}d`,
-              position: "insideTopRight",
-              fontSize: 10,
-              fill: "var(--muted-foreground)",
-            }}
+            label={{ value: `Their median ${medLabel}d`, position: "insideRight", fontSize: 10, fill: "var(--muted-foreground)" }}
           />
-          {/* One line, coloured by the supplier's Inconsistent verdict (black = flagged,
-              blue = consistent). It also carries the unified anomaly dots + hover payload. */}
-          <Line type="monotone" dataKey="cycle" stroke={lineColor} strokeWidth={2} dot={renderAnomalyDot} activeDot={{ r: 5 }} isAnimationActive={false} />
+          {hasLowerBand && (
+            <ReferenceLine
+              y={lower}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 4"
+              label={{ value: `− threshold ${lower.toFixed(0)}d`, position: "insideBottomRight", fontSize: 10, fill: "var(--muted-foreground)" }}
+            />
+          )}
+          {/* Two overlapping lines: base colour within the band, red outside it.
+              connectNulls=false so each draws only its own segments; they meet on the
+              injected band-crossing vertices. */}
+          <Line type="monotone" dataKey="base" stroke={CHART_COLORS[0]} strokeWidth={2} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="red" stroke="var(--destructive)" strokeWidth={2} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+          {/* Invisible line hosting the unified anomaly dots + hover payload on the REAL
+              orders only (injected vertices carry dotCycle=null → no dot). */}
+          <Line type="monotone" dataKey="dotCycle" stroke="transparent" strokeWidth={0} dot={renderAnomalyDot} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={false} />
         </LineChart>
       </ChartFrame>
-      {/* Legend — the line's colour is the supplier's whole-line verdict, not per-stretch. */}
+      {/* Legend — line colour marks per-order deviation from the inconsistency band. */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <svg width="16" height="8" aria-hidden="true">
-            <line x1="0" y1="4" x2="16" y2="4" stroke="var(--foreground)" strokeWidth={2} />
-          </svg>
-          Inconsistent supplier
-        </span>
         <span className="inline-flex items-center gap-1.5">
           <svg width="16" height="8" aria-hidden="true">
             <line x1="0" y1="4" x2="16" y2="4" stroke={CHART_COLORS[0]} strokeWidth={2} />
           </svg>
-          Consistent
+          Within the band
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="16" height="8" aria-hidden="true">
+            <line x1="0" y1="4" x2="16" y2="4" stroke="var(--destructive)" strokeWidth={2} />
+          </svg>
+          Outside the band (unusually slow or fast)
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="16" height="8" aria-hidden="true">
+            <line x1="0" y1="4" x2="16" y2="4" stroke="var(--muted-foreground)" strokeWidth={1.5} strokeDasharray="3 2" />
+          </svg>
+          Inconsistency band (median ± the flag&apos;s threshold)
         </span>
         <span className="inline-flex items-center gap-1.5">
           <svg width="10" height="10" aria-hidden="true">
@@ -284,10 +386,13 @@ function CycleConsistencyChart({
         </span>
       </div>
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-        The whole line&apos;s colour is this supplier&apos;s verdict —{" "}
-        <span className="text-foreground">black = Flagged Inconsistent</span> (cycle times vary more than
-        typical across all their POs), blue = consistent. Red dots mark individual Outlier or
-        Stage-dominated orders.
+        Each point is one order&apos;s cycle time. <span className="text-foreground">Red</span> marks
+        an individual order <span className="text-foreground">outside the band</span> — this
+        supplier&apos;s median ± the flag&apos;s threshold (1.5× the portfolio-median IQR) — i.e. unusually
+        slow (above) or fast (below) <em>for them</em>. That&apos;s a per-order signal: a supplier is
+        flagged <span className="text-foreground">Inconsistent</span> only when their <em>overall</em>{" "}
+        cycle spread is wide, so a stray red order doesn&apos;t by itself mean flagged (it just means
+        that one order stood out). Red dots mark individual Outlier or Stage-dominated orders.
       </p>
     </>
   );
@@ -724,13 +829,15 @@ export function CycleTimeSupplierDetailPanel({
                   ) : (
                     <>
                       <p className="mb-2 text-xs text-muted-foreground">
-                        Cycle days per order (by date) · black line = flagged Inconsistent
+                        Cycle days per order (by date) · red = outside the inconsistency band (median ± the flag&apos;s threshold)
                       </p>
                       <CycleConsistencyChart
                         pos={current.data.pos}
                         median={cyc.median_cycle}
+                        // Band half-width = the flag threshold (portfolio-median IQR × 1.5), so
+                        // crossings ⟺ the Inconsistent flag. Absent portfolio → their own 1.5×IQR.
+                        bandHalfWidth={portfolio?.iqrCutoff ?? 1.5 * cyc.iqr}
                         stageDominatedPoIds={stageDominatedPoIds}
-                        inconsistent={inconsistent}
                       />
                     </>
                   )}

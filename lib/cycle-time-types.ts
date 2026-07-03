@@ -114,6 +114,9 @@ export type CyclePortfolioContext = {
   p25: number | null;
   p75: number | null;
   supplierMedians: number[];
+  // The Inconsistent flag's threshold = 1.5 × median(all suppliers' IQRs). Used as
+  // the consistency chart's band half-width so out-of-band crossings ⟺ the flag.
+  iqrCutoff: number | null;
 };
 
 export type CycleCategoryRow = {

@@ -153,6 +153,9 @@ export function CycleTimeClient({
     p25: cycleTime.distribution.p25,
     p75: cycleTime.distribution.p75,
     supplierMedians: roster.map((r) => r.median_cycle),
+    // Flag threshold (1.5 × median supplier IQR) → the consistency chart's band
+    // half-width, so out-of-band crossings agree with the Inconsistent flag.
+    iqrCutoff: roster.length ? iqrCutoff : null,
   };
 
   // Single active flag drives cards + chips (shared state). Cards scroll to the
