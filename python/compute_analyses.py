@@ -1057,9 +1057,9 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     # time (not an internal process stage), so it is excluded from the process
     # friction flag to avoid a non-actionable false positive.
     stage_cols = [
-        ("prToPoDays", "PR→PO"),
-        ("deliveryToInvoiceDays", "Delivery→Invoice"),
-        ("invoiceToPaymentDays", "Invoice→Payment"),
+        ("prToPoDays", "PR to PO"),
+        ("deliveryToInvoiceDays", "Delivery to Invoice"),
+        ("invoiceToPaymentDays", "Invoice to Payment"),
     ]
     for col, label in stage_cols:
         v = pd.to_numeric(purchases[col], errors="coerce").dropna()
