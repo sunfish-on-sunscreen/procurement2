@@ -134,6 +134,15 @@ type MatchRow = {
   is_worst: boolean;
 };
 
+// Cycle-median-per-quadrant row — the sibling sub-table inside the Control Exposure
+// card (same quadrants + N basis as the pass-rate table).
+type QuadMedianRow = {
+  order: number;
+  quadrant: KraljicQuadrant;
+  n: number;
+  median: number | null;
+};
+
 // Spend-at-risk narrative — states only the factual magnitudes (rate, $ at risk,
 // % of spend, suppliers spanned, value-vs-count share). Deliberately makes NO
 // causal claim ("diffuse", "not tied to payment/quality/PO size") — those were a
@@ -141,7 +150,7 @@ type MatchRow = {
 function ControlInsight({ c }: { c: ControlExposure }) {
   if (c.n_failed === 0) {
     return (
-      <p className="text-sm leading-relaxed text-muted-foreground">
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
         No POs failed the 3-way match this period — no spend at risk.
       </p>
     );
@@ -149,7 +158,7 @@ function ControlInsight({ c }: { c: ControlExposure }) {
   const oneIn = Math.round(c.n_total / c.n_failed);
   const byCount = c.n_total > 0 ? (c.n_failed / c.n_total) * 100 : 0;
   return (
-    <p className="text-sm leading-relaxed text-muted-foreground">
+    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
       Roughly 1 in {oneIn} POs ({c.n_failed} of {c.n_total}) failed the 3-way match this period,
       carrying{" "}
       <strong className="font-medium text-foreground">{formatCompactCurrency(c.failed_spend)}</strong>{" "}
@@ -158,6 +167,68 @@ function ControlInsight({ c }: { c: ControlExposure }) {
       <strong className="font-medium text-foreground">{c.n_failing_suppliers}</strong> of{" "}
       {c.n_total_suppliers} active suppliers. Those failed POs are {c.pct_at_risk.toFixed(1)}% of spend
       by value and {byCount.toFixed(1)}% of POs by count.
+    </p>
+  );
+}
+
+// Kraljic "supply-risk" pair (high supply risk = the two right-hand quadrants).
+const HIGH_RISK_QUADRANTS = new Set<KraljicQuadrant>(["Strategic", "Bottleneck"]);
+
+const joinQuads = (qs: string[]): string =>
+  qs.length <= 1
+    ? qs[0] ?? ""
+    : qs.length === 2
+      ? `${qs[0]} and ${qs[1]}`
+      : `${qs.slice(0, -1).join(", ")}, and ${qs[qs.length - 1]}`;
+
+// Data-driven cycle-by-quadrant insight — everything (which quadrants are slow/fast,
+// the gap, and whether the supply-risk clause even applies) is DERIVED from the live
+// per-quadrant medians. No hardcoded quadrant names: if the ranking shifts on a
+// different period, the wording follows it; flat/degenerate cases self-omit.
+function CycleInsight({ rows }: { rows: QuadMedianRow[] }) {
+  const withData = rows.filter(
+    (r): r is QuadMedianRow & { median: number } => r.n > 0 && r.median != null,
+  );
+  if (withData.length < 2) return null; // nothing to compare
+
+  const medians = withData.map((r) => r.median);
+  const maxMed = Math.max(...medians);
+  const minMed = Math.min(...medians);
+  const gap = maxMed - minMed;
+  const roundedGap = Math.round(gap);
+
+  // Flat (or within a day) → self-omit the comparison, just state the flatness.
+  if (roundedGap < 1) {
+    return (
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        Cycle time is essentially flat across exposure quadrants (medians {d2(minMed)}–{d2(maxMed)}d).
+      </p>
+    );
+  }
+
+  const slow = withData.filter((r) => r.median === maxMed).map((r) => r.quadrant);
+  const fast = withData.filter((r) => r.median === minMed).map((r) => r.quadrant);
+
+  // Risk-axis clause ONLY when the data supports it: all four quadrants present and
+  // both high-risk quadrants strictly slower than both low-risk ones.
+  const hr = withData.filter((r) => HIGH_RISK_QUADRANTS.has(r.quadrant)).map((r) => r.median);
+  const lr = withData.filter((r) => !HIGH_RISK_QUADRANTS.has(r.quadrant)).map((r) => r.median);
+  const riskAxis =
+    withData.length === 4 &&
+    hr.length === 2 &&
+    lr.length === 2 &&
+    Math.min(...hr) > Math.max(...lr);
+
+  const slowVerb = slow.length > 1 ? "run" : "runs";
+  return (
+    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+      <strong className="font-medium text-foreground">{joinQuads(slow)}</strong> {slowVerb} about{" "}
+      {roundedGap} day{roundedGap === 1 ? "" : "s"} slower than {joinQuads(fast)} ({d2(maxMed)}d vs{" "}
+      {d2(minMed)}d median)
+      {riskAxis
+        ? ", consistent with the supply-risk axis — higher-risk quadrants carry the longer cycles"
+        : ""}
+      .
     </p>
   );
 }
@@ -206,6 +277,55 @@ function ThreeWayMatchTable({
     </Table>
   );
 
+  const cycleRows: QuadMedianRow[] = QUAD_ORDER.map((q, i) => ({
+    order: i,
+    quadrant: q,
+    n: data.cycle_by_quadrant[q].n,
+    median: data.cycle_by_quadrant[q].median,
+  }));
+  // Slowest = highest median cycle among quadrants with POs — mirrors the pass-rate
+  // table's is_worst (which reds the lowest pass rate).
+  const slowestQuadrant = (() => {
+    const withData = cycleRows.filter((r) => r.n > 0 && r.median != null);
+    if (withData.length === 0) return null;
+    return withData.reduce((a, b) => ((b.median as number) > (a.median as number) ? b : a)).quadrant;
+  })();
+  const {
+    sorted: cycleSorted,
+    sort: cycleSort,
+    toggle: cycleToggle,
+  } = useTableSort<QuadMedianRow, string>(
+    cycleRows,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "order",
+    "asc",
+  );
+
+  const cycleTable = (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <SortHead label="Quadrant" sortKey="order" active={cycleSort.key === "order"} dir={cycleSort.dir} onSort={cycleToggle} defaultDir="asc" />
+          <SortHead label="N" sortKey="n" active={cycleSort.key === "n"} dir={cycleSort.dir} onSort={cycleToggle} align="right" />
+          <SortHead label="Median" sortKey="median" active={cycleSort.key === "median"} dir={cycleSort.dir} onSort={cycleToggle} align="right" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {cycleSorted.map((r) => (
+          <TableRow key={r.quadrant}>
+            <TableCell className="font-medium">{r.quadrant}</TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">{r.n}</TableCell>
+            <TableCell
+              className={`text-right tabular-nums ${r.quadrant === slowestQuadrant ? "font-semibold text-destructive" : ""}`}
+            >
+              {r.median != null ? `${d2(r.median)} d` : "—"}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+
   // Reports / range-compute don't pass `control` → keep the original bare table.
   if (!control) {
     return (
@@ -225,9 +345,9 @@ function ThreeWayMatchTable({
   return (
     <Card className={cardElevation}>
       <CardHeader>
-        <CardTitle>3-Way Match — Control Exposure</CardTitle>
+        <CardTitle>Performance by Exposure Positioning</CardTitle>
         <CardDescription>
-          Spend that passed through POs where PO, delivery, and invoice didn&apos;t reconcile.
+          How each Kraljic exposure quadrant performs on match compliance and cycle time.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -251,12 +371,23 @@ function ThreeWayMatchTable({
             sublabel={`across ${control.n_failing_suppliers} suppliers`}
           />
         </div>
-        <ControlInsight c={control} />
-        <div>
-          <h4 className="mb-2 text-sm font-medium text-muted-foreground">
-            Pass rate by exposure positioning
-          </h4>
-          {quadTable}
+        {/* Two lenses on the same exposure quadrants, side by side — each with its
+            own insight beneath (compliance story left, cycle story right). */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+              Pass rate by exposure positioning
+            </h4>
+            {quadTable}
+            <ControlInsight c={control} />
+          </div>
+          <div>
+            <h4 className="mb-2 text-sm font-medium text-muted-foreground">
+              Cycle time by exposure positioning
+            </h4>
+            {cycleTable}
+            <CycleInsight rows={cycleRows} />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -466,10 +597,18 @@ export function CycleTimeView({
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <CycleByQuadrantTable data={data} />
+      {controlExposure ? (
+        // Dashboard: the consolidated Control Exposure card holds BOTH per-quadrant
+        // sub-tables (pass rate + cycle) — no separate standalone cycle card.
         <ThreeWayMatchTable data={data} control={controlExposure} />
-      </div>
+      ) : (
+        // Reports / range-compute (no control): keep the standalone cycle card
+        // beside the bare pass-rate table, unchanged.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <CycleByQuadrantTable data={data} />
+          <ThreeWayMatchTable data={data} />
+        </div>
+      )}
 
       {showAnomaliesTable && <AnomaliesTable data={data.anomalies} />}
     </>
