@@ -137,7 +137,7 @@ URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.
   `CountryFlag`). ⚠️ `CycleSupplierDetail.composite` is now populated-but-unrendered
   (dead — the raw perf score was intentionally dropped from that card).
 
-### PENDING (roadmap — next session)
+### ROADMAP — all items (a)–(e) COMPLETE
 - (a) ✅ **DONE — Insight-fragility audit** (`47ffcd9` / `9c3df01` / `6fbdafc`, 12
   insights fixed). Every insight/narrative surface was audited for hardcoded
   adjectives/directions that mislead on data shifts; fixed via guards /
@@ -152,16 +152,19 @@ URL **`/cycle-time` → `/process-health`** (permanent redirect in `next.config.
   value-at-risk self-omits when the critical zone is empty. Already-robust insights
   (distribution insight, classification-at-a-glance, anomaly cards, evolution
   insights, per-tab lines, ABC templates) were confirmed sound and left untouched.
-- (b) **Stage insight → flexible templates** — the 4-paragraph `StageInsight`
-  (`StageBreakdownSection`) is rigid; move to flexible/self-omitting templates.
-  ⚠️ PARTIALLY DONE in `47ffcd9`: ¶2 is now shape-detected
-  (two-stage / single-dominant / even-spread) and ¶1's "dominates" is guarded;
-  ¶3/¶4 remain fixed-shape.
-- (c) **defense doc stage narrative** — update to the current mean-based shares:
-  **PO→Delivery 41% · Invoice→Payment 32%** (range/all-years basis; note single-year
-  2025 differs — PO→Delivery ~48%).
-- (d) **Date table on the Process Health supplier card** — add a per-PO 5-milestone
-  date table (PR / PO / delivery / invoice / payment) to the drill-down panel.
+- (b) ✅ **DONE (`47ffcd9`, batch 1)** — the shape-detection IS the flexible-template
+  implementation (not partial). `StageInsight` (`StageBreakdownSection`) ¶2 now
+  shape-detects **two-stage / single-dominant / even-spread**, ¶1's "dominates" is
+  guarded, the unverified occupancy claim was dropped, ¶3 self-omits (gated on ≥2
+  categories) and ¶4 branches on even-spread/external — so all four paragraphs are
+  data-driven. This replaced the old fixed "one dominates, the other three are short
+  and steady" story, which was the entire flexible-template goal.
+- (c) ✅ **RESOLVED / N/A** — `defense.md` is a methodology doc and never contained a
+  stage-duration narrative; the stale stage story was the DASHBOARD stage insight,
+  fixed in (b). No doc edit needed.
+- (d) ✅ **DONE (`d9b7f83`)** — the Process Health supplier-card PO table now shows all
+  5 milestone dates (PR · PO · Delivery · Invoice · Payment, compact "Feb 3 '25";
+  Slowest-stage column dropped for width; reconciles with cycle days).
 - (e) ✅ **DONE (`46d6276` + recompute 2026-07-03)** — Action Dashboard stage arrows
   → "to" (`compute_analyses.py` ~L1060) AND the bundled audit-#6 reword
   (`:1052`, `47ffcd9`) are both LIVE after the recompute. Verified from a fresh DB
