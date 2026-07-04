@@ -8,14 +8,17 @@ import type { SynthesisKey } from "@/lib/supplier-classification-types";
 /**
  * Cross-classification synthesis: combine the Kraljic quadrant with the
  * performance median split (the SAME `performance_median` the scatter uses, so
- * the synthesis and chart stay internally consistent). "Below" = composite
- * performance below the period median; "above" = at or above it.
+ * the synthesis and chart stay internally consistent). This mirrors the Python
+ * zone convention (`hi_perf = perf > median` in compute_analyses.py `zone_of`),
+ * so a supplier sitting EXACTLY at the median is treated as LOW-perf in BOTH the
+ * scatter zone and this synthesis. "Below" = composite performance at or below
+ * the period median; "above" = strictly above it.
  */
 export type SynthesisMeta = {
   key: SynthesisKey;
   title: string;
   quadrant: KraljicQuadrant;
-  /** Membership requires performance below the median (else above). */
+  /** Membership requires performance at or below the median (else strictly above). */
   below: boolean;
   /** Short descriptor of what the bucket means. */
   blurb: string;
@@ -99,7 +102,10 @@ export function computeSynthesis(
     routine_risk: [],
   };
   for (const s of perf.suppliers) {
-    const below = s.performance_score < median;
+    // At or below the median = LOW-perf, matching the Python zone split
+    // (`hi_perf = perf > median`) so an exactly-at-median supplier gets the same
+    // verdict in the scatter zone and here (E11).
+    const below = s.performance_score <= median;
     const meta = (Object.values(SYNTHESIS_META) as SynthesisMeta[]).find(
       (m) => m.quadrant === s.kraljic_quadrant && m.below === below,
     );

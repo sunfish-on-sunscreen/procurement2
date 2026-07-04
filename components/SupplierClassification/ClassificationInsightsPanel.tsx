@@ -92,6 +92,16 @@ export function ClassificationInsightsPanel({
   const countOf = (q: KraljicQuadrant) =>
     kraljic?.quadrant_profiles.find((p) => p.quadrant === q)?.n_suppliers ?? 0;
 
+  // F14: derive "Portfolio size" from the SAME population as the quadrant counts
+  // (the kraljic roster) so the quadrant counts always sum to portfolio size and
+  // can never exceed it. Falls back to the performance set when kraljic is
+  // absent. (avgPerf keeps its own denominator `total` — it's a mean over the
+  // performance set, not a portfolio count.)
+  const portfolioSize = kraljic
+    ? kraljic.quadrant_profiles.reduce((s, p) => s + p.n_suppliers, 0)
+    : total;
+
+  const strategicCount = countOf("Strategic");
   const strategicUnder = computeSynthesis(perf).strategic_under.length;
 
   // Portfolio-level finding line (decision D). Single-year-with-prior → a YoY
@@ -138,7 +148,7 @@ export function ClassificationInsightsPanel({
         <div className="grid grid-cols-3 gap-2">
           <KpiCell
             label="Portfolio size"
-            value={num0.format(total)}
+            value={num0.format(portfolioSize)}
             sub={`active suppliers · ${phrase}`}
           />
           <KpiCell
@@ -157,7 +167,9 @@ export function ClassificationInsightsPanel({
             per-quadrant counts live in the quadrant summary table, not here. */}
         {finding && <p className="text-sm text-muted-foreground">{finding}</p>}
 
-        {/* 3. Callout — Strategic below median */}
+        {/* 3. Callout — Strategic at or below median. E10: the "all Strategic
+            healthy" reassurance only makes sense when Strategic suppliers exist;
+            with zero Strategic it is vacuously true and misleading, so omit it. */}
         {strategicUnder > 0 ? (
           <div
             className="rounded-lg border px-3 py-2.5 text-sm"
@@ -167,14 +179,14 @@ export function ClassificationInsightsPanel({
             }}
           >
             <span className="font-semibold tabular-nums">{strategicUnder}</span> Strategic
-            supplier{strategicUnder === 1 ? "" : "s"} sit below the period median —
+            supplier{strategicUnder === 1 ? "" : "s"} sit at or below the period median —
             warrant attention.
           </div>
-        ) : (
+        ) : strategicCount > 0 ? (
           <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
-            All Strategic suppliers sit at or above the period median this period.
+            All Strategic suppliers sit above the period median this period.
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
