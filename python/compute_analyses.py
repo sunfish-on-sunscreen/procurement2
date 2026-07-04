@@ -141,6 +141,32 @@ def load_frames(conn, start_ts, end_ts):
     return suppliers, purchases, metrics
 
 
+# Full-roster category sizes: supplier count per category across ALL known
+# suppliers (active or not), loaded once in main() from the Supplier master
+# table. A1: supply_concentration counts category alternatives against this
+# roster — an inactive-but-qualified supplier is still an available alternative —
+# NOT just the period-active set. None => fall back to the period-scoped supplier
+# set (only if this was never loaded, e.g. a direct unit-test call).
+_ROSTER_CAT_COUNTS = None
+
+
+def load_roster_category_counts(conn):
+    """Supplier count per category across the FULL roster (all known suppliers,
+    active or not) from the Supplier master table. Feeds A1's supply_concentration
+    so the availability of alternatives reflects the whole roster, not just the
+    period-active supplier set."""
+    roster = _df(
+        conn,
+        'SELECT DISTINCT ON ("externalId") "externalId", category '
+        'FROM "Supplier" ORDER BY "externalId"',
+        (),
+    )
+    if len(roster) == 0:
+        return {}
+    counts = roster.groupby("category")["externalId"].nunique()
+    return {str(k): int(v) for k, v in counts.items()}
+
+
 # --------------------------------------------------------------------------- #
 # a) Spend overview
 # --------------------------------------------------------------------------- #
@@ -719,9 +745,21 @@ def compute_supply_risk(purchases, suppliers, metrics):
     )
     df = sup[["supplierExternalId", "category", "country"]].copy()
 
-    # OTHER suppliers in the same category (this period-scoped supplier set).
-    cat_size = df.groupby("category")["supplierExternalId"].transform("size")
-    df["other_in_category"] = (cat_size - 1).astype(int)
+    # OTHER suppliers in the same category. A1: count against the FULL supplier
+    # roster (active or not) — an inactive-but-qualified supplier is still an
+    # available alternative — so a category with 2 suppliers where 1 is inactive
+    # this period counts as 2 (concentration ~35), not 1 (~50). Falls back to the
+    # period-scoped set only if the roster was never loaded.
+    if _ROSTER_CAT_COUNTS:
+        cat_size = df["category"].map(
+            lambda c: _ROSTER_CAT_COUNTS.get(str(c), 0)
+        )
+        # a scored supplier is always in the roster, so its category size >= 1;
+        # clip guards against a category somehow missing from the roster map.
+        df["other_in_category"] = (cat_size - 1).clip(lower=0).astype(int)
+    else:
+        cat_size = df.groupby("category")["supplierExternalId"].transform("size")
+        df["other_in_category"] = (cat_size - 1).astype(int)
 
     # 1. supply concentration (0-50): step curve on the # of category alternatives,
     #    merging single-source status + competition into one roster-derived measure.
@@ -768,7 +806,13 @@ def assign_kraljic_quadrants(spend_map, risk_map):
     quad = {}
     for s in sids:
         hi_spend = spend_map[s] > spend_med
-        hi_risk = risk_map[s] > risk_med
+        # B5: the supply-risk score is DISCRETE (step-curve concentration + a few
+        # friction/premium levels) so many suppliers tie exactly at the median. A
+        # strict `>` shoved every tied-at-median supplier into low-risk; `>=` puts
+        # ties on the high-risk side, giving a balanced split. Spend is continuous
+        # (log-spend, effectively no ties) so it keeps `>` — the asymmetry is
+        # intentional and only affects the discrete axis.
+        hi_risk = risk_map[s] >= risk_med
         if hi_spend and hi_risk:
             quad[s] = "Strategic"
         elif hi_spend and not hi_risk:
@@ -1179,6 +1223,16 @@ def main():
             start_ts = f"{args.start_date} 00:00:00"
             end_ts = f"{args.end_date} 23:59:59"
             log(f"Mode B: range {start_ts} .. {end_ts}")
+
+        # A1: load the full-roster category sizes ONCE (all known suppliers,
+        # active or not) so supply_concentration counts available alternatives
+        # against the whole roster, not just this window's active suppliers.
+        global _ROSTER_CAT_COUNTS
+        _ROSTER_CAT_COUNTS = load_roster_category_counts(conn)
+        log(
+            f"Loaded roster category sizes: {len(_ROSTER_CAT_COUNTS)} categories, "
+            f"{sum(_ROSTER_CAT_COUNTS.values())} suppliers (full roster)"
+        )
 
         suppliers, purchases, metrics = load_frames(conn, start_ts, end_ts)
         log(

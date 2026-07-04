@@ -84,6 +84,24 @@ def country_distance_score(code: str) -> float:
     return 100.0  # other international
 
 
+# Roster-based supply concentration (D9-note). This MIRRORS the Kraljic
+# supply-risk `_CONC` step curve in python/compute_analyses.py
+# (compute_supply_risk): points on the # of OTHER suppliers in the same category
+# across the FULL roster (all known suppliers, active or not). There it maxes at
+# 50 (single source); here the composite's risk_score concentration term lives on
+# a 0-100 axis (it replaces the old single_source_risk*100 term), so we scale the
+# same curve x2. Endpoints reconcile with the old flag: 0 alternatives (true
+# single source) -> 100 (== old single_source_risk=1), >=5 alternatives -> 0
+# (== old single_source_risk=0); the middle is now graded instead of binary, and
+# it uses the SAME roster signal Kraljic uses so composite and Kraljic agree.
+_CONC_POINTS = {0: 50.0, 1: 35.0, 2: 22.0, 3: 12.0, 4: 5.0}
+
+
+def concentration_0_100(other_in_category: int) -> float:
+    """Roster-based supply concentration on the composite's 0-100 axis."""
+    return _CONC_POINTS.get(int(other_in_category), 0.0) * 2.0
+
+
 # Fixed-bound min-max normalization, clamped to [0,100] so inputs outside the
 # documented bounds can't produce negative or >100 scores (Decision B/D).
 def norm_high(value: float, lo: float, hi: float) -> float:
@@ -169,10 +187,12 @@ def build_period_metrics(metrics, purchases):
     return out
 
 
-def compute_scores(m):
+def compute_scores(m, roster_cat_counts):
     """Add the six derived score columns IN PLACE-ish (returns m). Fixed bounds;
     fully deterministic. Identical formulas to the snapshot rebuild — just now
-    applied to per-period inputs."""
+    applied to per-period inputs. `roster_cat_counts` = category -> full-roster
+    supplier count (all known suppliers, active or not), used for the D9-note
+    roster-based concentration term in risk_score."""
     m["quality_score"] = np.round([
         (norm_low(r["defect_rate_pct"], 0, 10) + norm_low(r["complaint_count_annual"], 0, 10)) / 2
         for _, r in m.iterrows()
@@ -192,7 +212,12 @@ def compute_scores(m):
     for _, r in m.iterrows():
         country = country_distance_score(r.get("country", ""))
         complaint = min(float(r["complaint_count_annual"]) * 10.0, 100.0)
-        concentration = float(r["single_source_risk"]) * 100.0
+        # D9-note: roster-based concentration (same signal Kraljic uses) instead
+        # of the discredited single_source_risk flag. Count OTHER suppliers in the
+        # same category across the FULL roster; single-source (0 others) -> 100.
+        cat = str(r.get("category", ""))
+        other_in_category = max(0, int(roster_cat_counts.get(cat, 1)) - 1)
+        concentration = concentration_0_100(other_in_category)
         risk = 100.0 - (0.4 * country + 0.3 * complaint + 0.3 * concentration)
         new_risk.append(float(np.clip(risk, 0, 100)))
     m["risk_score"] = np.round(new_risk, 2)
@@ -329,7 +354,19 @@ def main():
     #   OTD / rfx_rate / 3-way-match are percentages (0-100) by definition.
     # risk_score: deterministic 100 - weighted(country, complaints, single-source),
     # higher = safer; single_source_risk read as an existing 0/1 field.
-    metrics = compute_scores(metrics)
+    # D9-note: full-roster category sizes from the Suppliers master sheet (all
+    # known suppliers, active or not) — the SAME roster basis A1 uses in
+    # compute_analyses.py, so the composite's concentration signal and Kraljic's
+    # supply_concentration agree.
+    roster_cat_counts = (
+        suppliers.groupby("category")["supplier_id"].nunique().to_dict()
+    )
+    roster_cat_counts = {str(k): int(v) for k, v in roster_cat_counts.items()}
+    print(
+        f"  roster category sizes: {len(roster_cat_counts)} categories, "
+        f"{sum(roster_cat_counts.values())} suppliers (full roster)"
+    )
+    metrics = compute_scores(metrics, roster_cat_counts)
     metrics = metrics[OUT_COLS].copy()
 
     # --- 5. (Batch 5) Drop Purchases.automation_period -------------------- #
