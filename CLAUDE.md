@@ -29,7 +29,65 @@ Classification, Process Health Monitoring, Action Dashboard
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects).
 
-### MOST RECENT SESSION (2026-07-03) — read this first
+### MOST RECENT SESSION (2026-07-04) — read this FIRST
+
+**Supplier Classification supply-risk fixes — A1 + B5 + D9 (`07c2e5c`), recomputed +
+verified fresh DB.** Also an earlier frontend-only commit this session (`96b4b2f`:
+E11 synthesis `<=` to match the Python zone convention, E10 self-omit guard on the
+"All Strategic" line, F14 portfolio-size denominator = kraljic roster sum).
+- **A1** — `compute_supply_risk` supply_concentration now counts the **FULL category
+  roster** (all known suppliers, active or not — an inactive-but-qualified supplier is
+  still an available alternative), NOT just the period-active set. Loaded once in
+  `main()` via `load_roster_category_counts(conn)` (DB `Supplier` master table) into a
+  module global `_ROSTER_CAT_COUNTS`; falls back to period-scoped size if unset.
+  cost_premium + import_friction stay active-only (correct). Trace: S114 50→35,
+  Local-Steel S104/S100/S101 22→5, **10 suppliers corrected in 2025**.
+- **B5** — Kraljic risk-axis median split `>` → **`>=`** (discrete tie-heavy risk score;
+  strict `>` dumped all tied-at-median suppliers into low-risk). Spend axis keeps `>`
+  (continuous, no ties) — asymmetry intentional. 2025 risk split **24/26 → 25/25**.
+- **D9** — composite `risk_score` concentration term: dropped `single_source_risk*100`,
+  now the **same roster concentration** A1 uses, scaled ×2 onto the composite's 0-100
+  axis (`concentration_0_100`, `_CONC_POINTS` in `transform_dataset.py`; single-source→100
+  preserves the old endpoint). So composite + Kraljic share ONE concentration signal.
+
+> ⚠️ **D9 IS IN THE DB BUT NOT IN THE COMMITTED XLSX (LANDMINE).** D9 was applied
+> **in-place** to the DB's `SupplierMetric` rows (recomputed `riskScore` +
+> `compositeScore` on the existing 120 rows via the transformer's exact D9 functions,
+> keeping the other 4 sub-scores + the row set) AND to `transform_dataset.py` source —
+> but **NOT baked into `data/raw/procurement_data.xlsx`** (deliberately restored, to
+> avoid bundling the out-of-scope invoice→payment rebucketing). **CONSEQUENCE: a full
+> re-import of the current committed xlsx would REVERT D9 in the DB.** Do **NOT**
+> re-import the xlsx outside the planned rebucket+reimport batch.
+
+> **DEFERRED — SupplierMetric rebucket + reimport.** `transform_dataset.py` now holds
+> the D9 edit as source-of-truth, but re-running the transformer ALSO rebuckets
+> per-period `SupplierMetric` rows **invoice-year → payment-year** (a separate deferred
+> fix; observed as row-set drift 54/50/16 → 53/50/20, S054 2024→2026, S002/S003/S020
+> gain 2026). When that batch runs it will regenerate D9 composites from source AND fix
+> the bucketing **together** — the intended convergence point. Until then the DB carries
+> the correct D9 values via the in-place update.
+
+**Recompute procedure (SAFE):** D9 in-place update (120 rows) → idempotent
+`Purchase.periodId` re-tag by paymentDate (**0 rows**, already correct, 306/313/28) →
+`compute_analyses.py --period-id` ×3 (6/6 each, computedAt **2026-07-04 20:26**) →
+`DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL` (30 range rows). NOT the
+migrate-script. `.env` BOM → inject `DATABASE_URL` (`utf-8-sig`) for standalone Python.
+
+⚠️ **VERIFIED CURRENT NUMBERS (2025) — supersede any older doc.** Kraljic
+**10 / 15 / 15 / 10** (Strategic/Leverage/Bottleneck/Routine) — **was 8/17/16/9** before
+A1/B5; risk split **25/25**; risk_median 24.71. Performance zones **Stars 19 / Critical 6
+/ Hidden Gems 6 / Long Tail 19** (distribution UNCHANGED by D9 — 4 symmetric membership
+swaps: S008 Critical→Stars, S031 LongTail→HiddenGems, S061 Stars→Critical, S070
+HiddenGems→LongTail; perf_median 80.27→79.70). UNCHANGED: ABC 10/9/31, 313 POs,
+$283,596,813.69, control exposure $42.47M. **Any doc still citing 8/17/16/9 (e.g.
+`defense.md`) is KNOWN-STALE and needs updating.**
+
+⚠️ **COMMIT-MESSAGE TOOLING NOTE.** In the Git Bash tool, write commit messages with a
+**heredoc** (`git commit -F - <<'EOF' … EOF`) or a message file — **NOT** PowerShell
+here-string syntax (`@'…'@`), which the POSIX shell passes literally and leaves a stray
+`@` prefixing the subject line (has happened several times; had to amend).
+
+### SESSION (2026-07-03)
 
 **Insight-fragility audit — DONE (`47ffcd9` / `9c3df01` / `6fbdafc`).** 12 auto-generated
 insight/narrative surfaces audited + fixed so every adjective/direction is data-driven
