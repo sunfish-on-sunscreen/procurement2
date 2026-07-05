@@ -51,9 +51,15 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
 export function KraljicScatterChart({
   assignments,
   thresholds,
+  highlightQuadrant = null,
+  onDotClick,
 }: {
   assignments: QuadrantAssignment[];
   thresholds: { spend_median: number; risk_median: number };
+  /** When set, this quadrant's points stay full-opacity and the rest fade (Change 4a). */
+  highlightQuadrant?: KraljicQuadrant | null;
+  /** Fires with the supplier id when a point is clicked (Change 4b). */
+  onDotClick?: (supplierId: string) => void;
 }) {
   const present = QUADRANT_ORDER.filter((q) =>
     assignments.some((a) => a.quadrant === q),
@@ -126,7 +132,12 @@ export function KraljicScatterChart({
             data={assignments.filter((a) => a.quadrant === q)}
             fill={QUADRANT_COLORS[q]}
             fillOpacity={0.8}
-            shape={<PinnableDot />}
+            shape={
+              <PinnableDot
+                onSelect={onDotClick}
+                dimOpacity={highlightQuadrant && q !== highlightQuadrant ? 0.12 : 0.85}
+              />
+            }
             isAnimationActive={false}
           />
         ))}

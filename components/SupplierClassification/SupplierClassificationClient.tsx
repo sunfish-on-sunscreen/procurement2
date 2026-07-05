@@ -122,7 +122,11 @@ export function SupplierClassificationClient({
         onSelect={handleSynthesisSelect}
       />
 
-      <ClassificationTabs kraljic={data.kraljic} perf={data.performance_spend} />
+      <ClassificationTabs
+        kraljic={data.kraljic}
+        perf={data.performance_spend}
+        onSupplierClick={setSelectedSupplierId}
+      />
 
       <div ref={tableRef} className="scroll-mt-20">
         <SupplierClassificationTable

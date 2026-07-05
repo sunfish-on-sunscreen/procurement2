@@ -58,9 +58,15 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
 export function PerformanceSpendScatter({
   suppliers,
   thresholds,
+  highlightZone = null,
+  onDotClick,
 }: {
   suppliers: PerformanceSpendSupplier[];
   thresholds: { spend_median: number; performance_median: number };
+  /** When set, this zone's points stay full-opacity and the rest fade (Change 4a). */
+  highlightZone?: PerformanceZone | null;
+  /** Fires with the supplier id when a point is clicked (Change 4b). */
+  onDotClick?: (supplierId: string) => void;
 }) {
   // This chart owns its OWN colour system: dots coloured by Performance-vs-Spend
   // ZONE (deliberately distinct from the Kraljic matrix's quadrant palette so the
@@ -137,7 +143,12 @@ export function PerformanceSpendScatter({
             data={s.data}
             fill={s.color}
             fillOpacity={0.8}
-            shape={<PinnableDot />}
+            shape={
+              <PinnableDot
+                onSelect={onDotClick}
+                dimOpacity={highlightZone && s.key !== highlightZone ? 0.12 : 0.85}
+              />
+            }
             isAnimationActive={false}
           />
         ))}
