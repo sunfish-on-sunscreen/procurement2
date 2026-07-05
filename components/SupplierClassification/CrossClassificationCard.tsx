@@ -16,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import { cardElevation, cn } from "@/lib/utils";
 
 const ICONS: Record<SynthesisKey, React.ComponentType<{ className?: string }>> = {
@@ -94,7 +93,6 @@ function SynthesisTile({
     );
   }
 
-  const color = QUADRANT_COLORS[meta.quadrant];
   const top = suppliers.slice(0, TOP_N);
   // Auto-expand when the open supplier is in this bucket but beyond the top-N, so
   // their highlighted row is visible without a manual click.
@@ -105,19 +103,20 @@ function SynthesisTile({
   const isExpanded = expanded || selfBeyondTop;
   const remaining = count - TOP_N;
 
+  // Change 3: MUTED card body — neutral border + muted fill. Colour is retained
+  // ONLY on the icon, the action line, and the "View suppliers" affordance; the
+  // title and count read neutral.
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-lg border border-l-4 p-4 text-left",
-        meta.theme.tint,
+        "flex flex-col gap-2 rounded-lg border bg-muted/30 p-4 text-left",
         active && "ring-2 ring-inset ring-foreground/30",
       )}
-      style={{ borderColor: color }}
     >
       <div className="flex items-center gap-2">
         <Icon className={cn("h-4 w-4 shrink-0", meta.theme.text)} />
         <span className="text-sm font-medium">{meta.title}</span>
-        <span className={cn("ml-auto text-lg font-semibold tabular-nums", meta.theme.text)}>{count}</span>
+        <span className="ml-auto text-lg font-semibold tabular-nums text-foreground">{count}</span>
       </div>
       <p className="text-xs text-muted-foreground">{meta.blurb}</p>
 
@@ -153,7 +152,7 @@ function SynthesisTile({
               <button
                 type="button"
                 onClick={() => setExpanded(true)}
-                className={cn("text-xs font-medium hover:underline", meta.theme.text)}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
               >
                 …+{remaining} more
               </button>
@@ -165,7 +164,7 @@ function SynthesisTile({
         <button
           type="button"
           onClick={() => setExpanded(false)}
-          className={cn("self-start text-xs font-medium hover:underline", meta.theme.text)}
+          className="self-start text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
         >
           Show less
         </button>

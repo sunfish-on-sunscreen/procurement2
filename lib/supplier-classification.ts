@@ -41,8 +41,8 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     title: "Strategic underperformers",
     quadrant: "Strategic",
     below: true,
-    blurb: "high-spend, hard-to-replace suppliers performing below the median — the highest-priority engagement targets.",
-    action: "Prioritize engagement & risk mitigation.",
+    blurb: "high-spend, hard-to-replace suppliers performing below the median — the priority for securing continuity and qualifying alternates before the exposure bites.",
+    action: "Secure supply or qualify alternates.",
     theme: {
       border: "border-l-red-500",
       tint: "bg-red-500/5",
@@ -54,8 +54,8 @@ export const SYNTHESIS_META: Record<SynthesisKey, SynthesisMeta> = {
     title: "Bottleneck critical issues",
     quadrant: "Bottleneck",
     below: true,
-    blurb: "low-spend but hard-to-replace suppliers underperforming — small dollars, outsized supply risk.",
-    action: "Secure supply or qualify alternates.",
+    blurb: "low-spend but hard-to-replace suppliers underperforming — small dollars, but supply risk that warrants active engagement and mitigation.",
+    action: "Prioritize engagement & risk mitigation.",
     theme: {
       border: "border-l-amber-500",
       tint: "bg-amber-500/5",
