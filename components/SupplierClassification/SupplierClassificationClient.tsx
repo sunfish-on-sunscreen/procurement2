@@ -83,6 +83,13 @@ export function SupplierClassificationClient({
     };
   }, [startDate, endDate]);
 
+  // Supplier → category map for the Classification-views group insights
+  // (category isn't on the Kraljic/perf payloads, but the ranking carries it).
+  const categoryById = useMemo(
+    () => new Map((data?.ranking ?? []).map((r) => [r.supplier_id, r.category])),
+    [data],
+  );
+
   // Synthesis-filtered ranking (when a cross-classification card is selected).
   const filteredRanking = useMemo(() => {
     if (!data) return [];
@@ -123,8 +130,10 @@ export function SupplierClassificationClient({
       />
 
       <ClassificationTabs
+        key={spanKey}
         kraljic={data.kraljic}
         perf={data.performance_spend}
+        categoryById={categoryById}
         onSupplierClick={setSelectedSupplierId}
       />
 

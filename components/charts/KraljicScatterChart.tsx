@@ -15,6 +15,7 @@ import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import type { QuadrantAssignment, KraljicQuadrant } from "@/lib/analysis-types";
 import { buildSpendAxis, spendMoneyAndShare } from "@/lib/spend-axis";
 import { PinnableDot } from "./PinnableDot";
+import { useAnimatedDomain, paddedDomain, type Domain } from "./useAnimatedDomain";
 
 // Stable legend order: high-priority quadrants first.
 const QUADRANT_ORDER: KraljicQuadrant[] = [
@@ -51,14 +52,14 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
 export function KraljicScatterChart({
   assignments,
   thresholds,
-  highlightQuadrant = null,
+  zoomQuadrant = null,
   onDotClick,
 }: {
   assignments: QuadrantAssignment[];
   thresholds: { spend_median: number; risk_median: number };
-  /** When set, this quadrant's points stay full-opacity and the rest fade (Change 4a). */
-  highlightQuadrant?: KraljicQuadrant | null;
-  /** Fires with the supplier id when a point is clicked (Change 4b). */
+  /** When set, the axes animate-zoom to fit this quadrant's suppliers (Change 1). */
+  zoomQuadrant?: KraljicQuadrant | null;
+  /** Fires with the supplier id when a point is clicked. */
   onDotClick?: (supplierId: string) => void;
 }) {
   const present = QUADRANT_ORDER.filter((q) =>
@@ -74,6 +75,35 @@ export function KraljicScatterChart({
     total,
   );
 
+  // Numeric full domains (the tween endpoints). X mirrors the buildSpendAxis
+  // padded domain; Y mimics the [0,"auto"] top with a little headroom.
+  const xsAll = assignments.map((a) => a.log_spend);
+  const risksAll = assignments.map((a) => a.supply_risk_score);
+  const fullX: Domain = axis.domain ?? [Math.min(...xsAll) - 0.5, Math.max(...xsAll) + 0.5];
+  const fullY: Domain = [0, (risksAll.length ? Math.max(...risksAll) : 100) * 1.08];
+
+  // Target = the zoomed group's padded bounds, or the full view.
+  const group = zoomQuadrant ? assignments.filter((a) => a.quadrant === zoomQuadrant) : [];
+  const zoomed = group.length > 0;
+  const target = zoomed
+    ? {
+        x: paddedDomain(group.map((a) => a.log_spend), fullX[1] - fullX[0]),
+        y: paddedDomain(group.map((a) => a.supply_risk_score), fullY[1] - fullY[0], {
+          clamp: [0, 100],
+        }),
+      }
+    : { x: fullX, y: fullY };
+
+  const view = useAnimatedDomain(target);
+  // At rest in the full view, render the ORIGINAL axis config (nice %-decade
+  // ticks, [0,"auto"] top) so the default view is unchanged; use the interpolated
+  // numeric domain only while zoomed/animating.
+  const atFull =
+    !zoomed &&
+    Math.abs(view.x[0] - fullX[0]) < 1e-6 &&
+    Math.abs(view.x[1] - fullX[1]) < 1e-6 &&
+    Math.abs(view.y[1] - fullY[1]) < 1e-6;
+
   return (
     <ChartFrame height={450}>
       <ScatterChart margin={{ left: 24, right: 24, top: 16, bottom: 28 }}>
@@ -82,9 +112,10 @@ export function KraljicScatterChart({
           type="number"
           dataKey="log_spend"
           name="Profit Impact"
-          domain={axis.domain ?? ["auto", "auto"]}
-          ticks={axis.ticks}
+          domain={atFull ? axis.domain ?? ["auto", "auto"] : view.x}
+          ticks={atFull ? axis.ticks : undefined}
           tickFormatter={axis.tickFormatter}
+          allowDataOverflow
           tick={{ fontSize: 11 }}
           label={{
             value: "Profit impact (% of total spend) →",
@@ -97,8 +128,9 @@ export function KraljicScatterChart({
           type="number"
           dataKey="supply_risk_score"
           name="Supply Risk"
-          domain={[0, "auto"]}
+          domain={atFull ? [0, "auto"] : view.y}
           width={56}
+          allowDataOverflow
           tick={{ fontSize: 11 }}
           label={{
             value: "Supply Risk (0–100) →",
@@ -129,15 +161,13 @@ export function KraljicScatterChart({
           <Scatter
             key={q}
             name={q}
-            data={assignments.filter((a) => a.quadrant === q)}
+            // When zoomed, show ONLY the selected group's dots (others → []), so
+            // the zoomed frame isn't polluted by neighbours the padded window
+            // happens to overlap. All series return on reset/zoom-out.
+            data={zoomQuadrant && q !== zoomQuadrant ? [] : assignments.filter((a) => a.quadrant === q)}
             fill={QUADRANT_COLORS[q]}
             fillOpacity={0.8}
-            shape={
-              <PinnableDot
-                onSelect={onDotClick}
-                dimOpacity={highlightQuadrant && q !== highlightQuadrant ? 0.12 : 0.85}
-              />
-            }
+            shape={<PinnableDot onSelect={onDotClick} />}
             isAnimationActive={false}
           />
         ))}

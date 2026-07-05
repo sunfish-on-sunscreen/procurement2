@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { ChartFrame } from "./ChartFrame";
 import { PinnableDot } from "./PinnableDot";
+import { useAnimatedDomain, paddedDomain, type Domain } from "./useAnimatedDomain";
 import { buildSpendAxis, spendMoneyAndShare } from "@/lib/spend-axis";
 import { QUADRANT_COLORS, ZONE_COLORS } from "@/lib/chart-colors";
 import type {
@@ -58,14 +59,14 @@ function ScatterTooltip({ active, payload, total = 0 }: ScatterTooltipProps) {
 export function PerformanceSpendScatter({
   suppliers,
   thresholds,
-  highlightZone = null,
+  zoomZone = null,
   onDotClick,
 }: {
   suppliers: PerformanceSpendSupplier[];
   thresholds: { spend_median: number; performance_median: number };
-  /** When set, this zone's points stay full-opacity and the rest fade (Change 4a). */
-  highlightZone?: PerformanceZone | null;
-  /** Fires with the supplier id when a point is clicked (Change 4b). */
+  /** When set, the axes animate-zoom to fit this zone's suppliers (Change 1). */
+  zoomZone?: PerformanceZone | null;
+  /** Fires with the supplier id when a point is clicked. */
   onDotClick?: (supplierId: string) => void;
 }) {
   // This chart owns its OWN colour system: dots coloured by Performance-vs-Spend
@@ -85,6 +86,31 @@ export function PerformanceSpendScatter({
     total,
   );
 
+  // Numeric full domains (tween endpoints). X mirrors buildSpendAxis; Y is the
+  // fixed performance scale [0,100].
+  const xsAll = suppliers.map((s) => s.log_spend);
+  const fullX: Domain = axis.domain ?? [Math.min(...xsAll) - 0.5, Math.max(...xsAll) + 0.5];
+  const fullY: Domain = [0, 100];
+
+  const group = zoomZone ? suppliers.filter((s) => s.zone === zoomZone) : [];
+  const zoomed = group.length > 0;
+  const target = zoomed
+    ? {
+        x: paddedDomain(group.map((s) => s.log_spend), fullX[1] - fullX[0]),
+        y: paddedDomain(group.map((s) => s.performance_score), fullY[1] - fullY[0], {
+          clamp: [0, 100],
+        }),
+      }
+    : { x: fullX, y: fullY };
+
+  const view = useAnimatedDomain(target);
+  const atFull =
+    !zoomed &&
+    Math.abs(view.x[0] - fullX[0]) < 1e-6 &&
+    Math.abs(view.x[1] - fullX[1]) < 1e-6 &&
+    Math.abs(view.y[0] - fullY[0]) < 1e-6 &&
+    Math.abs(view.y[1] - fullY[1]) < 1e-6;
+
   return (
     <ChartFrame height={450}>
       <ScatterChart margin={{ left: 24, right: 24, top: 16, bottom: 28 }}>
@@ -93,9 +119,10 @@ export function PerformanceSpendScatter({
           type="number"
           dataKey="log_spend"
           name="Total Spend"
-          domain={axis.domain ?? ["auto", "auto"]}
-          ticks={axis.ticks}
+          domain={atFull ? axis.domain ?? ["auto", "auto"] : view.x}
+          ticks={atFull ? axis.ticks : undefined}
           tickFormatter={axis.tickFormatter}
+          allowDataOverflow
           tick={{ fontSize: 11 }}
           label={{
             value: "Profit impact (% of total spend) →",
@@ -108,8 +135,9 @@ export function PerformanceSpendScatter({
           type="number"
           dataKey="performance_score"
           name="Performance"
-          domain={[0, 100]}
+          domain={atFull ? [0, 100] : view.y}
           width={56}
+          allowDataOverflow
           tick={{ fontSize: 11 }}
           label={{
             value: "Performance Score →",
@@ -140,15 +168,11 @@ export function PerformanceSpendScatter({
           <Scatter
             key={s.key}
             name={s.key}
-            data={s.data}
+            // When zoomed, show ONLY the selected zone's dots (others → []).
+            data={zoomZone && s.key !== zoomZone ? [] : s.data}
             fill={s.color}
             fillOpacity={0.8}
-            shape={
-              <PinnableDot
-                onSelect={onDotClick}
-                dimOpacity={highlightZone && s.key !== highlightZone ? 0.12 : 0.85}
-              />
-            }
+            shape={<PinnableDot onSelect={onDotClick} />}
             isAnimationActive={false}
           />
         ))}
