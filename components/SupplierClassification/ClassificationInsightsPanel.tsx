@@ -115,6 +115,7 @@ export function ClassificationInsightsPanel({
 
   const strategicCount = countOf("Strategic");
   const strategicUnder = computeSynthesis(perf).strategic_under.length;
+  const classA = abc?.summary.A.n ?? null;
 
   // Distribution sentence: YoY read (single-year with prior) or a static
   // largest-quadrant note. Self-omits when neither applies.
@@ -175,6 +176,14 @@ export function ClassificationInsightsPanel({
       </li>,
     );
   }
+  if (classA != null && classA > 0) {
+    bullets.push(
+      <li key="class-a">
+        <strong className="tabular-nums">{num0.format(classA)}</strong> supplier
+        {classA === 1 ? "" : "s"} carry the top spend concentration (ABC Class A).
+      </li>,
+    );
+  }
 
   return (
     <Card className={cardElevation}>
@@ -205,8 +214,9 @@ export function ClassificationInsightsPanel({
           </div>
         )}
 
-        {/* Relocated stats — moved BELOW the narrative (Change 1). */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Relocated stats — moved BELOW the narrative (Change 1). The Class-A
+            card was removed (Change 2); its count is folded into the prose above. */}
+        <div className="grid grid-cols-2 gap-2">
           <KpiCell
             label="Portfolio size"
             value={num0.format(portfolioSize)}
@@ -216,11 +226,6 @@ export function ClassificationInsightsPanel({
             label="Avg performance"
             value={avgPerf.toFixed(2)}
             sub={`period median ${median.toFixed(2)}`}
-          />
-          <KpiCell
-            label="Class-A suppliers"
-            value={abc ? num0.format(abc.summary.A.n) : "—"}
-            sub="top spend concentration"
           />
         </div>
 
