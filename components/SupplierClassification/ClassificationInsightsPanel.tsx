@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type {
   KraljicResult,
   PerformanceSpendResult,
@@ -18,7 +19,7 @@ import {
 
 const num0 = new Intl.NumberFormat("en-US");
 
-/** "from 2024 to 2026" (range) / "in 2025" (single year). */
+/** Compact span label for the relocated stat cells ("2024–2026" / "2025"). */
 function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
   if (!periodLabel) return "this period";
   if (isRangeMode) {
@@ -27,6 +28,17 @@ function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
     return periodLabel;
   }
   return periodLabel;
+}
+
+/** Prose span phrase for the narrative ("in 2025" / "from 2024 to 2026"). */
+function periodPhraseProse(periodLabel: string, isRangeMode: boolean): string {
+  if (!periodLabel) return "in this period";
+  if (isRangeMode) {
+    const parts = periodLabel.split(/[–-]/).map((s) => s.trim());
+    if (parts.length === 2 && parts[0] && parts[1]) return `from ${parts[0]} to ${parts[1]}`;
+    return `over ${periodLabel}`;
+  }
+  return `in ${periodLabel}`;
 }
 
 const SEGMENTS: KraljicQuadrant[] = ["Strategic", "Leverage", "Bottleneck", "Routine"];
@@ -61,10 +73,11 @@ function KpiCell({ label, value, sub }: { label: string; value: string; sub: str
 }
 
 /**
- * "Classification at a glance" — scannable summary (decision O): a 3-card KPI grid
- * (portfolio size, avg composite, Class-A count), the quadrant split on one line,
- * and a callout for Strategic suppliers below the median. Period-aware, computed
- * client-side.
+ * "Classification at a glance" — a NARRATIVE prose summary mirroring the Cycle-at-a-glance
+ * pattern (lead paragraph + self-omitting "Worth noting" bullets + closing hint), with the
+ * stat cells relocated BELOW the prose. Every number is computed client-side from the
+ * already-loaded analyses; clauses whose data is absent for the period omit gracefully
+ * rather than render a placeholder or a hardcoded shape claim.
  */
 export function ClassificationInsightsPanel({
   kraljic,
@@ -82,6 +95,7 @@ export function ClassificationInsightsPanel({
   isRangeMode: boolean;
 }) {
   const phrase = periodPhrase(periodLabel, isRangeMode);
+  const prose = periodPhraseProse(periodLabel, isRangeMode);
   const total = perf.suppliers.length;
   const median = perf.axis_thresholds.performance_median;
   const avgPerf =
@@ -92,11 +106,9 @@ export function ClassificationInsightsPanel({
   const countOf = (q: KraljicQuadrant) =>
     kraljic?.quadrant_profiles.find((p) => p.quadrant === q)?.n_suppliers ?? 0;
 
-  // F14: derive "Portfolio size" from the SAME population as the quadrant counts
-  // (the kraljic roster) so the quadrant counts always sum to portfolio size and
-  // can never exceed it. Falls back to the performance set when kraljic is
-  // absent. (avgPerf keeps its own denominator `total` — it's a mean over the
-  // performance set, not a portfolio count.)
+  // F14: portfolio size = the SAME population the quadrant counts come from (the
+  // kraljic roster), so the counts always sum to it. Falls back to the perf set
+  // when kraljic is absent. (avgPerf keeps its own denominator `total`.)
   const portfolioSize = kraljic
     ? kraljic.quadrant_profiles.reduce((s, p) => s + p.n_suppliers, 0)
     : total;
@@ -104,37 +116,63 @@ export function ClassificationInsightsPanel({
   const strategicCount = countOf("Strategic");
   const strategicUnder = computeSynthesis(perf).strategic_under.length;
 
-  // Portfolio-level finding line (decision D). Single-year-with-prior → a YoY
-  // read (avg composite + quadrant shifts); range → a static distribution note.
-  let finding: React.ReactNode = null;
+  // Distribution sentence: YoY read (single-year with prior) or a static
+  // largest-quadrant note. Self-omits when neither applies.
+  let distributionSentence: ReactNode = null;
   if (!isRangeMode && previous) {
     const dir =
-      avgPerf > previous.avg_performance ? "up" : avgPerf < previous.avg_performance ? "down" : "flat";
-    const changed = SEGMENTS.map((q) => ({ q, d: countOf(q) - (previous.quadrant_counts[q] ?? 0) })).filter(
-      (x) => x.d !== 0,
-    );
+      avgPerf > previous.avg_performance
+        ? "up"
+        : avgPerf < previous.avg_performance
+          ? "down"
+          : "unchanged";
+    const changed = SEGMENTS.map((q) => ({
+      q,
+      d: countOf(q) - (previous.quadrant_counts[q] ?? 0),
+    })).filter((x) => x.d !== 0);
     const shift = quadShiftPhrase(changed);
-    finding = (
+    distributionSentence = (
       <>
-        Avg performance {dir}{" "}
-        <span className="font-semibold tabular-nums text-foreground">
-          {previous.avg_performance.toFixed(2)}
-        </span>{" "}
-        →{" "}
-        <span className="font-semibold tabular-nums text-foreground">{avgPerf.toFixed(2)}</span>
-        {shift ? <> — {shift}.</> : "."}
+        {" "}
+        Average performance {dir === "unchanged" ? "held at" : `moved ${dir} from`}{" "}
+        {dir !== "unchanged" && (
+          <>
+            <strong className="tabular-nums">{previous.avg_performance.toFixed(2)}</strong> to{" "}
+          </>
+        )}
+        <strong className="tabular-nums">{avgPerf.toFixed(2)}</strong>
+        {shift ? <>, with {shift}.</> : "."}
       </>
     );
-  } else if (total > 0) {
+  } else if (kraljic && total > 0) {
     const largest = SEGMENTS.map((q) => ({ q, n: countOf(q) })).sort((a, b) => b.n - a.n)[0];
-    finding = (
-      <>
-        Across {phrase}, <span className="font-medium text-foreground">{largest.q}</span> is the
-        largest quadrant (
-        <span className="font-semibold tabular-nums text-foreground">{largest.n}</span>); portfolio
-        avg performance{" "}
-        <span className="font-semibold tabular-nums text-foreground">{avgPerf.toFixed(2)}</span>.
-      </>
+    if (largest && largest.n > 0) {
+      distributionSentence = (
+        <>
+          {" "}
+          <strong>{largest.q}</strong> is the largest quadrant (
+          <strong className="tabular-nums">{largest.n}</strong> supplier
+          {largest.n === 1 ? "" : "s"}).
+        </>
+      );
+    }
+  }
+
+  // "Worth noting" bullets — each self-omits when its data doesn't apply.
+  const bullets: ReactNode[] = [];
+  if (strategicUnder > 0) {
+    bullets.push(
+      <li key="strategic-under">
+        <strong className="tabular-nums">{strategicUnder}</strong> Strategic supplier
+        {strategicUnder === 1 ? "" : "s"} sit at or below the period median — warrant attention.
+      </li>,
+    );
+  } else if (strategicCount > 0) {
+    bullets.push(
+      <li key="strategic-above">
+        All <strong className="tabular-nums">{strategicCount}</strong> Strategic suppliers sit
+        above the period median this period.
+      </li>,
     );
   }
 
@@ -143,8 +181,31 @@ export function ClassificationInsightsPanel({
       <CardHeader>
         <CardTitle>Classification at a glance</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {/* 1. KPI grid — portfolio size · avg composite · Class-A count */}
+      <CardContent className="space-y-4 text-sm leading-relaxed">
+        <p>
+          Adaro&apos;s active supplier portfolio holds{" "}
+          <strong className="tabular-nums">{num0.format(portfolioSize)}</strong> supplier
+          {portfolioSize === 1 ? "" : "s"} {prose}
+          {kraljic ? ", positioned across the four Kraljic-matrix quadrants by spend and supply risk" : ""}.
+          {total > 0 && (
+            <>
+              {" "}
+              Performance averages{" "}
+              <strong className="tabular-nums">{avgPerf.toFixed(2)}</strong> against a period median
+              of <strong className="tabular-nums">{median.toFixed(2)}</strong>.
+            </>
+          )}
+          {distributionSentence}
+        </p>
+
+        {bullets.length > 0 && (
+          <div className="space-y-1">
+            <h3 className="font-medium">Worth noting</h3>
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">{bullets}</ul>
+          </div>
+        )}
+
+        {/* Relocated stats — moved BELOW the narrative (Change 1). */}
         <div className="grid grid-cols-3 gap-2">
           <KpiCell
             label="Portfolio size"
@@ -163,30 +224,10 @@ export function ClassificationInsightsPanel({
           />
         </div>
 
-        {/* Portfolio finding — one line (YoY single-year / static range). The
-            per-quadrant counts live in the quadrant summary table, not here. */}
-        {finding && <p className="text-sm text-muted-foreground">{finding}</p>}
-
-        {/* 3. Callout — Strategic at or below median. E10: the "all Strategic
-            healthy" reassurance only makes sense when Strategic suppliers exist;
-            with zero Strategic it is vacuously true and misleading, so omit it. */}
-        {strategicUnder > 0 ? (
-          <div
-            className="rounded-lg border px-3 py-2.5 text-sm"
-            style={{
-              backgroundColor: "color-mix(in srgb, var(--destructive) 8%, transparent)",
-              borderColor: "color-mix(in srgb, var(--destructive) 35%, transparent)",
-            }}
-          >
-            <span className="font-semibold tabular-nums">{strategicUnder}</span> Strategic
-            supplier{strategicUnder === 1 ? "" : "s"} sit at or below the period median —
-            warrant attention.
-          </div>
-        ) : strategicCount > 0 ? (
-          <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
-            All Strategic suppliers sit above the period median this period.
-          </div>
-        ) : null}
+        <p className="text-xs italic text-muted-foreground">
+          Click a group in Classification views to see who sits there, a scatter point for a
+          supplier&apos;s profile, or any table row below.
+        </p>
       </CardContent>
     </Card>
   );
