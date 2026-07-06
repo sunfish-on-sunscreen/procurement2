@@ -29,7 +29,60 @@ Classification, Process Health Monitoring, Action Dashboard
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects).
 
-### MOST RECENT SESSION (2026-07-04) — read this FIRST
+### MOST RECENT SESSION (2026-07-06) — read this FIRST
+
+**BACKEND-SCORING REBUILD, Stages 1–3 — LIVE. Import now takes RAW data only; the
+backend computes all 6 scores server-side.** Commits: `b34c40a` (Stage 1),
+`1f507fa` (Stage 2), `af1152d` (Stage 3, live).
+- **Architecture change (the big one):** the import route no longer reads
+  pre-computed score columns from the xlsx. It validates a **raw-only**
+  SupplierMetrics sheet (identity + soft-survey inputs only — NO `period`, NO 6
+  score columns, NO operational aggregates), then **computes everything
+  server-side** via `python/import_compute.py` → `python/scores.py` (a stdin/stdout
+  JSON Python bridge, `lib/python.ts::runImportCompute`). Compute runs
+  **before** the write (fail-before-write; a Python failure → 500, no partial
+  state); the existing atomic `$transaction` is preserved. `sample-data` now
+  serves `data/raw/procurement_data_raw.xlsx` (the raw file), not the enriched one.
+- **`python/scores.py` is the single source of truth** for the 6 formulas (D9
+  baked in): `norm_high/low`, `country_distance_score`, `concentration_0_100` +
+  `_CONC_POINTS`, `roster_category_counts`, `build_period_metrics`,
+  `compute_scores`. `scripts/transform_dataset.py` was refactored to import from
+  it (behavior-preserving, byte-identical output — proven) and is now
+  **offline-transformer-only** (it still writes the enriched xlsx for offline use;
+  the app never reads that file anymore). Tests: `python/test_scores.py`,
+  `python/test_import_compute.py` lock formula-exactness + the rebucket invariants.
+
+> ✅ **RESOLVED — the D9-REVERT LANDMINE is DEAD (Stage 3).** The uploaded file no
+> longer carries composites, so there is nothing to revert to — the route
+> recomputes all scores from raw (D9 in `scores.py`) on **every** import. Verified
+> live: **two consecutive imports produced byte-identical scores.** Re-importing is
+> safe and deterministic. (Supersedes the 2026-07-04 landmine warning below.)
+
+> ✅ **DONE — the deferred SupplierMetric invoice→payment rebucket landed.** The
+> live import wrote **payment-year-bucketed** SupplierMetric rows: row-set is now
+> **53 / 50 / 20** (was 54/50/16 invoice-bucketed; S054 2024→2026, S002/S003/S020
+> gained 2026). D9 composites are regenerated from source (raw) — the two deferred
+> items converged in this one live import, exactly as planned. (Supersedes the
+> 2026-07-04 "DEFERRED" note below.)
+
+⚠️ **VERIFIED CURRENT NUMBERS (post-Stage-3, computedAt 2026-07-06) — supersede any
+older doc.** SupplierMetric **payment-bucketed 53/50/20**. Only performance zones
+moved (they read the composite); everything spend/risk-based is unchanged.
+- **2025:** zones still **19 / 6 / 6 / 19** but with 2 rebucket swaps (**S054
+  Stars→Critical, S061 Critical→Stars**; perf_median 79.70→79.24). UNCHANGED:
+  Kraljic **10/15/15/10**, ABC **10/9/31**, risk split 25/25, control **$42.47M**,
+  313 POs, $283,596,813.69.
+- **2024:** zones **17/9/9/18** (2 swaps S008 Stars→Critical, S005 Critical→Stars);
+  Kraljic 12/14/15/12, ABC 8/10/35, control $83.82M — unchanged.
+- **2026:** zones now **6 / 4 / 4 / 6** (row-set grew 16→20; 7 movers as the 4
+  boundary suppliers gain a 2026 composite); Kraljic 5/5/5/5, ABC 4/3/13, control
+  $7.45M — unchanged.
+- Whole-portfolio SupplierMetric means: composite **77.40**, risk **68.42**.
+- ⚠️ **`defense.md` zone numbers need a light update** (2025 zone swaps + 2026
+  now 6/4/4/6). **Kraljic 10/15/15/10 is still current** (A1/B5, purchase/roster-
+  based, unaffected by the rebucket).
+
+### SESSION (2026-07-04)
 
 **Supplier Classification supply-risk fixes — A1 + B5 + D9 (`07c2e5c`), recomputed +
 verified fresh DB.** Also an earlier frontend-only commit this session (`96b4b2f`:
@@ -50,15 +103,21 @@ E11 synthesis `<=` to match the Python zone convention, E10 self-omit guard on t
   axis (`concentration_0_100`, `_CONC_POINTS` in `transform_dataset.py`; single-source→100
   preserves the old endpoint). So composite + Kraljic share ONE concentration signal.
 
-> ⚠️ **D9 IS IN THE DB BUT NOT IN THE COMMITTED XLSX (LANDMINE).** D9 was applied
-> **in-place** to the DB's `SupplierMetric` rows (recomputed `riskScore` +
-> `compositeScore` on the existing 120 rows via the transformer's exact D9 functions,
-> keeping the other 4 sub-scores + the row set) AND to `transform_dataset.py` source —
-> but **NOT baked into `data/raw/procurement_data.xlsx`** (deliberately restored, to
-> avoid bundling the out-of-scope invoice→payment rebucketing). **CONSEQUENCE: a full
-> re-import of the current committed xlsx would REVERT D9 in the DB.** Do **NOT**
-> re-import the xlsx outside the planned rebucket+reimport batch.
+> ✅ **SUPERSEDED / RESOLVED by Stage 3 (2026-07-06) — see the top session block.**
+> The D9-revert landmine is DEAD: the import now computes scores from raw (no scores
+> in the uploaded file), and the DB is now payment-bucketed 53/50/20. The historical
+> warning below is kept for context. ⚠️ **D9 IS IN THE DB BUT NOT IN THE COMMITTED
+> XLSX (LANDMINE).** D9 was applied **in-place** to the DB's `SupplierMetric` rows
+> (recomputed `riskScore` + `compositeScore` on the existing 120 rows via the
+> transformer's exact D9 functions, keeping the other 4 sub-scores + the row set) AND
+> to `transform_dataset.py` source — but **NOT baked into
+> `data/raw/procurement_data.xlsx`** (deliberately restored, to avoid bundling the
+> out-of-scope invoice→payment rebucketing). **CONSEQUENCE: a full re-import of the
+> current committed xlsx would REVERT D9 in the DB.** Do **NOT** re-import the xlsx
+> outside the planned rebucket+reimport batch.
 
+> ✅ **SUPERSEDED / DONE by Stage 3 (2026-07-06).** The rebucket + D9-from-source
+> convergence landed via the live raw import (row-set now 53/50/20). Historical note:
 > **DEFERRED — SupplierMetric rebucket + reimport.** `transform_dataset.py` now holds
 > the D9 edit as source-of-truth, but re-running the transformer ALSO rebuckets
 > per-period `SupplierMetric` rows **invoice-year → payment-year** (a separate deferred
