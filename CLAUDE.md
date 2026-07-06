@@ -34,15 +34,20 @@ Classification, Process Health Monitoring, Action Dashboard
 **BACKEND-SCORING REBUILD, Stages 1–3 — LIVE. Import now takes RAW data only; the
 backend computes all 6 scores server-side.** Commits: `b34c40a` (Stage 1),
 `1f507fa` (Stage 2), `af1152d` (Stage 3, live).
-- **Architecture change (the big one):** the import route no longer reads
-  pre-computed score columns from the xlsx. It validates a **raw-only**
-  SupplierMetrics sheet (identity + soft-survey inputs only — NO `period`, NO 6
-  score columns, NO operational aggregates), then **computes everything
-  server-side** via `python/import_compute.py` → `python/scores.py` (a stdin/stdout
-  JSON Python bridge, `lib/python.ts::runImportCompute`). Compute runs
-  **before** the write (fail-before-write; a Python failure → 500, no partial
-  state); the existing atomic `$transaction` is preserved. `sample-data` now
-  serves `data/raw/procurement_data_raw.xlsx` (the raw file), not the enriched one.
+- **Architecture change (the big one):** the import route
+  (`app/api/imports/upload/route.ts`) no longer reads pre-computed score columns
+  from the xlsx. `SupplierMetricsRow` zod is now **raw-only**, one row per
+  supplier: `supplier_id, supplier_name, country, category, product_description`
+  (identity) + `defect_rate_pct, complaint_count_annual, rfx_response_rate_pct,
+  avg_response_time_days, single_source_risk` (soft-survey). **NO `period`, NO 6
+  score columns, NO operational aggregates** (all computed server-side). ⚠️
+  `country` + `product_description` ARE required (the engine's
+  `build_period_metrics` sources supplier identity from these rows); zod strips
+  any extra columns. Flow: **parse+validate raw → `runImportCompute` (Python
+  bridge, `lib/python.ts`, fail-before-write) → atomic `$transaction` write →
+  `compute_analyses` per period → clear range cache.** Compute runs **before** the
+  write (a Python failure → 500, no partial state). `sample-data` now serves
+  `data/raw/procurement_data_raw.xlsx` (raw), not the enriched one.
 - **`python/scores.py` is the single source of truth** for the 6 formulas (D9
   baked in): `norm_high/low`, `country_distance_score`, `concentration_0_100` +
   `_CONC_POINTS`, `roster_category_counts`, `build_period_metrics`,
@@ -81,6 +86,36 @@ moved (they read the composite); everything spend/risk-based is unchanged.
 - ⚠️ **`defense.md` zone numbers need a light update** (2025 zone swaps + 2026
   now 6/4/4/6). **Kraljic 10/15/15/10 is still current** (A1/B5, purchase/roster-
   based, unaffected by the rebucket).
+
+**⚠️ PENDING — NEXT TASK: sample-data reconcile + update.** The sample file
+(`data/raw/procurement_data_raw.xlsx`, served by `app/api/sample-data/route.ts`)
+may NOT match the current **raw-only** import schema — it likely still carries a
+`tier` column and stale per-supplier operational-aggregate columns
+(`total_spend_usd`, `num_pos`, otd%, 3wm%, etc.) that the raw-only schema doesn't
+expect. zod strips extras so an import still SUCCEEDS, but the sample should be
+clean. Do a **read-only reconcile first**: compare what the raw file's
+SupplierMetrics sheet actually contains vs the raw-only `SupplierMetricsRow`
+schema (identity `supplier_id/supplier_name/country/category/product_description`
++ soft `defect_rate_pct/complaint_count_annual/rfx_response_rate_pct/
+avg_response_time_days/single_source_risk` ONLY), report the exact mismatch, THEN
+update the sample to match the CURRENT Stage-3 schema (drop period/scores/computed
+aggregates; keep identity + soft). **Match the current schema, not any old column
+list.** Suppliers + Purchases sheets are already raw and fine.
+
+**Session state / restore nets (this session's scratch, gitignored — outside the
+repo).** Pre-Stage-3 DB snapshot: `…/scratchpad/db_snapshot_prestage3_<ts>.sql`
+(pg_dump, ~810KB — restore net if the payment-bucketed state ever needs reverting;
+path also in `…/scratchpad/last_snapshot_path.txt`). Baseline score dump:
+`…/scratchpad/baseline_supplier_scores.csv` (the 120-row invoice-bucketed
+pre-rebuild scores the Stage-1/2 tests verify against, via `$BASELINE_CSV`).
+`…/scratchpad/baseline_aggregates.json` = pre-rebuild 2024/25/26 aggregates.
+
+**Non-issue seen this session (don't chase):** Spend Overview "won't open" was a
+**stale/zombie dev server** on :3000 (404'd even `/api/auth/login`), NOT an
+import/data bug — verified 200 + full render on a clean server. The import clears
+the range cache (`AnalysisResult periodId IS NULL`), so the FIRST range-mode load
+after ANY import recomputes Mode B (~2s) and self-caches — normal, non-fatal. Fix
+= restart ONE clean dev server (kill any zombie squatting on :3000).
 
 ### SESSION (2026-07-04)
 
