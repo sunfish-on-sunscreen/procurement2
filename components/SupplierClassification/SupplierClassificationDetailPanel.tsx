@@ -18,11 +18,10 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PillTabs } from "@/components/PillTabs";
 import { ScoreComponents } from "@/components/PerformanceTrajectory";
 
-type SubKey = "quality" | "delivery" | "service" | "process" | "risk";
+type SubKey = "quality" | "delivery" | "process" | "risk";
 const SUBS: { key: SubKey; label: string }[] = [
   { key: "quality", label: "Quality" },
   { key: "delivery", label: "Delivery" },
-  { key: "service", label: "Service" },
   { key: "process", label: "Process" },
   { key: "risk", label: "Risk" },
 ];

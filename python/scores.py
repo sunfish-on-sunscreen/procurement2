@@ -9,15 +9,16 @@ Everything here is PURE and deterministic — functions take DataFrames / dicts 
 and return computed values out. No file I/O, no DB, no ``rng``. Fixed industry
 bounds (not population min/max) so scores are stable when data changes.
 
-Derived fields (per active supplier-period):
-  quality  = mean(norm_low(defect_rate,0,10), norm_low(complaints,0,10))
+Derived fields (per active supplier-period/window). defect_rate + complaint_rate
+are aggregated from per-PO defect_count / complaint_count over the filtered POs:
+  defect_rate_pct    = sum(defect_count) / sum(quantity) * 100   (quantity-based)
+  complaint_rate_pct = orders_with_complaint / num_pos * 100     (per-order, 0-100)
+  quality  = mean(norm_low(defect_rate_pct,0,10), norm_low(complaint_rate_pct,0,100))
   delivery = mean(norm_high(otd_pct,0,100), norm_low(avg_lead_time,0,60))
-  service  = mean(norm_low(avg_response_time,0,14), norm_high(rfx_rate,0,100))
   process  = norm_high(three_way_match_pct,0,100)
-  risk     = 100 - (0.4*country_distance + 0.3*min(complaints*10,100)
-                    + 0.3*concentration_0_100(roster_alternatives))   [D9]
-  composite = 0.25*quality + 0.25*delivery + 0.15*service + 0.20*process + 0.15*risk
-All rounded to 2 decimals.
+  risk     = 100 - (0.6*country_distance + 0.4*concentration_0_100(roster))  [structural]
+  composite = 0.30*quality + 0.30*delivery + 0.22*process + 0.18*risk
+The Service dimension and single_source_risk were removed. All rounded to 2 dp.
 """
 
 import numpy as np
@@ -25,27 +26,26 @@ import pandas as pd
 
 # Composite weights (Batch 3a spec).
 WEIGHTS = {
-    "quality_score": 0.25,
-    "delivery_score": 0.25,
-    "service_score": 0.15,
-    "process_score": 0.20,
-    "risk_score": 0.15,
+    "quality_score": 0.30,
+    "delivery_score": 0.30,
+    "process_score": 0.22,
+    "risk_score": 0.18,
 }
 
 SCORE_COLS = [
-    "quality_score", "delivery_score", "service_score",
+    "quality_score", "delivery_score",
     "process_score", "risk_score", "composite_score",
 ]
 
-# Identity + soft survey inputs carried CONSTANT across a supplier's periods
-# (no per-period source); the purchase-derived inputs are recomputed per period.
+# Identity carried CONSTANT across a supplier's periods (from the SupplierMetrics
+# sheet); the purchase-derived inputs are recomputed per period/window. There are
+# no soft-survey columns any more — quality now comes from per-PO defect_count /
+# complaint_count (aggregated over the filtered POs), and the Service dimension +
+# single_source_risk were removed.
 IDENTITY_COLS = [
     "supplier_id", "supplier_name", "country", "category",
 ]
-SOFT_COLS = [
-    "defect_rate_pct", "complaint_count_annual", "rfx_response_rate_pct",
-    "avg_response_time_days", "single_source_risk",
-]
+SOFT_COLS = []
 
 
 # --- Score helpers (methodology rebuild) ---------------------------------- #
@@ -109,6 +109,9 @@ def _aggregate_purchase_group(g: pd.DataFrame) -> dict:
     column order both builders rely on."""
     npos = int(len(g))
     spend = float(g["total_value_usd"].sum())
+    qty = float(g["quantity"].sum())
+    defects = float(g["defect_count"].sum())
+    complaint_orders = int((g["complaint_count"] >= 1).sum())
     return {
         "total_spend_usd": round(spend, 2),
         "num_pos": npos,
@@ -117,6 +120,11 @@ def _aggregate_purchase_group(g: pd.DataFrame) -> dict:
         "avg_cycle_time_days": round(float(g["total_cycle_days"].mean()), 2),
         "on_time_delivery_pct": round(float(g["on_time_delivery"].mean()) * 100, 2),
         "three_way_match_pct": round(float(g["three_way_match_pass"].mean()) * 100, 2),
+        # Quality inputs, aggregated over the PO group (filter-live like delivery/
+        # process). defect_rate = defective units / units ordered (quantity-based);
+        # complaint_rate = share of orders with >=1 complaint (per-order, 0-100%).
+        "defect_rate_pct": round((defects / qty) * 100, 2) if qty > 0 else 0.0,
+        "complaint_rate_pct": round((complaint_orders / npos) * 100, 2) if npos else 0.0,
     }
 
 
@@ -150,28 +158,24 @@ def build_period_metrics(metrics: pd.DataFrame, purchases: pd.DataFrame) -> pd.D
             row[c] = snap[c]
         rows.append(row)
 
-    out = pd.DataFrame(rows)
-    # Preserve original dtypes for the integer-ish columns.
-    out["complaint_count_annual"] = out["complaint_count_annual"].astype(int)
-    out["single_source_risk"] = out["single_source_risk"].astype(int)
-    return out
+    return pd.DataFrame(rows)
 
 
 def compute_scores(m: pd.DataFrame, roster_cat_counts: dict) -> pd.DataFrame:
-    """Add the six derived score columns IN PLACE-ish (returns m). Fixed bounds;
+    """Add the five derived score columns IN PLACE-ish (returns m). Fixed bounds;
     fully deterministic. `roster_cat_counts` = category -> full-roster supplier
-    count (all known suppliers, active or not), used for the D9-note roster-based
-    concentration term in risk_score."""
+    count (all known suppliers, active or not), used for the roster-based
+    concentration term in risk_score.
+
+    Quality now comes from the per-PO-derived defect_rate_pct + complaint_rate_pct;
+    the Service dimension was removed; risk is PURELY STRUCTURAL (country distance +
+    roster concentration, no performance/complaint term)."""
     m["quality_score"] = np.round([
-        (norm_low(r["defect_rate_pct"], 0, 10) + norm_low(r["complaint_count_annual"], 0, 10)) / 2
+        (norm_low(r["defect_rate_pct"], 0, 10) + norm_low(r["complaint_rate_pct"], 0, 100)) / 2
         for _, r in m.iterrows()
     ], 2)
     m["delivery_score"] = np.round([
         (norm_high(r["on_time_delivery_pct"], 0, 100) + norm_low(r["avg_lead_time_days"], 0, 60)) / 2
-        for _, r in m.iterrows()
-    ], 2)
-    m["service_score"] = np.round([
-        (norm_low(r["avg_response_time_days"], 0, 14) + norm_high(r["rfx_response_rate_pct"], 0, 100)) / 2
         for _, r in m.iterrows()
     ], 2)
     m["process_score"] = np.round([
@@ -180,14 +184,14 @@ def compute_scores(m: pd.DataFrame, roster_cat_counts: dict) -> pd.DataFrame:
     new_risk = []
     for _, r in m.iterrows():
         country = country_distance_score(r.get("country", ""))
-        complaint = min(float(r["complaint_count_annual"]) * 10.0, 100.0)
-        # D9-note: roster-based concentration (same signal Kraljic uses) instead
-        # of the discredited single_source_risk flag. Count OTHER suppliers in the
-        # same category across the FULL roster; single-source (0 others) -> 100.
+        # Roster-based concentration (same signal Kraljic uses): count OTHER
+        # suppliers in the same category across the FULL roster; single-source
+        # (0 others) -> 100. Risk is structural only — country + concentration,
+        # re-weighted 0.6/0.4 after the complaint term was dropped.
         cat = str(r.get("category", ""))
         other_in_category = max(0, int(roster_cat_counts.get(cat, 1)) - 1)
         concentration = concentration_0_100(other_in_category)
-        risk = 100.0 - (0.4 * country + 0.3 * complaint + 0.3 * concentration)
+        risk = 100.0 - (0.6 * country + 0.4 * concentration)
         new_risk.append(float(np.clip(risk, 0, 100)))
     m["risk_score"] = np.round(new_risk, 2)
     m["composite_score"] = np.round(
@@ -207,8 +211,11 @@ _PURCHASE_CAMEL_TO_SNAKE = {
     "totalCycleDays": "total_cycle_days",
     "onTimeDelivery": "on_time_delivery",
     "threeWayMatchPass": "three_way_match_pass",
+    "defectCount": "defect_count",
+    "complaintCount": "complaint_count",
     "paymentDate": "payment_date",
     "prDate": "pr_date",
+    # (`quantity` is already snake-safe — same name in DB and engine.)
 }
 
 
@@ -253,8 +260,4 @@ def build_window_metrics(
             row[c] = snap[c]
         rows.append(row)
 
-    out = pd.DataFrame(rows)
-    # Preserve original dtypes for the integer-ish columns (mirror build_period_metrics).
-    out["complaint_count_annual"] = out["complaint_count_annual"].astype(int)
-    out["single_source_risk"] = out["single_source_risk"].astype(int)
-    return compute_scores(out, roster_cat_counts)
+    return compute_scores(pd.DataFrame(rows), roster_cat_counts)

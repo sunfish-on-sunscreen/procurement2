@@ -89,14 +89,8 @@ export type ComputedMetricRow = {
   avg_cycle_time_days: number;
   on_time_delivery_pct: number;
   three_way_match_pct: number;
-  defect_rate_pct: number;
-  complaint_count_annual: number;
-  rfx_response_rate_pct: number;
-  avg_response_time_days: number;
-  single_source_risk: number;
   quality_score: number;
   delivery_score: number;
-  service_score: number;
   process_score: number;
   risk_score: number;
   composite_score: number;

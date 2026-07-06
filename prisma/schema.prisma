@@ -95,6 +95,8 @@ model Purchase {
   totalCycleDays        Int
   onTimeDelivery        Boolean
   threeWayMatchPass     Boolean
+  defectCount           Int
+  complaintCount        Int
   periodId              String
   period                ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
@@ -115,14 +117,8 @@ model SupplierMetric {
   avgCycleTimeDays     Float
   onTimeDeliveryPct    Float
   threeWayMatchPct     Float
-  defectRatePct        Float
-  complaintCountAnnual Int
-  rfxResponseRatePct   Float
-  avgResponseTimeDays  Float
-  singleSourceRisk     Int
   qualityScore         Float
   deliveryScore        Float
-  serviceScore         Float
   processScore         Float
   riskScore            Float
   compositeScore       Float

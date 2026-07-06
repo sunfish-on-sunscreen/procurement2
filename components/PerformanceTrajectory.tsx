@@ -14,13 +14,12 @@ import { CHART_COLORS } from "@/lib/chart-colors";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { usePortalTooltip, PortalTooltip } from "@/components/charts/PortalTooltip";
 
-type SubKey = "quality" | "delivery" | "service" | "process" | "risk";
+type SubKey = "quality" | "delivery" | "process" | "risk";
 const SUBS: { key: SubKey; label: string; weight: number }[] = [
-  { key: "quality", label: "Quality", weight: 25 },
-  { key: "delivery", label: "Delivery", weight: 25 },
-  { key: "service", label: "Service", weight: 15 },
-  { key: "process", label: "Process", weight: 20 },
-  { key: "risk", label: "Risk", weight: 15 },
+  { key: "quality", label: "Quality", weight: 30 },
+  { key: "delivery", label: "Delivery", weight: 30 },
+  { key: "process", label: "Process", weight: 22 },
+  { key: "risk", label: "Risk", weight: 18 },
 ];
 
 const upCls = "text-green-600 dark:text-green-500";

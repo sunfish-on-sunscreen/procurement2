@@ -42,8 +42,11 @@ DEFAULT_BASELINE = os.path.join(
 )
 BASELINE_CSV = os.environ.get("BASELINE_CSV", DEFAULT_BASELINE)
 
-PERIOD_INDEP = ["quality_score", "service_score", "risk_score"]
-PERIOD_DEP = ["delivery_score", "process_score", "composite_score"]
+# Post-overhaul: risk (country + roster concentration) is the only period-
+# INDEPENDENT score; quality is now PO-aggregated (defect/complaint), so it joins
+# delivery/process/composite as period-DEPENDENT.
+PERIOD_INDEP = ["risk_score"]
+PERIOD_DEP = ["quality_score", "delivery_score", "process_score", "composite_score"]
 # The 4 suppliers whose PERIOD MEMBERSHIP shifts under invoice->payment (Stage 0).
 KNOWN_BOUNDARY = {"S054", "S002", "S003", "S020"}
 
@@ -90,22 +93,22 @@ def test_roster_category_counts():
 
 
 def test_composite_handcalc():
-    # A fully hand-computed supplier-period through the whole pipeline.
+    # A fully hand-computed supplier-period through the NEW pipeline (post-overhaul:
+    # quality from defect_rate/complaint_rate, no Service, structural risk).
     m = pd.DataFrame([{
         "supplier_id": "SX", "country": "JP", "category": "X",
-        "defect_rate_pct": 2.0, "complaint_count_annual": 3,
+        "defect_rate_pct": 2.0, "complaint_rate_pct": 10.0,
         "on_time_delivery_pct": 90.0, "avg_lead_time_days": 12.0,
-        "avg_response_time_days": 2.0, "rfx_response_rate_pct": 80.0,
         "three_way_match_pct": 100.0,
     }])
     out = scores.compute_scores(m.copy(), {"X": 3})  # 2 OTHER suppliers -> conc 44
     r = out.iloc[0]
-    assert r["quality_score"] == 75.0        # (80+70)/2
+    assert r["quality_score"] == 85.0        # (norm_low(2,0,10)=80 + norm_low(10,0,100)=90)/2
     assert r["delivery_score"] == 85.0       # (90+80)/2
-    assert r["service_score"] == 82.86       # (85.714+80)/2
     assert r["process_score"] == 100.0
-    assert r["risk_score"] == 53.8           # 100-(0.4*60+0.3*30+0.3*44)
-    assert r["composite_score"] == 80.5      # 0.25*75+0.25*85+0.15*82.86+0.20*100+0.15*53.8
+    assert r["risk_score"] == 46.4           # 100-(0.6*60 + 0.4*44)
+    assert r["composite_score"] == 81.35     # 0.30*85+0.30*85+0.22*100+0.18*46.4
+    assert "service_score" not in out.columns
 
 
 def test_window_matches_period():
@@ -262,12 +265,13 @@ def verify_against_baseline(verbose=True):
 
 
 def test_baseline_reproduction():
-    ok, rep = verify_against_baseline(verbose=False)
-    if rep.get("skipped"):
-        return  # baseline CSV absent in this environment — formula tests still cover exactness
-    assert rep["indep_mismatches"] == 0, "period-independent scores drifted (formula bug)"
-    assert rep["diff_touching_indep"] == 0, "a per-period diff touched quality/service/risk (not rebucketing)"
-    assert ok
+    # RETIRED: this anchored scores.py to the captured PRE-OVERHAUL DB baseline
+    # (old quality from soft defect/complaint, Service dimension, single_source
+    # risk term). The scoring overhaul intentionally changed those formulas, so
+    # the old baseline no longer applies. The live regression is now
+    # test_window_matches_period (build_window == build_period, filter-live). Left
+    # here (skipped) until a fresh post-overhaul baseline is captured.
+    return
 
 
 if __name__ == "__main__":

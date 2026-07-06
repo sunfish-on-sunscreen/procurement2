@@ -42,6 +42,9 @@ const PurchasesRow = z.object({
   total_cycle_days: z.number().int(),
   on_time_delivery: z.boolean(),
   three_way_match_pass: z.boolean(),
+  // Per-PO quality inputs (aggregated server-side into defect_rate/complaint_rate).
+  defect_count: z.number().int(),
+  complaint_count: z.number().int(),
 });
 
 // RAW-ONLY SupplierMetrics (Stage 3 of the backend-scoring rebuild): one row per
@@ -50,23 +53,17 @@ const PurchasesRow = z.object({
 // are now computed SERVER-SIDE from the raw Purchases/Suppliers (see
 // import_compute.compute_supplier_metrics) — the uploaded file no longer carries
 // any score, so a re-import cannot revert a backend-only fix (e.g. D9).
-// `country` is required because the score engine (scores.build_period_metrics /
-// build_window_metrics) sources supplier identity from these rows (country feeds
-// the composite risk_score via country_distance_score). `single_source_risk` is
-// required — it is carried to SupplierMetric and surfaced in the Action Dashboard
-// bottleneck recommendations; it no longer feeds any score (D9 replaced it in the
-// composite risk_score with roster concentration). Extra columns (tier, stale
-// aggregates, product_description) are stripped by zod.
+// IDENTITY-ONLY now: quality comes from per-PO defect_count/complaint_count in the
+// Purchases sheet (aggregated server-side); the Service dimension and
+// single_source_risk were removed. `country` is required — the score engine sources
+// supplier identity from these rows (country feeds the structural risk_score via
+// country_distance_score). Any extra columns (old soft-survey values, tier,
+// product_description) are stripped by zod. The sheet is intentionally near-empty.
 const SupplierMetricsRow = z.object({
   supplier_id: z.string(),
   supplier_name: z.string(),
   country: z.string(),
   category: z.string(),
-  defect_rate_pct: z.number(),
-  complaint_count_annual: z.number().int(),
-  rfx_response_rate_pct: z.number(),
-  avg_response_time_days: z.number(),
-  single_source_risk: z.number().int(),
 });
 
 function parseExcelDate(value: Date | string): Date {
@@ -236,6 +233,8 @@ export async function POST(request: Request) {
         totalCycleDays: r.total_cycle_days,
         onTimeDelivery: r.on_time_delivery,
         threeWayMatchPass: r.three_way_match_pass,
+        defectCount: r.defect_count,
+        complaintCount: r.complaint_count,
         // Tag each purchase to the period for the YEAR it was paid (when cash
         // leaves), falling back to its pr_date year if no payment.
         periodId: yearToPeriodId.get(
@@ -283,14 +282,8 @@ export async function POST(request: Request) {
     avgCycleTimeDays: r.avg_cycle_time_days,
     onTimeDeliveryPct: r.on_time_delivery_pct,
     threeWayMatchPct: r.three_way_match_pct,
-    defectRatePct: r.defect_rate_pct,
-    complaintCountAnnual: r.complaint_count_annual,
-    rfxResponseRatePct: r.rfx_response_rate_pct,
-    avgResponseTimeDays: r.avg_response_time_days,
-    singleSourceRisk: r.single_source_risk,
     qualityScore: r.quality_score,
     deliveryScore: r.delivery_score,
-    serviceScore: r.service_score,
     processScore: r.process_score,
     riskScore: r.risk_score,
     compositeScore: r.composite_score,

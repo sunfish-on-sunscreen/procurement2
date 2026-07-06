@@ -89,7 +89,6 @@ export type SupplierEvolution = {
     subScores: {
       quality: number;
       delivery: number;
-      service: number;
       process: number;
       risk: number;
     } | null;

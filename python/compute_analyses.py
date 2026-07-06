@@ -198,26 +198,13 @@ def build_live_composite_map(purchases, suppliers, metrics):
         .set_index("supplierExternalId")["country"]
         .to_dict()
     )
+    # Identity only — quality now comes from per-PO defect_count/complaint_count
+    # (in `purchases`), so there are no soft-survey columns to carry.
     soft = (
         metrics.drop_duplicates("supplierExternalId")
-        .rename(
-            columns={
-                "supplierExternalId": "supplier_id",
-                "supplierName": "supplier_name",
-                "defectRatePct": "defect_rate_pct",
-                "complaintCountAnnual": "complaint_count_annual",
-                "rfxResponseRatePct": "rfx_response_rate_pct",
-                "avgResponseTimeDays": "avg_response_time_days",
-                "singleSourceRisk": "single_source_risk",
-            }
-        )[
-            [
-                "supplier_id", "supplier_name", "category",
-                "defect_rate_pct", "complaint_count_annual",
-                "rfx_response_rate_pct", "avg_response_time_days",
-                "single_source_risk",
-            ]
-        ]
+        .rename(columns={"supplierExternalId": "supplier_id",
+                         "supplierName": "supplier_name"})[
+            ["supplier_id", "supplier_name", "category"]]
         .copy()
     )
     soft["country"] = soft["supplier_id"].map(country_by_sid).fillna("")
@@ -1038,16 +1025,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             return float(m.loc[s, "compositeScore"])
         return None
 
-    def single_source_of(s):
-        if (
-            len(m)
-            and s in m.index
-            and "singleSourceRisk" in m.columns
-            and pd.notna(m.loc[s, "singleSourceRisk"])
-        ):
-            return float(m.loc[s, "singleSourceRisk"])
-        return 0.0
-
     def spend_norm(s):
         return (log_spend_map[s] / max_log * 100.0) if max_log > 0 else 0.0
 
@@ -1128,7 +1105,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         reverse=True,
     )[:5]
     for s in bottleneck:
-        ss = single_source_of(s)
         ctry = country_of(s)
         recs.append({
             "type": "bottleneck_risk",
@@ -1137,7 +1113,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "supplier_name": name_of(s),
             "reasoning": (
                 f"Low-spend supplier ({usd(total_spend_map[s])}) with high supply risk "
-                f"(score {risk_map[s]:.1f}). Single-source: {'yes' if ss >= 1 else 'no'}, "
+                f"(score {risk_map[s]:.1f}). "
                 f"Country: {ctry or 'n/a'}, Category alternatives: {comp_map.get(s, 0)}. "
                 f"Develop alternative suppliers, build inventory buffers, or explore "
                 f"standardization."

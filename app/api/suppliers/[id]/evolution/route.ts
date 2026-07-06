@@ -53,7 +53,6 @@ export async function GET(
         supplierName: true,
         qualityScore: true,
         deliveryScore: true,
-        serviceScore: true,
         processScore: true,
         riskScore: true,
       },
@@ -72,7 +71,6 @@ export async function GET(
       {
         quality: m.qualityScore,
         delivery: m.deliveryScore,
-        service: m.serviceScore,
         process: m.processScore,
         risk: m.riskScore,
       },
