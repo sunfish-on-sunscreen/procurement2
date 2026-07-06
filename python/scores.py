@@ -100,6 +100,26 @@ def roster_category_counts(suppliers: pd.DataFrame) -> dict:
     return {str(k): int(v) for k, v in counts.items()}
 
 
+def _aggregate_purchase_group(g: pd.DataFrame) -> dict:
+    """Purchase-derived operational aggregates over ONE group of POs (snake_case
+    columns). The SINGLE definition of these formulas, shared by
+    build_period_metrics (grouped by supplier-period) and build_window_metrics
+    (grouped by supplier over an arbitrary filtered window) — so the window
+    aggregation can never drift from the per-period one. Returned in the stable
+    column order both builders rely on."""
+    npos = int(len(g))
+    spend = float(g["total_value_usd"].sum())
+    return {
+        "total_spend_usd": round(spend, 2),
+        "num_pos": npos,
+        "avg_po_value_usd": round(spend / npos, 2) if npos else 0.0,
+        "avg_lead_time_days": round(float(g["po_to_delivery_days"].mean()), 2),
+        "avg_cycle_time_days": round(float(g["total_cycle_days"].mean()), 2),
+        "on_time_delivery_pct": round(float(g["on_time_delivery"].mean()) * 100, 2),
+        "three_way_match_pct": round(float(g["three_way_match_pass"].mean()) * 100, 2),
+    }
+
+
 def build_period_metrics(metrics: pd.DataFrame, purchases: pd.DataFrame) -> pd.DataFrame:
     """Expand the per-supplier snapshot into one row per active supplier-period.
 
@@ -120,20 +140,12 @@ def build_period_metrics(metrics: pd.DataFrame, purchases: pd.DataFrame) -> pd.D
         if pd.isna(sid) or pd.isna(year) or sid not in soft_by_sid.index:
             continue  # purchase with no matching supplier metric — skip
         snap = soft_by_sid.loc[sid]  # supplier_id is now the index, not a column
-        npos = int(len(g))
-        spend = float(g["total_value_usd"].sum())
         row = {"supplier_id": sid}
         for c in IDENTITY_COLS:
             if c != "supplier_id":
                 row[c] = snap[c]
         row["period"] = int(year)
-        row["total_spend_usd"] = round(spend, 2)
-        row["num_pos"] = npos
-        row["avg_po_value_usd"] = round(spend / npos, 2) if npos else 0.0
-        row["avg_lead_time_days"] = round(float(g["po_to_delivery_days"].mean()), 2)
-        row["avg_cycle_time_days"] = round(float(g["total_cycle_days"].mean()), 2)
-        row["on_time_delivery_pct"] = round(float(g["on_time_delivery"].mean()) * 100, 2)
-        row["three_way_match_pct"] = round(float(g["three_way_match_pass"].mean()) * 100, 2)
+        row.update(_aggregate_purchase_group(g))  # shared aggregation formulas
         for c in SOFT_COLS:
             row[c] = snap[c]
         rows.append(row)
@@ -182,3 +194,67 @@ def compute_scores(m: pd.DataFrame, roster_cat_counts: dict) -> pd.DataFrame:
         sum(m[col] * w for col, w in WEIGHTS.items()), 2
     )
     return m
+
+
+# camelCase (DB "Purchase") -> snake_case (engine) column names. compute_analyses
+# loads Purchase via SELECT * (camelCase); a Stage-2 caller normalizes the frame
+# with rename_purchase_columns() before calling build_window_metrics, so the
+# engine stays snake_case-only (one boundary, not renames scattered everywhere).
+_PURCHASE_CAMEL_TO_SNAKE = {
+    "supplierExternalId": "supplier_id",
+    "totalValueUsd": "total_value_usd",
+    "poToDeliveryDays": "po_to_delivery_days",
+    "totalCycleDays": "total_cycle_days",
+    "onTimeDelivery": "on_time_delivery",
+    "threeWayMatchPass": "three_way_match_pass",
+    "paymentDate": "payment_date",
+    "prDate": "pr_date",
+}
+
+
+def rename_purchase_columns(purchases: pd.DataFrame) -> pd.DataFrame:
+    """Normalize a DB (camelCase) Purchase frame to the snake_case columns the
+    score engine reads. `rename` ignores absent keys, so this is a safe no-op on
+    an already-snake_case frame (e.g. the raw-xlsx path). The single camel/snake
+    boundary adapter — keeps build_window_metrics / build_period_metrics
+    snake_case-only."""
+    return purchases.rename(columns=_PURCHASE_CAMEL_TO_SNAKE)
+
+
+def build_window_metrics(
+    metrics: pd.DataFrame, purchases: pd.DataFrame, roster_cat_counts: dict
+) -> pd.DataFrame:
+    """Per-supplier SCORED metrics aggregated over the ENTIRE passed-in purchase
+    set — i.e. build_period_metrics with the period dimension collapsed to
+    whatever window the caller has already filtered `purchases` to (a single
+    year, a range, any filter). The purchase-derived inputs (delivery / process /
+    spend) re-aggregate over those POs via the SHARED _aggregate_purchase_group;
+    soft + identity inputs are carried constant from `metrics`; then
+    compute_scores produces the 6 scores.
+
+    There is no `period` column — the window IS the period. Because the
+    aggregation and scoring reuse the exact same code build_period_metrics uses, a
+    SINGLE-YEAR window reproduces that year's build_period_metrics row
+    byte-for-byte (locked in test_scores). `metrics` / `purchases` are snake_case;
+    DB (camelCase) callers pass purchases through rename_purchase_columns() first.
+    """
+    soft_by_sid = metrics.set_index("supplier_id")
+    rows = []
+    for sid, g in purchases.groupby("supplier_id", sort=True):
+        if pd.isna(sid) or sid not in soft_by_sid.index:
+            continue  # purchase with no matching supplier metric — skip
+        snap = soft_by_sid.loc[sid]
+        row = {"supplier_id": sid}
+        for c in IDENTITY_COLS:
+            if c != "supplier_id":
+                row[c] = snap[c]
+        row.update(_aggregate_purchase_group(g))  # shared aggregation formulas
+        for c in SOFT_COLS:
+            row[c] = snap[c]
+        rows.append(row)
+
+    out = pd.DataFrame(rows)
+    # Preserve original dtypes for the integer-ish columns (mirror build_period_metrics).
+    out["complaint_count_annual"] = out["complaint_count_annual"].astype(int)
+    out["single_source_risk"] = out["single_source_risk"].astype(int)
+    return compute_scores(out, roster_cat_counts)

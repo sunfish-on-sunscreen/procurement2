@@ -108,6 +108,37 @@ def test_composite_handcalc():
     assert r["composite_score"] == 80.5      # 0.25*75+0.25*85+0.15*82.86+0.20*100+0.15*53.8
 
 
+def test_window_matches_period():
+    """Stage 1 regression: build_window_metrics over a SINGLE calendar year's POs
+    reproduces that year's build_period_metrics row BYTE-FOR-BYTE — same
+    aggregates, soft, identity, and all 6 scores — for every supplier. Locks zero
+    formula drift between the generalized window engine (any filter) and the
+    per-period engine, so Stage 2 can compute a live composite for any window."""
+    sh = pd.read_excel(RAW_XLSX, sheet_name=None)
+    soft, pur, sup = sh["SupplierMetrics"], sh["Purchases"], sh["Suppliers"]
+    roster = scores.roster_category_counts(sup)
+    bpm = scores.compute_scores(scores.build_period_metrics(soft, pur), roster)
+    # Slice each year's POs by the SAME payment-year (pr fallback) rule that
+    # build_period_metrics buckets on.
+    pyear = (
+        pd.to_datetime(pur["payment_date"], errors="coerce")
+        .fillna(pd.to_datetime(pur["pr_date"], errors="coerce"))
+        .dt.year
+    )
+    for year in sorted(int(y) for y in bpm["period"].unique()):
+        bwm = scores.build_window_metrics(soft, pur[pyear == year], roster)
+        cols = list(bwm.columns)  # window output carries no 'period' column
+        assert "period" not in cols
+        a = bwm.sort_values("supplier_id").reset_index(drop=True)[cols]
+        b = (
+            bpm[bpm["period"] == year]
+            .sort_values("supplier_id")
+            .reset_index(drop=True)[cols]
+        )
+        assert list(a["supplier_id"]) == list(b["supplier_id"]), f"{year}: supplier set differs"
+        assert a.equals(b), f"{year}: window metrics differ from period metrics (formula drift)"
+
+
 # --------------------------------------------------------------------------- #
 # Layer 2 — baseline reproduction
 # --------------------------------------------------------------------------- #

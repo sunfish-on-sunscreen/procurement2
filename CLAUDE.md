@@ -29,6 +29,60 @@ Classification, Process Health Monitoring, Action Dashboard
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects).
 
+### MOST RECENT SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE — read this FIRST
+
+**The performance composite is now FILTER-LIVE** — recomputed from the POs in the
+current time filter (single-year = that year's POs; range = all POs in the span)
+instead of being read as a frozen per-period / latest-snapshot value. ONE engine;
+the TS duplicate is deleted. Staged in 4 stages, **held for commit** (not yet in
+`git log`). Touches `python/scores.py`, `python/compute_analyses.py`,
+`app/api/suppliers/[id]/spend-detail/route.ts`; **deletes** `lib/score-methodology.ts`.
+
+- **Engine (Stage 1):** `scores.build_window_metrics(metrics, purchases, roster)`
+  aggregates delivery/process over ANY filtered PO set (period dimension
+  collapsed) then `compute_scores` → the 6 scores. Shares the aggregation helper
+  `_aggregate_purchase_group` with `build_period_metrics` (behavior-preserving).
+  **Proven byte-identical** to the per-year computation for 2024/2025/2026
+  (`test_scores.test_window_matches_period`). Camel/snake boundary =
+  `scores.rename_purchase_columns` (DB Purchase camelCase → engine snake_case).
+- **Compute swap (Stage 2):** `compute_analyses.main()` builds `_LIVE_COMPOSITE_MAP`
+  once from the filtered POs (`build_live_composite_map`, joins `country` from the
+  Supplier frame — SupplierMetric has none); the three `perf_of` fns
+  (performance_spend zones, kraljic avg_performance, recommendations) read it
+  instead of stored `SupplierMetric.compositeScore` (stored kept as fallback).
+- **⚠️ ONLY 0.45 of the composite is filter-dependent:** delivery (0.25) + process
+  (0.20) re-aggregate over the filtered POs; quality/service/risk (0.55) are
+  per-supplier soft-survey constants. The composite responds to the filter, but
+  ~55% is pinned.
+- **VERIFIED numbers.** SINGLE-YEAR is **byte-identical to the prior stored**
+  composite: 2024 **17/9/9/18** (med 74.18), 2025 **19/6/6/19** (79.24), 2026
+  **6/4/4/6** (82.96) — 0 composite diffs. RANGE moved from the latest-snapshot
+  **18/9/9/19** to the true span-aggregate **19/8/8/20** (perf_median **80.01 →
+  77.47**; 49/55 composites changed). ⚠️ **Range is the DEFAULT landing**, so the
+  default performance zones changed.
+- **ABC + Kraljic QUADRANT ASSIGNMENT unchanged** everywhere (composite-independent
+  — spend × supply-risk). Only composite-derived zones / avg_performance / recs
+  move, and only in range/multi-year.
+- **Panels unified (Stage 3):** `lib/score-methodology.ts` (the stale **pre-D9** TS
+  range calculator — it still used `single_source_risk*100`) DELETED. The
+  spend-detail range `performance.score` now reads the filter-live
+  `performance_spend` analysis (same source as the zone chip + the Classification
+  page) → the panel and the page AGREE (the pre-D9 divergence is resolved by
+  elimination). `SpendDetail.subScores` + `storedSubScores` removed (never
+  rendered — the Classification panel reads per-year evolution sub-scores instead).
+
+**Also this session — `product_description` DROPPED, `unit` KEPT.** The ghost sweep
+found `product_description` (Suppliers + SupplierMetrics sheets) unconsumed →
+dropped from zod (`SuppliersRow`/`SupplierMetricsRow`), the route supplier mapping,
+`scores.IDENTITY_COLS`, `lib/python.ts`, both sheets of
+`data/raw/procurement_data_raw.xlsx`, and `Supplier.productDescription` (migration
+`20260706120000_drop_product_description`, **held/unapplied** — DB still has the
+column). ⚠️ **`unit` is KEPT** (Purchases sheet + `Purchase.unit` + spend-detail
+plumbing) and `single_source_risk` is KEPT (feeds the AD bottleneck "Single-source"
+string; no longer feeds any composite — D9 uses roster concentration). Sample file
+now **Suppliers 4 / Purchases 21 / SupplierMetrics 9**; imports byte-identically
+for the staying columns.
+
 ### MOST RECENT SESSION (2026-07-06) — read this FIRST
 
 **BACKEND-SCORING REBUILD, Stages 1–3 — LIVE. Import now takes RAW data only; the
@@ -523,9 +577,12 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   years): classification chips (ABC/Kraljic per year) + spend line + performance
   line + product-mix stacked bars + auto insights. Gap years (supplier inactive)
   render as zero/null gracefully.
-- ⚠️ **Performance trajectory is flat by design** — `performance_score` is
-  `SupplierMetric.compositeScore`, a per-supplier snapshot that doesn't vary by
-  period (e.g. 76.0 in both 2024 and 2025). The chart is ready for varying data.
+- ⚠️ **RETIRED — "Performance trajectory is flat by design" is FALSE now.** The
+  backend rebuild made `SupplierMetric.compositeScore` per-payment-year (delivery/
+  process vary per year), and the FILTER-LIVE composite change (top session block)
+  makes the displayed composite recompute per time filter. Single-year is
+  byte-identical to the stored per-year value; range is a true span-aggregate. The
+  composite is no longer a flat per-supplier snapshot.
 - **Panel ABC/Kraljic chips** ⚠️ **SUPERSEDED** — were latest-period; now
   **period-scoped** (see "Panel consistency + data integrity batch" below). The
   Evolution tab still shows the full per-year trajectory.
@@ -861,7 +918,10 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   - **import_friction** (≤25): Indonesia trade-agreement coverage (NOT geographic distance) — `ID→0 / AFTA→8 / RCEP-non-ASEAN (JP,KR,CN,AU,NZ)→16 / else→25` (explicit safe default).
   - ⚠️ Emitted as `risk_components` per `quadrant_assignment` (each 2dp; total == `supply_risk_score`, reconciles with the detail-panel breakdown bars). ⚠️ DISTINCT from the **performance composite's `risk_score` sub-score** (line ~257, still `country_distance` + complaints + `single_source`) — same word "risk", different metric; don't conflate.
 - **Kraljic quadrants** = median split on `log_spend` × `supply_risk_score` (Strategic = hi/hi, Leverage = hi-spend/lo-risk, Bottleneck = lo-spend/hi-risk, Routine = lo/lo).
-- **Performance score** = `SupplierMetric.compositeScore` (used as-is; not recomputed per range).
+- **Performance score** = the composite. ⚠️ **UPDATED — now filter-live** (see the
+  top session block): `compute_analyses` recomputes it from the filtered POs via
+  `scores.build_window_metrics` per period/range (was: read `SupplierMetric.compositeScore`
+  as-is, latest-snapshot for range). Single-year is byte-identical to the stored value.
 - Per-period quadrant data lives in `AnalysisResult.kraljic`; `SupplierMetric.kraljicQuadrant` is a last-period-wins convenience snapshot (not period-accurate).
 - **Quadrant colours** (anti-drift — resolved from `app/globals.css`, light / dark):
   Strategic `#ef4444` / `#f87171` (red), Leverage `#10b981` / `#34d399` (green),

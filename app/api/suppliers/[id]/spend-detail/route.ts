@@ -8,7 +8,6 @@ import {
   type PerformanceSpendResult,
 } from "@/lib/analysis-types";
 import { getRangeAnalyses } from "@/lib/range-analyses";
-import { computeScores } from "@/lib/score-methodology";
 import type { SpendDetail } from "@/lib/spend-overview-types";
 
 export const runtime = "nodejs";
@@ -74,20 +73,6 @@ export async function GET(
         supplierName: true,
         category: true,
         compositeScore: true,
-        defectRatePct: true,
-        complaintCountAnnual: true,
-        onTimeDeliveryPct: true,
-        avgLeadTimeDays: true,
-        avgResponseTimeDays: true,
-        rfxResponseRatePct: true,
-        threeWayMatchPct: true,
-        singleSourceRisk: true,
-        // Stored sub-scores (single-period subScores read these directly).
-        qualityScore: true,
-        deliveryScore: true,
-        serviceScore: true,
-        processScore: true,
-        riskScore: true,
       },
     }),
     prisma.supplier.findFirst({
@@ -112,15 +97,6 @@ export async function GET(
   const compositeByPeriod = new Map(
     metricRows.map((m) => [m.periodId, m.compositeScore]),
   );
-  const metricByPeriod = new Map(metricRows.map((m) => [m.periodId, m]));
-  // Map a stored metric row's five sub-scores into the response shape.
-  const storedSubScores = (m: (typeof metricRows)[number]) => ({
-    quality: m.qualityScore,
-    delivery: m.deliveryScore,
-    service: m.serviceScore,
-    process: m.processScore,
-    risk: m.riskScore,
-  });
   const latestMetric =
     metricRows.length > 0
       ? metricRows.reduce((a, b) =>
@@ -145,11 +121,6 @@ export async function GET(
       prDate: true,
       invoiceDate: true,
       paymentDate: true,
-      // Inputs for the range composite (A7): aggregated below into delivery /
-      // process means over the in-span POs.
-      poToDeliveryDays: true,
-      onTimeDelivery: true,
-      threeWayMatchPass: true,
     },
   });
 
@@ -158,6 +129,10 @@ export async function GET(
   let abcClass: SpendDetail["supplier"]["abcClass"] = null;
   let kraljicQuadrant: SpendDetail["supplier"]["kraljicQuadrant"] = null;
   let zone: SpendDetail["supplier"]["zone"] = null;
+  // The filter-live range composite (Stage 2) for this supplier — read from the
+  // SAME performance_spend analysis the zone chip comes from, so the panel's
+  // range performance number agrees with the Classification page's zones.
+  let rangePerfScore: number | null = null;
   if (start && end) {
     const analyses = await getRangeAnalyses(start, end);
     abcClass =
@@ -165,8 +140,11 @@ export async function GET(
     kraljicQuadrant =
       analyses?.kraljic?.quadrant_assignments.find((q) => q.supplier_id === id)
         ?.quadrant ?? null;
-    zone =
-      analyses?.performance_spend?.suppliers.find((s) => s.supplier_id === id)?.zone ?? null;
+    const perfEntry = analyses?.performance_spend?.suppliers.find(
+      (s) => s.supplier_id === id,
+    );
+    zone = perfEntry?.zone ?? null;
+    rangePerfScore = perfEntry?.performance_score ?? null;
   } else {
     const latestPeriod = await prisma.reportingPeriod.findFirst({
       orderBy: { startDate: "desc" },
@@ -189,16 +167,9 @@ export async function GET(
   let totalSpend = 0;
   let earliest: Date | null = null;
   let latest: Date | null = null;
-  // Accumulators for the range composite's delivery/process inputs.
-  let leadSum = 0;
-  let otdCount = 0;
-  let twmCount = 0;
   const byItemMap = new Map<string, { poCount: number; totalSpend: number }>();
   for (const p of purchases) {
     totalSpend += p.totalValueUsd;
-    leadSum += p.poToDeliveryDays;
-    if (p.onTimeDelivery) otdCount += 1;
-    if (p.threeWayMatchPass) twmCount += 1;
     const d = p.invoiceDate ?? p.prDate;
     if (d && (!earliest || d < earliest)) earliest = d;
     if (d && (!latest || d > latest)) latest = d;
@@ -253,11 +224,6 @@ export async function GET(
     latestScore: null,
     latestLabel: null,
   };
-  // Period-scoped sub-score breakdown (consumed by the classification panel;
-  // the Spend Overview panel ignores it). Single/all read stored sub-scores;
-  // range derives them from the same aggregated inputs as the range composite.
-  let subScores: SpendDetail["supplier"]["subScores"] = null;
-
   if (!dateFilter) {
     // No span → latest snapshot (backward compat).
     performance.mode = "all";
@@ -265,15 +231,12 @@ export async function GET(
     performance.periodLabel = latestMetric
       ? (periods.find((p) => p.id === latestMetric.periodId)?.name ?? null)
       : null;
-    if (latestMetric) subScores = storedSubScores(latestMetric);
   } else if (inWindow.length === 1) {
     // Single-year → that period's composite + previous active period for delta.
     performance.mode = "single";
     const sel = inWindow[0];
     performance.score = compositeByPeriod.get(sel.id) ?? null;
     performance.periodLabel = sel.name;
-    const selMetric = metricByPeriod.get(sel.id);
-    if (selMetric) subScores = storedSubScores(selMetric);
     const selIdx = periodOrder.get(sel.id) ?? -1;
     // Nearest earlier period that the supplier actually has a metric row for.
     const prev = [...periods]
@@ -284,41 +247,20 @@ export async function GET(
       performance.previousLabel = prev.name;
     }
   } else if (inWindow.length > 1) {
-    // Range → composite from raw inputs aggregated over the span + latest
-    // snapshot. "Latest" is the most recent in-window period the supplier is
-    // actually active in (skip trailing inactive years).
+    // Range → the FILTER-LIVE composite (Stage 2), read from the same
+    // performance_spend analysis as the zone chip, so the panel's number agrees
+    // with the Classification page's zones/composite (one engine, no divergence).
+    // "Latest" is the most recent in-window period the supplier is active in,
+    // kept for the context sub-line.
     performance.mode = "range";
     performance.periodLabel = `${inWindow[0].name}–${inWindow[inWindow.length - 1].name}`;
+    performance.score = rangePerfScore;
     const lastActive = [...inWindow]
       .filter((p) => compositeByPeriod.has(p.id))
       .pop();
     if (lastActive) {
       performance.latestScore = compositeByPeriod.get(lastActive.id) ?? null;
       performance.latestLabel = lastActive.name;
-    }
-    if (latestMetric && purchases.length > 0) {
-      const n = purchases.length;
-      // Span-aggregated raw inputs (delivery/process recomputed over the in-span
-      // POs; soft survey inputs constant from the latest snapshot).
-      const b = computeScores({
-        defectRatePct: latestMetric.defectRatePct,
-        complaintCountAnnual: latestMetric.complaintCountAnnual,
-        onTimeDeliveryPct: (otdCount / n) * 100,
-        avgLeadTimeDays: leadSum / n,
-        avgResponseTimeDays: latestMetric.avgResponseTimeDays,
-        rfxResponseRatePct: latestMetric.rfxResponseRatePct,
-        threeWayMatchPct: (twmCount / n) * 100,
-        singleSourceRisk: latestMetric.singleSourceRisk,
-        country: supplier?.country ?? "",
-      });
-      performance.score = b.compositeScore;
-      subScores = {
-        quality: b.qualityScore,
-        delivery: b.deliveryScore,
-        service: b.serviceScore,
-        process: b.processScore,
-        risk: b.riskScore,
-      };
     }
   }
 
@@ -351,7 +293,6 @@ export async function GET(
       kraljicQuadrant,
       zone,
       performance,
-      subScores,
     },
     stats: {
       totalSpend,

@@ -44,17 +44,6 @@ export type SpendDetail = {
       latestScore: number | null;
       latestLabel: string | null;
     };
-    // Period-scoped sub-score breakdown (P2 methodology: quality/delivery/
-    // service/process/risk, each 0–100). Used by the Supplier Classification
-    // detail panel; the Spend Overview panel ignores it. Null when no metric row
-    // exists for the resolved period.
-    subScores: {
-      quality: number;
-      delivery: number;
-      service: number;
-      process: number;
-      risk: number;
-    } | null;
   };
   stats: {
     totalSpend: number;

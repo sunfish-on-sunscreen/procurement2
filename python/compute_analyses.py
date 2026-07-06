@@ -35,6 +35,9 @@ import psycopg2
 
 from scipy.stats import mannwhitneyu
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import scores  # shared score engine (single source of truth for the 6 formulas)
+
 
 def log(msg):
     print(msg, file=sys.stderr, flush=True)
@@ -165,6 +168,64 @@ def load_roster_category_counts(conn):
         return {}
     counts = roster.groupby("category")["externalId"].nunique()
     return {str(k): int(v) for k, v in counts.items()}
+
+
+# Live composite map (Stage 2): {supplier_id -> composite} computed from THIS
+# window's filtered POs, set once in main() after load_frames. The three perf_of
+# functions read this instead of the stored SupplierMetric.compositeScore, so
+# performance zones / avg_performance / recommendations respond to the time
+# filter. None => fall back to the stored composite (e.g. a direct unit-test call
+# that never set it), mirroring the _ROSTER_CAT_COUNTS convention.
+_LIVE_COMPOSITE_MAP = None
+
+
+def build_live_composite_map(purchases, suppliers, metrics):
+    """Per-supplier composite computed LIVE from the filtered `purchases` via
+    scores.build_window_metrics — re-aggregate delivery/process over THIS window's
+    POs and score, instead of reading the stored per-period composite. Returns
+    {supplier_id -> composite_score}.
+
+    Prepares the snake_case inputs the engine needs (Stage-1 boundary): renames
+    the camelCase Purchase columns, and builds a snake_case soft/identity frame
+    with `country` JOINED IN from the Supplier frame (SupplierMetric has no
+    country column — it lives on Supplier)."""
+    if len(purchases) == 0 or len(metrics) == 0:
+        return {}
+    pur = scores.rename_purchase_columns(purchases)
+    country_by_sid = (
+        suppliers.rename(columns={"externalId": "supplierExternalId"})
+        .drop_duplicates("supplierExternalId")
+        .set_index("supplierExternalId")["country"]
+        .to_dict()
+    )
+    soft = (
+        metrics.drop_duplicates("supplierExternalId")
+        .rename(
+            columns={
+                "supplierExternalId": "supplier_id",
+                "supplierName": "supplier_name",
+                "defectRatePct": "defect_rate_pct",
+                "complaintCountAnnual": "complaint_count_annual",
+                "rfxResponseRatePct": "rfx_response_rate_pct",
+                "avgResponseTimeDays": "avg_response_time_days",
+                "singleSourceRisk": "single_source_risk",
+            }
+        )[
+            [
+                "supplier_id", "supplier_name", "category",
+                "defect_rate_pct", "complaint_count_annual",
+                "rfx_response_rate_pct", "avg_response_time_days",
+                "single_source_risk",
+            ]
+        ]
+        .copy()
+    )
+    soft["country"] = soft["supplier_id"].map(country_by_sid).fillna("")
+    wm = scores.build_window_metrics(soft, pur, _ROSTER_CAT_COUNTS or {})
+    return {
+        str(sid): float(c)
+        for sid, c in zip(wm["supplier_id"], wm["composite_score"])
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -543,6 +604,10 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
 
     def perf_of(s):
+        # Stage 2: LIVE composite for this filter's POs; stored is the fallback.
+        if _LIVE_COMPOSITE_MAP is not None:
+            v = _LIVE_COMPOSITE_MAP.get(s)
+            return float(v) if v is not None else None
         if len(comp_score) and s in comp_score.index:
             v = comp_score.loc[s, "compositeScore"]
             return float(v) if pd.notna(v) else None
@@ -855,6 +920,10 @@ def kraljic_analysis(purchases, suppliers, metrics):
         return str(sup_meta.loc[s, "supplierName"]) if s in sup_meta.index else s
 
     def perf_of(s):
+        # Stage 2: LIVE composite for this filter's POs; stored is the fallback.
+        if _LIVE_COMPOSITE_MAP is not None:
+            v = _LIVE_COMPOSITE_MAP.get(s)
+            return float(v) if v is not None else None
         if len(comp_score) and s in comp_score.index:
             v = comp_score.loc[s, "compositeScore"]
             return float(v) if pd.notna(v) else None
@@ -961,6 +1030,10 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         )
 
     def perf_of(s):
+        # Stage 2: LIVE composite for this filter's POs; stored is the fallback.
+        if _LIVE_COMPOSITE_MAP is not None:
+            v = _LIVE_COMPOSITE_MAP.get(s)
+            return float(v) if v is not None else None
         if len(m) and s in m.index and pd.notna(m.loc[s, "compositeScore"]):
             return float(m.loc[s, "compositeScore"])
         return None
@@ -1242,6 +1315,15 @@ def main():
         if len(purchases) == 0:
             log("ERROR: no purchases in range; nothing to compute.")
             sys.exit(1)
+
+        # Stage 2: compute the composite LIVE from THIS window's filtered POs
+        # (re-aggregate delivery/process + score via scores.build_window_metrics)
+        # instead of reading the stored per-period SupplierMetric.compositeScore.
+        # The three perf_of functions read this map — single-year reproduces the
+        # stored composite exactly; range/multi-year becomes a true span-aggregate.
+        global _LIVE_COMPOSITE_MAP
+        _LIVE_COMPOSITE_MAP = build_live_composite_map(purchases, suppliers, metrics)
+        log(f"Live composite map: {len(_LIVE_COMPOSITE_MAP)} suppliers (from filtered POs)")
 
         results = {}
         for name, fn in ANALYSES:
