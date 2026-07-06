@@ -81,7 +81,6 @@ export type ComputedMetricRow = {
   supplier_name: string;
   country: string;
   category: string;
-  product_description: string;
   period: number;
   total_spend_usd: number;
   num_pos: number;

@@ -41,7 +41,6 @@ SCORE_COLS = [
 # (no per-period source); the purchase-derived inputs are recomputed per period.
 IDENTITY_COLS = [
     "supplier_id", "supplier_name", "country", "category",
-    "product_description",
 ]
 SOFT_COLS = [
     "defect_rate_pct", "complaint_count_annual", "rfx_response_rate_pct",

@@ -64,7 +64,6 @@ model Supplier {
   supplierName       String
   country            String
   category           String
-  productDescription String
   periodId           String
   period             ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 

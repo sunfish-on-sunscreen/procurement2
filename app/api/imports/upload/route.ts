@@ -18,7 +18,6 @@ const SuppliersRow = z.object({
   supplier_name: z.string(),
   country: z.string(),
   category: z.string(),
-  product_description: z.string(),
 });
 
 const PurchasesRow = z.object({
@@ -51,15 +50,18 @@ const PurchasesRow = z.object({
 // are now computed SERVER-SIDE from the raw Purchases/Suppliers (see
 // import_compute.compute_supplier_metrics) — the uploaded file no longer carries
 // any score, so a re-import cannot revert a backend-only fix (e.g. D9).
-// `country` + `product_description` are required because the score engine
-// (scores.build_period_metrics) sources supplier identity from these rows. Any
-// extra columns in the sheet (tier, stale aggregates) are stripped by zod.
+// `country` is required because the score engine (scores.build_period_metrics /
+// build_window_metrics) sources supplier identity from these rows (country feeds
+// the composite risk_score via country_distance_score). `single_source_risk` is
+// required — it is carried to SupplierMetric and surfaced in the Action Dashboard
+// bottleneck recommendations; it no longer feeds any score (D9 replaced it in the
+// composite risk_score with roster concentration). Extra columns (tier, stale
+// aggregates, product_description) are stripped by zod.
 const SupplierMetricsRow = z.object({
   supplier_id: z.string(),
   supplier_name: z.string(),
   country: z.string(),
   category: z.string(),
-  product_description: z.string(),
   defect_rate_pct: z.number(),
   complaint_count_annual: z.number().int(),
   rfx_response_rate_pct: z.number(),
@@ -203,7 +205,6 @@ export async function POST(request: Request) {
     supplierName: r.supplier_name,
     country: r.country,
     category: r.category,
-    productDescription: r.product_description,
     periodId: maxYearPeriodId,
   }));
 
