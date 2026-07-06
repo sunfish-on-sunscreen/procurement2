@@ -54,3 +54,38 @@ def compute_supplier_metrics(
     m = scores.build_period_metrics(metrics, purchases)
     m = scores.compute_scores(m, roster)
     return m[METRIC_COLS].reset_index(drop=True)
+
+
+def _json_default(o):
+    """Make numpy scalars JSON-serializable."""
+    import numpy as _np
+    if isinstance(o, _np.integer):
+        return int(o)
+    if isinstance(o, _np.floating):
+        return float(o)
+    if isinstance(o, _np.bool_):
+        return bool(o)
+    raise TypeError(f"not serializable: {type(o)}")
+
+
+if __name__ == "__main__":
+    # CLI bridge for the import route (Stage 3): read {suppliers, purchases,
+    # metrics} as JSON on stdin, emit the computed per-period rows as JSON on
+    # stdout. Any failure -> stderr + non-zero exit so the route aborts before
+    # writing anything. allow_nan=False turns a stray NaN into a hard failure
+    # rather than a silent bad write.
+    import json
+    import traceback
+
+    try:
+        payload = json.load(sys.stdin)
+        suppliers = pd.DataFrame(payload.get("suppliers", []))
+        metrics = pd.DataFrame(payload.get("metrics", []))
+        purchases = pd.DataFrame(payload.get("purchases", []))
+        rows = compute_supplier_metrics(suppliers, metrics, purchases)
+        json.dump(rows.to_dict(orient="records"), sys.stdout,
+                  allow_nan=False, default=_json_default)
+    except Exception as exc:  # noqa: BLE001
+        print(f"import_compute failed: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)

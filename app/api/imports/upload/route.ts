@@ -3,7 +3,7 @@ import * as xlsx from "xlsx";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { runComputeAnalyses } from "@/lib/python";
+import { runComputeAnalyses, runImportCompute } from "@/lib/python";
 
 export const runtime = "nodejs";
 
@@ -45,33 +45,26 @@ const PurchasesRow = z.object({
   three_way_match_pass: z.boolean(),
 });
 
-// The SupplierMetrics sheet also carries country + product_description columns
-// that are not in the schema; zod strips unknown keys by default.
+// RAW-ONLY SupplierMetrics (Stage 3 of the backend-scoring rebuild): one row per
+// supplier carrying ONLY identity + the soft-survey inputs that have no purchase
+// source. The per-period operational aggregates AND all 6 derived score columns
+// are now computed SERVER-SIDE from the raw Purchases/Suppliers (see
+// import_compute.compute_supplier_metrics) — the uploaded file no longer carries
+// any score, so a re-import cannot revert a backend-only fix (e.g. D9).
+// `country` + `product_description` are required because the score engine
+// (scores.build_period_metrics) sources supplier identity from these rows. Any
+// extra columns in the sheet (tier, stale aggregates) are stripped by zod.
 const SupplierMetricsRow = z.object({
   supplier_id: z.string(),
   supplier_name: z.string(),
+  country: z.string(),
   category: z.string(),
-  // Per-period (P2): the enriched sheet carries one row per active
-  // supplier-period; `period` is the invoice-year that row is scoped to.
-  period: z.number().int(),
-  total_spend_usd: z.number(),
-  num_pos: z.number().int(),
-  avg_po_value_usd: z.number(),
-  avg_lead_time_days: z.number(),
-  avg_cycle_time_days: z.number(),
-  on_time_delivery_pct: z.number(),
-  three_way_match_pct: z.number(),
+  product_description: z.string(),
   defect_rate_pct: z.number(),
   complaint_count_annual: z.number().int(),
   rfx_response_rate_pct: z.number(),
   avg_response_time_days: z.number(),
   single_source_risk: z.number().int(),
-  quality_score: z.number(),
-  delivery_score: z.number(),
-  service_score: z.number(),
-  process_score: z.number(),
-  risk_score: z.number(),
-  composite_score: z.number(),
 });
 
 function parseExcelDate(value: Date | string): Date {
@@ -256,11 +249,29 @@ export async function POST(request: Request) {
     );
   }
 
-  // Each metric row is scoped to its own period (the `period` payment-year).
-  // Map it to that year's periodId; fall back to the latest year if a metric
-  // row's year somehow isn't among the detected purchase years (shouldn't
-  // happen — metric periods are derived from the same purchases).
-  const metricData = metricsParsed.data.map((r) => ({
+  // COMPUTE the derived scores SERVER-SIDE from the raw inputs (Stage 3). This
+  // runs the SAME proven engine (python/scores.py via import_compute) that the
+  // offline transformer uses, producing one per-period SupplierMetric row per
+  // active supplier-period (payment-year bucketed, all 6 scores + operational
+  // aggregates). ⚠️ ATOMICITY: this happens BEFORE any DB write, so a compute
+  // failure aborts the import with NO partial state.
+  const computed = await runImportCompute({
+    suppliers: suppliersParsed.data,
+    purchases: purchasesParsed.data,
+    metrics: metricsParsed.data,
+  });
+  if (computed.code !== 0 || !computed.rows) {
+    console.error("import_compute failed:", computed.stderr);
+    return NextResponse.json(
+      { error: "Score computation failed — no data was imported." },
+      { status: 500 },
+    );
+  }
+
+  // Map each computed per-period row to a SupplierMetric write. `period` is the
+  // payment-year int; fall back to the latest year if it somehow isn't among the
+  // detected purchase years (shouldn't happen — both derive from the same POs).
+  const metricData = computed.rows.map((r) => ({
     supplierExternalId: r.supplier_id,
     supplierName: r.supplier_name,
     category: r.category,

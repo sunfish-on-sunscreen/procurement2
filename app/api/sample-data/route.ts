@@ -11,11 +11,14 @@ export async function GET() {
     return new Response("Unauthorized", { status: 401 });
   }
 
+  // Serve the RAW workbook (Stage 3): the import route now computes all derived
+  // scores server-side, so the canonical upload is the raw-only file (no score
+  // columns) — the sample must match the raw-only import schema.
   const filePath = path.join(
     process.cwd(),
     "data",
     "raw",
-    "procurement_data.xlsx",
+    "procurement_data_raw.xlsx",
   );
 
   try {
@@ -25,7 +28,7 @@ export async function GET() {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition":
-          'attachment; filename="procurement_data_sample.xlsx"',
+          'attachment; filename="procurement_data_raw_sample.xlsx"',
       },
     });
   } catch {
