@@ -12,6 +12,7 @@ import {
   toSupplierCreateData,
   type SupplierRowData,
 } from "@/lib/supplier-import";
+import { makePoIdGen } from "@/lib/purchase-import";
 
 export const runtime = "nodejs";
 
@@ -159,7 +160,7 @@ export async function POST(request: Request) {
   );
 
   const poRawIds = purchasesParsed.data.map((r) => idStr(r.po_id));
-  const nextPoId = makeIdGen(poRawIds, "PO-", 7, /^PO-(\d+)$/);
+  const nextPoId = makePoIdGen(poRawIds);
   const purchases: (PurchaseRowData & { po_id: string; supplier_id: string | undefined })[] =
     purchasesParsed.data.map((r, i) => ({
       ...r,

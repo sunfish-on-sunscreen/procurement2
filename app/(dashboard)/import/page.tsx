@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { ImportForm } from "@/components/ImportForm";
 import { CountryFlag } from "@/components/CountryFlag";
 import { nextSupplierId } from "@/lib/supplier-import";
+import { nextPoId } from "@/lib/purchase-import";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -33,7 +34,7 @@ export default async function ImportPage() {
   // The supplier roster (one row per supplier) drives the roster table below and
   // the add-supplier card's id preview + category options. Re-derived on every
   // router.refresh(), so a just-added supplier appears immediately.
-  const [imports, suppliers] = await Promise.all([
+  const [imports, suppliers, poIds, unitRows] = await Promise.all([
     prisma.import.findMany({
       take: 20,
       orderBy: { uploadedAt: "desc" },
@@ -44,16 +45,27 @@ export default async function ImportPage() {
       distinct: ["externalId"],
       orderBy: { externalId: "asc" },
     }),
+    prisma.purchase.findMany({ select: { poId: true } }),
+    prisma.purchase.findMany({ select: { unit: true }, distinct: ["unit"], orderBy: { unit: "asc" } }),
   ]);
 
   const nextId = nextSupplierId(suppliers.map((s) => s.externalId));
   const categories = [...new Set(suppliers.map((s) => s.category))].sort((a, b) =>
     a.localeCompare(b),
   );
+  const nextPurchaseId = nextPoId(poIds.map((p) => p.poId));
+  const supplierPicks = suppliers.map((s) => ({ id: s.externalId, name: s.supplierName }));
+  const units = unitRows.map((u) => u.unit);
 
   return (
     <div className="flex flex-col gap-6">
-      <ImportForm nextSupplierId={nextId} categories={categories} />
+      <ImportForm
+        nextSupplierId={nextId}
+        categories={categories}
+        nextPoId={nextPurchaseId}
+        suppliers={supplierPicks}
+        units={units}
+      />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">

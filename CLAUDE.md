@@ -951,6 +951,16 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   Inherent to delete-then-insert; manual adds are supplementary, the bulk import
   is the source of truth. Single-create reuses the shared
   validation/id-gen/mapper in `lib/supplier-import.ts`.
+- **Manually-added purchases don't feed the cached scorecards until a reimport
+  (Batch 3).** The add-purchase card (`POST /api/purchases`, one INSERT tagged to
+  the PAYMENT-year period, no analyses recompute + no range-cache clear) writes a
+  `Purchase` row so cached scores stay byte-identical. The new PO shows only in
+  Purchase-derived LIVE views (Spend-Overview ranking spend, the supplier's
+  spend-detail "All invoices") until a full reimport of its period recomputes the
+  scorecards. ⚠️ The bulk import reads `total_value_usd` + all `*_days` verbatim
+  from the file (the synthetic total is deliberately NOT qty×price); a manual add
+  COMPUTES them via `lib/purchase-import.computeDerivedFields`
+  (`total = round(qty×price, 2)`, cycle-days = exact date diffs).
 - **"Strategic" is now ONLY a Kraljic quadrant name** — the declared tier that
   also carried the name was removed entirely in `158849b`.
 - **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).
