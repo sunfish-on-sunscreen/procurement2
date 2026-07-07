@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { nextSupplierId, toSupplierCreateData } from "@/lib/supplier-import";
+import {
+  nextSupplierId,
+  toSupplierCreateData,
+  SupplierWriteBody,
+} from "@/lib/supplier-import";
 import { Prisma } from "@/lib/generated/prisma/client";
 
 export const runtime = "nodejs";
-
-// Single-record create. name/country/category required; the id is assigned
-// SERVER-SIDE (the client's greyed preview is not trusted, to avoid races).
-const CreateSupplierBody = z.object({
-  supplier_name: z.string().trim().min(1, "Supplier name is required"),
-  country: z.string().trim().min(1, "Country is required"),
-  category: z.string().trim().min(1, "Category is required"),
-});
 
 /**
  * Create ONE supplier (admin only). Reuses the shared validation + id-gen +
@@ -35,7 +30,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const parsed = CreateSupplierBody.safeParse(body);
+  const parsed = SupplierWriteBody.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },

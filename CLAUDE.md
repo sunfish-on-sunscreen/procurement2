@@ -961,6 +961,19 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   from the file (the synthetic total is deliberately NOT qty×price); a manual add
   COMPUTES them via `lib/purchase-import.computeDerivedFields`
   (`total = round(qty×price, 2)`, cycle-days = exact date diffs).
+- **Supplier edit/delete recomputes via `lib/recompute.ts`, but stored
+  `SupplierMetric` scores lag until a reimport (Batch A).** `PATCH`/`DELETE
+  /api/suppliers/[id]` + `POST /api/suppliers/batch-delete` mutate the `Supplier`
+  row (edit also syncs denormalized `supplierName`/`category` on `Purchase` +
+  `SupplierMetric`) then call `recomputeAllPeriods()` (the import recipe:
+  `runComputeAnalyses` per period + clear the range cache — NOT the migrate-tags
+  script). That refreshes the `AnalysisResult` cache and the pages' LIVE composite,
+  so Spend/Classification/Process-Health/Action-Dashboard show correct new numbers.
+  ⚠️ It does NOT rewrite the stored per-period `SupplierMetric` rows (only a full
+  import does), so the two surfaces that read them — the evolution tab's sub-score
+  sparklines and the spend-detail single-year "performance snapshot" — lag a
+  country/category edit until a reimport. A name-only edit skips recompute
+  (labels only). Delete is blocked if the supplier has any purchases (no orphans).
 - **"Strategic" is now ONLY a Kraljic quadrant name** — the declared tier that
   also carried the name was removed entirely in `158849b`.
 - **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).

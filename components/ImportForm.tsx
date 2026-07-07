@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AddSupplierCard } from "@/components/AddSupplierCard";
+import { RemoveSupplierCard } from "@/components/RemoveSupplierCard";
 import { AddPurchaseCard, type SupplierPick } from "@/components/AddPurchaseCard";
 
 export function ImportForm({
@@ -36,6 +37,7 @@ export function ImportForm({
   const [isUploading, setIsUploading] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [addPurchaseOpen, setAddPurchaseOpen] = useState(false);
 
   async function handleSubmit(event: React.FormEvent) {
@@ -99,13 +101,22 @@ export function ImportForm({
               className="cursor-pointer"
               onChange={(event) => setSuppliersFile(event.target.files?.[0] ?? null)}
             />
-            <button
-              type="button"
-              onClick={() => setAddOpen(true)}
-              className="inline-flex w-fit items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
-            >
-              <Plus className="h-3.5 w-3.5" /> add a single supplier
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setAddOpen(true)}
+                className="inline-flex w-fit items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
+              >
+                <Plus className="h-3.5 w-3.5" /> add a single supplier
+              </button>
+              <button
+                type="button"
+                onClick={() => setRemoveOpen(true)}
+                className="inline-flex w-fit items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
+              >
+                <Minus className="h-3.5 w-3.5" /> remove a single supplier
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -164,6 +175,12 @@ export function ImportForm({
         onOpenChange={setAddOpen}
         nextId={nextSupplierId}
         categories={categories}
+      />
+
+      <RemoveSupplierCard
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        suppliers={suppliers}
       />
 
       <AddPurchaseCard

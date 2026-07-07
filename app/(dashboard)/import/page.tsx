@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ImportForm } from "@/components/ImportForm";
-import { CountryFlag } from "@/components/CountryFlag";
+import { SupplierRosterTable } from "@/components/SupplierRosterTable";
 import { nextSupplierId } from "@/lib/supplier-import";
 import { nextPoId } from "@/lib/purchase-import";
 import { Badge } from "@/components/ui/badge";
@@ -67,45 +67,7 @@ export default async function ImportPage() {
         units={units}
       />
 
-      <div className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">
-          Suppliers{" "}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({suppliers.length})
-          </span>
-        </h2>
-        {suppliers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No suppliers yet. Import data or add one above.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Country</TableHead>
-                <TableHead>Category</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {suppliers.map((s) => (
-                <TableRow key={s.externalId}>
-                  <TableCell className="font-mono text-muted-foreground">
-                    {s.externalId}
-                  </TableCell>
-                  <TableCell className="font-medium">{s.supplierName}</TableCell>
-                  <TableCell>
-                    {s.country}
-                    <CountryFlag code={s.country} />
-                  </TableCell>
-                  <TableCell>{s.category}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+      <SupplierRosterTable suppliers={suppliers} categories={categories} />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Recent Imports</h2>

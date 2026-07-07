@@ -35,11 +35,19 @@ function useCountryOptions(): ComboOption[] {
   }, []);
 }
 
+export type EditSupplier = {
+  id: string;
+  name: string;
+  country: string;
+  category: string;
+};
+
 export function AddSupplierCard({
   open,
   onOpenChange,
   nextId,
   categories,
+  editSupplier = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,8 +55,11 @@ export function AddSupplierCard({
   nextId: string;
   /** Existing category values (for the creatable category combobox). */
   categories: string[];
+  /** When set, the card is in EDIT mode (pre-filled; id locked; PATCH on save). */
+  editSupplier?: EditSupplier | null;
 }) {
   const router = useRouter();
+  const isEdit = editSupplier != null;
   const countryOptions = useCountryOptions();
   const categoryOptions = useMemo<ComboOption[]>(
     () => categories.map((c) => ({ value: c, label: c })),
@@ -61,15 +72,18 @@ export function AddSupplierCard({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Reset the form each time the card opens (render-time transition — avoids the
-  // lint-banned set-state-in-effect).
+  // Reset/prefill the form when the card opens OR the edit target changes
+  // (render-time transition — avoids the lint-banned set-state-in-effect).
+  const editId = editSupplier?.id ?? null;
   const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
+  const [prevEditId, setPrevEditId] = useState(editId);
+  if (open !== prevOpen || editId !== prevEditId) {
     setPrevOpen(open);
+    setPrevEditId(editId);
     if (open) {
-      setName("");
-      setCountry("");
-      setCategory("");
+      setName(editSupplier?.name ?? "");
+      setCountry(editSupplier?.country ?? "");
+      setCategory(editSupplier?.category ?? "");
       setError(null);
       setSaving(false);
     }
@@ -83,49 +97,61 @@ export function AddSupplierCard({
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/suppliers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          supplier_name: name.trim(),
-          country: country.trim(),
-          category: category.trim(),
-        }),
-      });
+      const res = await fetch(
+        isEdit ? `/api/suppliers/${editSupplier!.id}` : "/api/suppliers",
+        {
+          method: isEdit ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            supplier_name: name.trim(),
+            country: country.trim(),
+            category: category.trim(),
+          }),
+        },
+      );
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         supplier?: { id: string; name: string };
+        recomputeWarning?: string | null;
       };
       if (res.ok && data.supplier) {
-        toast.success(`Added ${data.supplier.name} (${data.supplier.id}).`);
+        if (isEdit) {
+          toast.success(`Updated ${data.supplier.name} (${data.supplier.id}).`);
+          if (data.recomputeWarning) toast.warning(data.recomputeWarning);
+        } else {
+          toast.success(`Added ${data.supplier.name} (${data.supplier.id}).`);
+        }
         onOpenChange(false);
         router.refresh(); // re-derive roster + nextId + categories on the server
       } else {
-        setError(data.error || "Could not create the supplier.");
+        setError(data.error || `Could not ${isEdit ? "update" : "create"} the supplier.`);
       }
     } catch {
-      setError("Could not create the supplier.");
+      setError(`Could not ${isEdit ? "update" : "create"} the supplier.`);
     } finally {
       setSaving(false);
     }
   }
 
   const selectedCountry = countryOptions.find((c) => c.value === country);
+  const displayId = isEdit ? editSupplier!.id : nextId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        aria-label="Add a supplier"
+        aria-label={isEdit ? "Edit supplier" : "Add a supplier"}
         className={`flex max-h-[85vh] w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[460px] ${panelElevation}`}
       >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
             <DialogTitle className="truncate font-heading text-base font-medium leading-snug">
-              Add a supplier
+              {isEdit ? "Edit supplier" : "Add a supplier"}
             </DialogTitle>
             <p className="truncate text-xs text-muted-foreground">
-              Create a single supplier record — the ID is assigned automatically.
+              {isEdit
+                ? "Update this supplier — the ID is locked to keep purchase links intact."
+                : "Create a single supplier record — the ID is assigned automatically."}
             </p>
           </div>
           <Button
@@ -145,14 +171,16 @@ export function AddSupplierCard({
             <Label htmlFor="add-supplier-id">Supplier ID</Label>
             <Input
               id="add-supplier-id"
-              value={nextId}
+              value={displayId}
               readOnly
               disabled
               tabIndex={-1}
               className="font-mono text-muted-foreground"
             />
             <p className="text-[11px] text-muted-foreground">
-              Auto-generated. Confirmed by the server when you save.
+              {isEdit
+                ? "Locked — changing it would break purchase links."
+                : "Auto-generated. Confirmed by the server when you save."}
             </p>
           </div>
 
@@ -210,7 +238,7 @@ export function AddSupplierCard({
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save supplier"}
+            {saving ? "Saving…" : isEdit ? "Save changes" : "Save supplier"}
           </Button>
         </footer>
       </DialogContent>
