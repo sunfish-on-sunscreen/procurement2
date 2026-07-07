@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,13 +14,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { AddSupplierCard } from "@/components/AddSupplierCard";
 
-export function ImportForm() {
+export function ImportForm({
+  nextSupplierId,
+  categories,
+}: {
+  nextSupplierId: string;
+  categories: string[];
+}) {
   const router = useRouter();
   const [suppliersFile, setSuppliersFile] = useState<File | null>(null);
   const [purchasesFile, setPurchasesFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -82,6 +91,13 @@ export function ImportForm() {
               className="cursor-pointer"
               onChange={(event) => setSuppliersFile(event.target.files?.[0] ?? null)}
             />
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="inline-flex w-fit items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
+            >
+              <Plus className="h-3.5 w-3.5" /> add a single supplier
+            </button>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -127,6 +143,13 @@ export function ImportForm() {
           </div>
         </form>
       </CardContent>
+
+      <AddSupplierCard
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        nextId={nextSupplierId}
+        categories={categories}
+      />
     </Card>
   );
 }

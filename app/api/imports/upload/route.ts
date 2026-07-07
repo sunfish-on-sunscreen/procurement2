@@ -4,23 +4,20 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { runComputeAnalyses, runImportCompute } from "@/lib/python";
+import {
+  idCell,
+  idStr,
+  makeIdGen,
+  SuppliersRow,
+  toSupplierCreateData,
+  type SupplierRowData,
+} from "@/lib/supplier-import";
 
 export const runtime = "nodejs";
 
 // Dates arrive from the xlsx parser as ISO strings (the sample stores them as
 // text). Accept Date too, in case a future file stores real Excel dates.
 const dateLike = z.union([z.date(), z.string()]);
-
-// An id cell may be a string, a number (if a hand-authored sheet typed a bare
-// number), or absent/blank — a blank id is auto-generated in sequence on import.
-const idCell = z.union([z.string(), z.number()]).optional();
-
-const SuppliersRow = z.object({
-  supplier_id: idCell,
-  supplier_name: z.string(),
-  country: z.string(),
-  category: z.string(),
-});
 
 const PurchasesRow = z.object({
   po_id: idCell,
@@ -52,7 +49,6 @@ const PurchasesRow = z.object({
   complaint_count: z.number().int(),
 });
 
-type SupplierRowData = z.infer<typeof SuppliersRow>;
 type PurchaseRowData = z.infer<typeof PurchasesRow>;
 
 function parseExcelDate(value: Date | string): Date {
@@ -73,28 +69,6 @@ function formatIssues(error: z.ZodError): string {
       return `${row}, "${field}": ${issue.message}`;
     })
     .join("; ");
-}
-
-/** Normalize an id cell to a trimmed string, or undefined when blank/absent. */
-function idStr(value: string | number | undefined): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  const s = String(value).trim();
-  return s.length > 0 ? s : undefined;
-}
-
-/**
- * Build an id generator that continues the numeric sequence after the highest
- * matching id already present (in-file). e.g. prefix "S", pad 4, existing max
- * S0007 -> next() yields "S0008", "S0009", … Ids that don't match `re` are
- * ignored when seeding the sequence.
- */
-function makeIdGen(existing: (string | undefined)[], prefix: string, pad: number, re: RegExp) {
-  let max = 0;
-  for (const id of existing) {
-    const m = id?.match(re);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return () => `${prefix}${String(++max).padStart(pad, "0")}`;
 }
 
 /** First-duplicate detector for a resolved id list (returns the id or null). */
@@ -283,14 +257,9 @@ export async function POST(request: Request) {
   const maxYearPeriodId = yearToPeriodId.get(years[years.length - 1])!;
   const affectedPeriodIds = [...yearToPeriodId.values()];
 
-  // 9. Transform column names -> Prisma field names (+ period tagging).
-  const supplierData = suppliers.map((r) => ({
-    externalId: r.supplier_id,
-    supplierName: r.supplier_name,
-    country: r.country,
-    category: r.category,
-    periodId: maxYearPeriodId,
-  }));
+  // 9. Transform column names -> Prisma field names (+ period tagging). Uses the
+  // SAME mapper the single-record create uses (lib/supplier-import).
+  const supplierData = suppliers.map((r) => toSupplierCreateData(r, maxYearPeriodId));
 
   let purchaseData;
   try {

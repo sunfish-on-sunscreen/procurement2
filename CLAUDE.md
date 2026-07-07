@@ -944,6 +944,13 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - `prisma/migrations/.../add_range_cache_columns/` — nullable periodId + range columns.
 
 ### Critical gotchas
+- **Manually-added suppliers are replaced by a full re-import (Batch 2).** The
+  add-supplier card (`POST /api/suppliers`, one INSERT tagged to the LATEST
+  period, no analyses recompute) writes a `Supplier` row that the bulk import's
+  per-period delete-then-insert will wipe on the next re-import of that period.
+  Inherent to delete-then-insert; manual adds are supplementary, the bulk import
+  is the source of truth. Single-create reuses the shared
+  validation/id-gen/mapper in `lib/supplier-import.ts`.
 - **"Strategic" is now ONLY a Kraljic quadrant name** — the declared tier that
   also carried the name was removed entirely in `158849b`.
 - **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).

@@ -1,6 +1,8 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ImportForm } from "@/components/ImportForm";
+import { CountryFlag } from "@/components/CountryFlag";
+import { nextSupplierId } from "@/lib/supplier-import";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -28,15 +30,70 @@ function formatDate(value: Date | null): string {
 export default async function ImportPage() {
   await requireAdmin();
 
-  const imports = await prisma.import.findMany({
-    take: 20,
-    orderBy: { uploadedAt: "desc" },
-    include: { period: true },
-  });
+  // The supplier roster (one row per supplier) drives the roster table below and
+  // the add-supplier card's id preview + category options. Re-derived on every
+  // router.refresh(), so a just-added supplier appears immediately.
+  const [imports, suppliers] = await Promise.all([
+    prisma.import.findMany({
+      take: 20,
+      orderBy: { uploadedAt: "desc" },
+      include: { period: true },
+    }),
+    prisma.supplier.findMany({
+      select: { externalId: true, supplierName: true, country: true, category: true },
+      distinct: ["externalId"],
+      orderBy: { externalId: "asc" },
+    }),
+  ]);
+
+  const nextId = nextSupplierId(suppliers.map((s) => s.externalId));
+  const categories = [...new Set(suppliers.map((s) => s.category))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 
   return (
     <div className="flex flex-col gap-6">
-      <ImportForm />
+      <ImportForm nextSupplierId={nextId} categories={categories} />
+
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">
+          Suppliers{" "}
+          <span className="text-sm font-normal text-muted-foreground">
+            ({suppliers.length})
+          </span>
+        </h2>
+        {suppliers.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No suppliers yet. Import data or add one above.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Country</TableHead>
+                <TableHead>Category</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {suppliers.map((s) => (
+                <TableRow key={s.externalId}>
+                  <TableCell className="font-mono text-muted-foreground">
+                    {s.externalId}
+                  </TableCell>
+                  <TableCell className="font-medium">{s.supplierName}</TableCell>
+                  <TableCell>
+                    {s.country}
+                    <CountryFlag code={s.country} />
+                  </TableCell>
+                  <TableCell>{s.category}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Recent Imports</h2>
