@@ -110,6 +110,46 @@ export const CreatePurchaseBody = z.object({
 
 export type CreatePurchaseInput = z.infer<typeof CreatePurchaseBody>;
 
+/** Parse a YYYY-MM-DD body date as UTC midnight (matches the import's date
+ *  handling, so day-differences are clean whole numbers). */
+export function parseBodyDate(s: string): Date {
+  return new Date(`${s}T00:00:00.000Z`);
+}
+
+/**
+ * Parse + validate the 5 purchase dates (shared by create + edit): they must be
+ * valid AND non-decreasing (PR ≤ PO ≤ Delivery ≤ Invoice ≤ Payment) so a manual
+ * write can never produce a negative cycle-day.
+ */
+export function parsePurchaseDates(b: {
+  pr_date: string;
+  po_date: string;
+  delivery_date: string;
+  invoice_date: string;
+  payment_date: string;
+}):
+  | { ok: true; prDate: Date; poDate: Date; deliveryDate: Date; invoiceDate: Date; paymentDate: Date }
+  | { ok: false; error: string } {
+  const prDate = parseBodyDate(b.pr_date);
+  const poDate = parseBodyDate(b.po_date);
+  const deliveryDate = parseBodyDate(b.delivery_date);
+  const invoiceDate = parseBodyDate(b.invoice_date);
+  const paymentDate = parseBodyDate(b.payment_date);
+  const ordered = [prDate, poDate, deliveryDate, invoiceDate, paymentDate];
+  if (ordered.some((d) => Number.isNaN(d.getTime()))) {
+    return { ok: false, error: "One or more dates are invalid." };
+  }
+  for (let k = 1; k < ordered.length; k++) {
+    if (ordered[k].getTime() < ordered[k - 1].getTime()) {
+      return {
+        ok: false,
+        error: "Dates must be in order: PR ≤ PO ≤ Delivery ≤ Invoice ≤ Payment.",
+      };
+    }
+  }
+  return { ok: true, prDate, poDate, deliveryDate, invoiceDate, paymentDate };
+}
+
 /** All the pieces a Purchase row needs, with derived fields computed here. */
 export type PurchaseCreateArgs = {
   poId: string;

@@ -974,6 +974,19 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   sparklines and the spend-detail single-year "performance snapshot" — lag a
   country/category edit until a reimport. A name-only edit skips recompute
   (labels only). Delete is blocked if the supplier has any purchases (no orphans).
+- **Purchase edit/delete recomputes globally — a supplier re-point moves BOTH
+  suppliers automatically (Batch B).** `PATCH`/`DELETE /api/purchases/[id]` +
+  `POST /api/purchases/batch-delete` mutate the `Purchase` row then call
+  `recomputeAllPeriods()`. Because `compute_analyses` groups all purchases by
+  `supplierExternalId` across every supplier, changing a purchase's supplier
+  reattributes its spend/OTD/cycle/defect in one pass — the OLD supplier drops it,
+  the NEW gains it, no per-supplier logic. Edit RECOMPUTES the derived fields
+  (`total_value` + 5 cycle-days) via the shared `computeDerivedFields`, enforces
+  date-ordering (no negative cycle days), and re-tags the payment-year period (a
+  payment-date edit can move the PO across years — compute buckets by payment date
+  regardless). Same stored-`SupplierMetric` lag as the supplier CRUD. The import
+  page's Purchases table is client-side filtered + paginated (all 647 rows loaded,
+  one page in the DOM). No delete block (a purchase can't orphan anything).
 - **"Strategic" is now ONLY a Kraljic quadrant name** — the declared tier that
   also carried the name was removed entirely in `158849b`.
 - **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).

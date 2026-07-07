@@ -26,6 +26,8 @@ export function TypeableCombobox({
   renderOption,
   leading,
   emptyText = "No matches",
+  maxVisible,
+  disabled = false,
   id,
   "aria-label": ariaLabel,
 }: {
@@ -38,6 +40,11 @@ export function TypeableCombobox({
   /** adornment shown left of the field when a value is selected (e.g. a flag). */
   leading?: React.ReactNode;
   emptyText?: string;
+  /** When true, the field is inert (greyed, won't open) — e.g. gated on another field. */
+  disabled?: boolean;
+  /** Cap the rendered/navigable list (for very large option sets); a "N more"
+   *  hint prompts the user to keep typing. Unbounded when omitted. */
+  maxVisible?: number;
   id?: string;
   "aria-label"?: string;
 }) {
@@ -60,11 +67,13 @@ export function TypeableCombobox({
           (o.keywords?.toLowerCase().includes(q) ?? false),
       )
     : options;
+  const visible = maxVisible != null ? filtered.slice(0, maxVisible) : filtered;
+  const hiddenCount = filtered.length - visible.length;
   const showCreate =
     creatable &&
     query.trim().length > 0 &&
     !options.some((o) => o.label.toLowerCase() === query.trim().toLowerCase());
-  const itemCount = filtered.length + (showCreate ? 1 : 0);
+  const itemCount = visible.length + (showCreate ? 1 : 0);
 
   // Close on outside click.
   React.useEffect(() => {
@@ -100,7 +109,7 @@ export function TypeableCombobox({
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (highlight < filtered.length) commit(filtered[highlight]);
+      if (highlight < visible.length) commit(visible[highlight]);
       else if (showCreate) commitCreate();
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -119,6 +128,7 @@ export function TypeableCombobox({
           role="combobox"
           aria-expanded={open}
           aria-controls={listboxId}
+          disabled={disabled}
           autoComplete="off"
           className={cn(
             "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
@@ -140,7 +150,7 @@ export function TypeableCombobox({
         />
       </div>
 
-      {open && (
+      {open && !disabled && (
         <ul
           id={listboxId}
           role="listbox"
@@ -149,7 +159,7 @@ export function TypeableCombobox({
             panelElevation,
           )}
         >
-          {filtered.map((o, i) => (
+          {visible.map((o, i) => (
             <li
               key={o.value}
               role="option"
@@ -169,17 +179,22 @@ export function TypeableCombobox({
           {showCreate && (
             <li
               role="option"
-              aria-selected={highlight === filtered.length}
+              aria-selected={highlight === visible.length}
               onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setHighlight(filtered.length)}
+              onMouseEnter={() => setHighlight(visible.length)}
               onClick={commitCreate}
               className={cn(
                 "flex cursor-pointer items-center gap-1 rounded-sm px-2 py-1.5",
-                highlight === filtered.length ? "bg-accent text-accent-foreground" : "",
+                highlight === visible.length ? "bg-accent text-accent-foreground" : "",
               )}
             >
               <span className="text-muted-foreground">+ Add</span>
               <span className="font-medium">&ldquo;{query.trim()}&rdquo;</span>
+            </li>
+          )}
+          {hiddenCount > 0 && (
+            <li className="px-2 py-1.5 text-xs text-muted-foreground">
+              {hiddenCount} more — keep typing to narrow…
             </li>
           )}
           {itemCount === 0 && (

@@ -13,6 +13,26 @@ import { panelElevation } from "@/lib/utils";
 
 export type SupplierPick = { id: string; name: string };
 
+/** A purchase's editable fields (dates as YYYY-MM-DD) — pre-fills the card in
+ *  edit mode. */
+export type EditPurchase = {
+  poId: string;
+  supplierId: string;
+  itemName: string;
+  unit: string;
+  quantity: number;
+  unitPriceUsd: number;
+  defectCount: number;
+  complaintCount: number;
+  onTimeDelivery: boolean;
+  threeWayMatchPass: boolean;
+  prDate: string;
+  poDate: string;
+  deliveryDate: string;
+  invoiceDate: string;
+  paymentDate: string;
+};
+
 const DATES = [
   ["pr", "PR date"],
   ["po", "PO date"],
@@ -28,6 +48,8 @@ export function AddPurchaseCard({
   nextId,
   suppliers,
   units,
+  supplierItems,
+  editPurchase = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,8 +59,14 @@ export function AddPurchaseCard({
   suppliers: SupplierPick[];
   /** Existing units for the creatable unit combobox. */
   units: string[];
+  /** supplierExternalId -> that supplier's distinct existing item names (scopes
+   *  the Item combobox suggestions). */
+  supplierItems: Record<string, string[]>;
+  /** When set, the card is in EDIT mode (pre-filled; PO id locked; PATCH on save). */
+  editPurchase?: EditPurchase | null;
 }) {
   const router = useRouter();
+  const isEdit = editPurchase != null;
   const supplierOptions = useMemo<ComboOption[]>(
     () => suppliers.map((s) => ({ value: s.id, label: s.name, keywords: s.id })),
     [suppliers],
@@ -63,22 +91,41 @@ export function AddPurchaseCard({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Reset the form each time the card opens (render-time transition — avoids the
-  // lint-banned set-state-in-effect).
+  // Item suggestions scoped to the currently-selected supplier's existing items.
+  const itemOptions = useMemo<ComboOption[]>(
+    () => (supplierItems[supplierId] ?? []).map((i) => ({ value: i, label: i })),
+    [supplierItems, supplierId],
+  );
+
+  // Reset/prefill the form when the card opens OR the edit target changes
+  // (render-time transition — avoids the lint-banned set-state-in-effect).
+  const editId = editPurchase?.poId ?? null;
   const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
+  const [prevEditId, setPrevEditId] = useState(editId);
+  if (open !== prevOpen || editId !== prevEditId) {
     setPrevOpen(open);
+    setPrevEditId(editId);
     if (open) {
-      setSupplierId("");
-      setItemName("");
-      setUnit("");
-      setQuantity("");
-      setUnitPrice("");
-      setDefectCount("0");
-      setComplaintCount("0");
-      setOnTime(true);
-      setThreeWay(true);
-      setDates({ pr: "", po: "", delivery: "", invoice: "", payment: "" });
+      setSupplierId(editPurchase?.supplierId ?? "");
+      setItemName(editPurchase?.itemName ?? "");
+      setUnit(editPurchase?.unit ?? "");
+      setQuantity(editPurchase ? String(editPurchase.quantity) : "");
+      setUnitPrice(editPurchase ? String(editPurchase.unitPriceUsd) : "");
+      setDefectCount(editPurchase ? String(editPurchase.defectCount) : "0");
+      setComplaintCount(editPurchase ? String(editPurchase.complaintCount) : "0");
+      setOnTime(editPurchase?.onTimeDelivery ?? true);
+      setThreeWay(editPurchase?.threeWayMatchPass ?? true);
+      setDates(
+        editPurchase
+          ? {
+              pr: editPurchase.prDate,
+              po: editPurchase.poDate,
+              delivery: editPurchase.deliveryDate,
+              invoice: editPurchase.invoiceDate,
+              payment: editPurchase.paymentDate,
+            }
+          : { pr: "", po: "", delivery: "", invoice: "", payment: "" },
+      );
       setError(null);
       setSaving(false);
     }
@@ -101,41 +148,45 @@ export function AddPurchaseCard({
 
     setSaving(true);
     try {
-      const res = await fetch("/api/purchases", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          supplier_id: supplierId,
-          item_name: itemName.trim(),
-          unit: unit.trim(),
-          quantity: qty,
-          unit_price_usd: price,
-          defect_count: defect,
-          complaint_count: complaint,
-          on_time_delivery: onTime,
-          three_way_match_pass: threeWay,
-          pr_date: dates.pr,
-          po_date: dates.po,
-          delivery_date: dates.delivery,
-          invoice_date: dates.invoice,
-          payment_date: dates.payment,
-        }),
-      });
+      const res = await fetch(
+        isEdit ? `/api/purchases/${editPurchase!.poId}` : "/api/purchases",
+        {
+          method: isEdit ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            supplier_id: supplierId,
+            item_name: itemName.trim(),
+            unit: unit.trim(),
+            quantity: qty,
+            unit_price_usd: price,
+            defect_count: defect,
+            complaint_count: complaint,
+            on_time_delivery: onTime,
+            three_way_match_pass: threeWay,
+            pr_date: dates.pr,
+            po_date: dates.po,
+            delivery_date: dates.delivery,
+            invoice_date: dates.invoice,
+            payment_date: dates.payment,
+          }),
+        },
+      );
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
         purchase?: { poId: string; totalValueUsd: number };
+        recomputeWarning?: string | null;
       };
       if (res.ok && body.purchase) {
-        toast.success(
-          `Added ${body.purchase.poId} · $${body.purchase.totalValueUsd.toLocaleString()}.`,
-        );
+        const usd = `$${body.purchase.totalValueUsd.toLocaleString("en-US")}`;
+        toast.success(`${isEdit ? "Updated" : "Added"} ${body.purchase.poId} · ${usd}.`);
+        if (body.recomputeWarning) toast.warning(body.recomputeWarning);
         onOpenChange(false);
         router.refresh();
       } else {
-        setError(body.error || "Could not create the purchase.");
+        setError(body.error || `Could not ${isEdit ? "update" : "create"} the purchase.`);
       }
     } catch {
-      setError("Could not create the purchase.");
+      setError(`Could not ${isEdit ? "update" : "create"} the purchase.`);
     } finally {
       setSaving(false);
     }
@@ -145,16 +196,18 @@ export function AddPurchaseCard({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        aria-label="Add a purchase"
+        aria-label={isEdit ? "Edit purchase" : "Add a purchase"}
         className={`flex max-h-[85vh] w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[520px] ${panelElevation}`}
       >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
             <DialogTitle className="truncate font-heading text-base font-medium leading-snug">
-              Add a purchase
+              {isEdit ? "Edit purchase" : "Add a purchase"}
             </DialogTitle>
             <p className="truncate text-xs text-muted-foreground">
-              Create a single purchase order — the ID is assigned automatically.
+              {isEdit
+                ? "Update this purchase — total & cycle days are recomputed on save."
+                : "Create a single purchase order — the ID is assigned automatically."}
             </p>
           </div>
           <Button
@@ -174,12 +227,17 @@ export function AddPurchaseCard({
             <Label htmlFor="add-po-id">PO ID</Label>
             <Input
               id="add-po-id"
-              value={nextId}
+              value={isEdit ? editPurchase!.poId : nextId}
               readOnly
               disabled
               tabIndex={-1}
               className="font-mono text-muted-foreground"
             />
+            {isEdit && (
+              <p className="text-[11px] text-muted-foreground">
+                Locked — the PO id is its identity.
+              </p>
+            )}
           </div>
 
           {/* Supplier — existing-only picker. */}
@@ -189,7 +247,12 @@ export function AddPurchaseCard({
               id="add-po-supplier"
               aria-label="Supplier"
               value={supplierId}
-              onChange={setSupplierId}
+              onChange={(v) => {
+                // Re-point: reset the item so its suggestions re-scope to the new
+                // supplier. (Prefill sets supplierId directly, so it's unaffected.)
+                setSupplierId(v);
+                setItemName("");
+              }}
               options={supplierOptions}
               placeholder="Search suppliers by name or ID"
               emptyText="No matching supplier"
@@ -202,15 +265,27 @@ export function AddPurchaseCard({
             />
           </div>
 
-          {/* Item + unit. */}
+          {/* Item — supplier-scoped, creatable. Disabled until a supplier is
+              picked; suggestions are that supplier's existing items; a new value
+              can always be typed + added. */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="add-po-item">Item name</Label>
-            <Input
+            <TypeableCombobox
               id="add-po-item"
+              aria-label="Item name"
               value={itemName}
-              onChange={(e) => setItemName(e.target.value)}
-              placeholder="e.g. Caterpillar D11T bulldozer"
-              autoComplete="off"
+              onChange={setItemName}
+              options={itemOptions}
+              creatable
+              disabled={!supplierId}
+              placeholder={
+                !supplierId
+                  ? "Pick a supplier first"
+                  : itemOptions.length > 0
+                    ? "Select or type an item"
+                    : "Type to add the first item"
+              }
+              emptyText="Type to add a new item"
             />
           </div>
 
@@ -332,7 +407,7 @@ export function AddPurchaseCard({
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving}>
-              {saving ? "Saving…" : "Save purchase"}
+              {saving ? "Saving…" : isEdit ? "Save changes" : "Save purchase"}
             </Button>
           </div>
         </footer>

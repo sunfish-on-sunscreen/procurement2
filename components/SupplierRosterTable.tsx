@@ -15,8 +15,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/CountryFlag";
+import { countryName } from "@/lib/countries";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AddSupplierCard, type EditSupplier } from "@/components/AddSupplierCard";
+import {
+  RowCheckbox,
+  usePagination,
+  PaginationFooter,
+  SelectionBar,
+  ROSTER_PAGE_SIZE,
+} from "@/components/ui/roster-table";
 import { panelElevation } from "@/lib/utils";
 
 type Row = {
@@ -50,31 +58,23 @@ export function SupplierRosterTable({
       (s) =>
         has(s.externalId, filters.id) &&
         has(s.supplierName, filters.name) &&
-        has(s.country, filters.country) &&
+        // country filter matches the name OR the code
+        (has(s.country, filters.country) || has(countryName(s.country), filters.country)) &&
         has(s.category, filters.category),
     );
   }, [suppliers, filters]);
 
-  const filteredIds = useMemo(() => filtered.map((s) => s.externalId), [filtered]);
-  const selectedInView = filteredIds.filter((id) => selected.has(id));
-  const allFilteredSelected = filteredIds.length > 0 && selectedInView.length === filteredIds.length;
-  const someFilteredSelected = selectedInView.length > 0 && !allFilteredSelected;
+  const { page, setPage, pageCount, start, pageItems } = usePagination(
+    filtered,
+    ROSTER_PAGE_SIZE,
+    JSON.stringify(filters),
+  );
 
   function toggleOne(id: string, on: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
       if (on) next.add(id);
       else next.delete(id);
-      return next;
-    });
-  }
-  function toggleAllFiltered(on: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const id of filteredIds) {
-        if (on) next.add(id);
-        else next.delete(id);
-      }
       return next;
     });
   }
@@ -126,33 +126,21 @@ export function SupplierRosterTable({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">
-          Suppliers{" "}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({filtered.length}
-            {filtered.length !== suppliers.length ? ` of ${suppliers.length}` : ""})
-          </span>
-        </h2>
-        {selectedCount > 0 && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
-            >
-              Clear
-            </button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setConfirmOpen(true)}
-            >
-              Delete selected ({selectedCount})
-            </Button>
-          </div>
-        )}
-      </div>
+      <h2 className="text-lg font-semibold">
+        Suppliers{" "}
+        <span className="text-sm font-normal text-muted-foreground">
+          ({filtered.length}
+          {filtered.length !== suppliers.length ? ` of ${suppliers.length}` : ""})
+        </span>
+      </h2>
+
+      {selectedCount > 0 && (
+        <SelectionBar
+          count={selectedCount}
+          onClear={() => setSelected(new Set())}
+          onDelete={() => setConfirmOpen(true)}
+        />
+      )}
 
       {suppliers.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -162,23 +150,12 @@ export function SupplierRosterTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-9">
-                <input
-                  type="checkbox"
-                  aria-label="Select all filtered suppliers"
-                  className="cursor-pointer"
-                  checked={allFilteredSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = someFilteredSelected;
-                  }}
-                  onChange={(e) => toggleAllFiltered(e.target.checked)}
-                />
-              </TableHead>
+              <TableHead className="w-9" />
               <TableHead>ID</TableHead>
               <TableHead>Supplier</TableHead>
               <TableHead>Country</TableHead>
               <TableHead>Category</TableHead>
-              <TableHead className="w-16 text-right">Edit</TableHead>
+              <TableHead className="w-12" />
             </TableRow>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-9" />
@@ -218,7 +195,7 @@ export function SupplierRosterTable({
                   aria-label="Filter by category"
                 />
               </TableHead>
-              <TableHead className="w-16" />
+              <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -229,7 +206,7 @@ export function SupplierRosterTable({
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((s) => {
+              pageItems.map((s) => {
                 const isSel = selected.has(s.externalId);
                 return (
                   <TableRow
@@ -237,12 +214,10 @@ export function SupplierRosterTable({
                     className={`group ${isSel ? "bg-muted/40" : ""}`}
                   >
                     <TableCell>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${s.externalId}`}
-                        className="cursor-pointer"
+                      <RowCheckbox
+                        ariaLabel={`Select ${s.externalId}`}
                         checked={isSel}
-                        onChange={(e) => toggleOne(s.externalId, e.target.checked)}
+                        onChange={(on) => toggleOne(s.externalId, on)}
                       />
                     </TableCell>
                     <TableCell className="font-mono text-muted-foreground">
@@ -250,7 +225,17 @@ export function SupplierRosterTable({
                     </TableCell>
                     <TableCell className="font-medium">{s.supplierName}</TableCell>
                     <TableCell>
-                      {s.country}
+                      {(() => {
+                        const name = countryName(s.country);
+                        return name && name !== s.country ? (
+                          <>
+                            {name}
+                            <span className="text-muted-foreground"> · {s.country}</span>
+                          </>
+                        ) : (
+                          s.country
+                        );
+                      })()}
                       <CountryFlag code={s.country} />
                     </TableCell>
                     <TableCell>{s.category}</TableCell>
@@ -258,11 +243,11 @@ export function SupplierRosterTable({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                         aria-label={`Edit ${s.externalId}`}
                         onClick={() => openEdit(s)}
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="size-[15px]" />
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -271,6 +256,17 @@ export function SupplierRosterTable({
             )}
           </TableBody>
         </Table>
+      )}
+
+      {suppliers.length > 0 && (
+        <PaginationFooter
+          page={page}
+          pageCount={pageCount}
+          start={start}
+          pageSize={ROSTER_PAGE_SIZE}
+          total={filtered.length}
+          setPage={setPage}
+        />
       )}
 
       {/* Edit card (reuses AddSupplierCard in edit mode). */}

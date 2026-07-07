@@ -5,16 +5,11 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import {
   CreatePurchaseBody,
   nextPoId,
+  parsePurchaseDates,
   toPurchaseCreateData,
 } from "@/lib/purchase-import";
 
 export const runtime = "nodejs";
-
-/** Parse a YYYY-MM-DD body date as UTC midnight (matches the import's date
- *  handling, so day-differences are clean whole numbers). */
-function parseDate(s: string): Date {
-  return new Date(`${s}T00:00:00.000Z`);
-}
 
 /**
  * Create ONE purchase (admin only). Mirrors the add-supplier single-create:
@@ -62,28 +57,12 @@ export async function POST(request: Request) {
     );
   }
 
-  // Parse + validate the 5 dates (format is guaranteed by zod; check validity +
-  // ordering so a manual add can never produce a negative cycle-day).
-  const prDate = parseDate(data.pr_date);
-  const poDate = parseDate(data.po_date);
-  const deliveryDate = parseDate(data.delivery_date);
-  const invoiceDate = parseDate(data.invoice_date);
-  const paymentDate = parseDate(data.payment_date);
-  const dates = [prDate, poDate, deliveryDate, invoiceDate, paymentDate];
-  if (dates.some((d) => Number.isNaN(d.getTime()))) {
-    return NextResponse.json({ error: "One or more dates are invalid." }, { status: 400 });
+  // Parse + validate the 5 dates (shared with edit — validity + ordering).
+  const parsedDates = parsePurchaseDates(data);
+  if (!parsedDates.ok) {
+    return NextResponse.json({ error: parsedDates.error }, { status: 400 });
   }
-  for (let k = 1; k < dates.length; k++) {
-    if (dates[k].getTime() < dates[k - 1].getTime()) {
-      return NextResponse.json(
-        {
-          error:
-            "Dates must be in order: PR ≤ PO ≤ Delivery ≤ Invoice ≤ Payment.",
-        },
-        { status: 400 },
-      );
-    }
-  }
+  const { prDate, poDate, deliveryDate, invoiceDate, paymentDate } = parsedDates;
 
   // Tag to the PAYMENT-year period (same rule as the bulk import); create the
   // period if this is the first activity in that year.
