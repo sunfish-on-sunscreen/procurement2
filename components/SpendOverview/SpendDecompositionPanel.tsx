@@ -59,8 +59,8 @@ function SpendByItemChart({ detail }: { detail: SpendDetail }) {
   const top = detail.byItem.slice(0, 15);
   const rest = detail.byItem.slice(15);
   const data: ItemDatum[] = top.map((it) => ({
-    name: truncate(it.itemDescription, 22),
-    full: it.itemDescription,
+    name: truncate(it.itemName, 22),
+    full: it.itemName,
     value: it.totalSpend,
     count: it.poCount,
     avg: it.poCount > 0 ? it.totalSpend / it.poCount : 0,
@@ -109,7 +109,7 @@ function PoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ pa
 
 function PosTimeChart({ detail }: { detail: SpendDetail }) {
   const data: PoDatum[] = [...detail.pos]
-    .map((p) => ({ date: p.paymentDate ?? p.prDate ?? "—", value: p.totalValueUsd, poId: p.poId, item: p.itemDescription }))
+    .map((p) => ({ date: p.paymentDate ?? p.prDate ?? "—", value: p.totalValueUsd, poId: p.poId, item: p.itemName }))
     .sort((a, b) => a.date.localeCompare(b.date));
   const dateRange =
     data.length > 0 ? `${data[0].date} to ${data[data.length - 1].date}` : "—";
@@ -143,9 +143,9 @@ function ItemTable({ detail }: { detail: SpendDetail }) {
       </thead>
       <tbody>
         {detail.byItem.map((it) => (
-          <tr key={it.itemDescription} className="border-b">
+          <tr key={it.itemName} className="border-b">
             <td className="py-1.5 text-right text-muted-foreground">{it.poCount}</td>
-            <td className="py-1.5">{it.itemDescription}</td>
+            <td className="py-1.5">{it.itemName}</td>
             <td className="py-1.5 text-right">{usd0.format(it.totalSpend)}</td>
           </tr>
         ))}
@@ -172,7 +172,7 @@ function PosTable({ detail }: { detail: SpendDetail }) {
         {rows.map((p) => (
           <tr key={p.poId} className="border-b">
             <td className="py-1.5 font-medium">{p.poId}</td>
-            <td className="py-1.5">{p.itemDescription}</td>
+            <td className="py-1.5">{p.itemName}</td>
             <td className="py-1.5 text-muted-foreground">{p.paymentDate ?? p.prDate ?? "—"}</td>
             <td className="py-1.5 text-right">{usd0.format(p.totalValueUsd)}</td>
           </tr>
@@ -195,13 +195,13 @@ function EvolutionTab({ data }: { data: SupplierEvolution }) {
   const totalByItem = new Map<string, number>();
   for (const p of data.periods)
     for (const it of p.topItems)
-      totalByItem.set(it.itemDescription, (totalByItem.get(it.itemDescription) ?? 0) + it.spend);
+      totalByItem.set(it.itemName, (totalByItem.get(it.itemName) ?? 0) + it.spend);
   const topItemNames = [...totalByItem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n]) => n);
   const mix = data.periods.map((p) => {
     const row: Record<string, number | string> = { year: p.year };
     let shown = 0;
     for (const name of topItemNames) {
-      const v = p.topItems.find((it) => it.itemDescription === name)?.spend ?? 0;
+      const v = p.topItems.find((it) => it.itemName === name)?.spend ?? 0;
       row[name] = v;
       shown += v;
     }

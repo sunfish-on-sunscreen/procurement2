@@ -97,14 +97,15 @@ export type ComputedMetricRow = {
 };
 
 /**
- * Compute-from-raw (Stage 3): spawn python/import_compute.py, pipe the raw
- * Suppliers/Purchases/SupplierMetrics rows in as JSON on stdin, and read the
- * computed per-period SupplierMetric rows back as JSON on stdout. Returns
+ * Compute-from-raw: spawn python/import_compute.py, pipe the raw Suppliers +
+ * Purchases rows in as JSON on stdin, and read the computed per-period
+ * SupplierMetric rows back as JSON on stdout. Supplier identity is sourced from
+ * the Suppliers rows (the separate SupplierMetrics sheet was dropped). Returns
  * `rows: null` with a non-zero `code` on any failure (Python error, timeout, or
  * unparseable output) so the caller can abort the import BEFORE any DB write.
  */
 export function runImportCompute(
-  payload: { suppliers: unknown[]; purchases: unknown[]; metrics: unknown[] },
+  payload: { suppliers: unknown[]; purchases: unknown[] },
   timeoutMs = 60000,
 ): Promise<{ code: number; rows: ComputedMetricRow[] | null; stderr: string }> {
   return new Promise((resolve) => {

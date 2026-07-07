@@ -16,18 +16,20 @@ import {
 
 export function ImportForm() {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
+  const [suppliersFile, setSuppliersFile] = useState<File | null>(null);
+  const [purchasesFile, setPurchasesFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!file) return;
+    if (!suppliersFile || !purchasesFile) return;
 
     setIsUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("suppliers", suppliersFile);
+      formData.append("purchases", purchasesFile);
 
       const res = await fetch("/api/imports/upload", {
         method: "POST",
@@ -35,6 +37,7 @@ export function ImportForm() {
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
+        suppliers?: number;
         purchases?: number;
         periodsCreated?: string[];
       };
@@ -42,9 +45,10 @@ export function ImportForm() {
       if (res.ok) {
         const periods = (data.periodsCreated ?? []).join(", ");
         toast.success(
-          `Imported ${data.purchases} purchases across periods: ${periods || "—"}`,
+          `Imported ${data.suppliers} suppliers and ${data.purchases} purchases across periods: ${periods || "—"}`,
         );
-        setFile(null);
+        setSuppliersFile(null);
+        setPurchasesFile(null);
         setFileInputKey((key) => key + 1);
         router.refresh();
       } else {
@@ -62,40 +66,63 @@ export function ImportForm() {
       <CardHeader>
         <CardTitle>Import data</CardTitle>
         <CardDescription>
-          Upload procurement data. Periods are detected automatically from the
-          data.
+          Upload two Excel files — a Suppliers file and a Purchases file. Periods
+          are detected automatically from the purchase dates.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="file">Excel file (.xlsx)</Label>
+            <Label htmlFor="suppliers">Suppliers file (.xlsx)</Label>
             <Input
-              key={fileInputKey}
-              id="file"
+              key={`suppliers-${fileInputKey}`}
+              id="suppliers"
               type="file"
               accept=".xlsx"
               className="cursor-pointer"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              onChange={(event) => setSuppliersFile(event.target.files?.[0] ?? null)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="purchases">Purchases file (.xlsx)</Label>
+            <Input
+              key={`purchases-${fileInputKey}`}
+              id="purchases"
+              type="file"
+              accept=".xlsx"
+              className="cursor-pointer"
+              onChange={(event) => setPurchasesFile(event.target.files?.[0] ?? null)}
             />
           </div>
 
           <p className="text-sm text-muted-foreground">
-            Upload an Excel file with 3 sheets (Suppliers, Purchases,
-            SupplierMetrics). The system will auto-detect years from the data and
-            create periods accordingly.
+            Each purchase must reference a supplier_id present in the Suppliers
+            file (or already imported). Rows with a blank id are assigned the next
+            id automatically. The system auto-detects years from the purchase
+            dates and creates periods accordingly.
           </p>
 
           <div className="flex items-center gap-4">
-            <Button type="submit" disabled={!file || isUploading}>
+            <Button
+              type="submit"
+              disabled={!suppliersFile || !purchasesFile || isUploading}
+            >
               {isUploading ? "Uploading..." : "Upload"}
             </Button>
             <a
-              href="/api/sample-data"
+              href="/api/sample-data?file=suppliers"
               download
               className="text-sm text-primary underline-offset-4 hover:underline"
             >
-              Download sample data
+              Sample suppliers
+            </a>
+            <a
+              href="/api/sample-data?file=purchases"
+              download
+              className="text-sm text-primary underline-offset-4 hover:underline"
+            >
+              Sample purchases
             </a>
           </div>
         </form>

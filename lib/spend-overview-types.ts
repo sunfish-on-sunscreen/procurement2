@@ -59,10 +59,10 @@ export type SpendDetail = {
     percentOfTotal: number | null;
     activeSupplierCount: number;
   };
-  byItem: { itemDescription: string; poCount: number; totalSpend: number }[];
+  byItem: { itemName: string; poCount: number; totalSpend: number }[];
   pos: {
     poId: string;
-    itemDescription: string;
+    itemName: string;
     prDate: string | null;
     invoiceDate: string | null;
     paymentDate: string | null;
@@ -92,7 +92,7 @@ export type SupplierEvolution = {
       process: number;
       risk: number;
     } | null;
-    topItems: { itemDescription: string; spend: number; count: number }[];
+    topItems: { itemName: string; spend: number; count: number }[];
   }[];
   insights: string[];
 };

@@ -742,13 +742,13 @@ def _cost_premium_points(purchases):
     """
     if purchases is None or len(purchases) == 0:
         return {}
-    p = purchases[["supplierExternalId", "itemDescription", "unitPriceUsd", "quantity"]].copy()
+    p = purchases[["supplierExternalId", "itemName", "unitPriceUsd", "quantity"]].copy()
     p["spend"] = p["unitPriceUsd"].astype(float) * p["quantity"].astype(float)
     p["qty"] = p["quantity"].astype(float)
 
     # supplier x item: total spend, qty, PO count, spend-weighted avg unit price.
     g = (
-        p.groupby(["itemDescription", "supplierExternalId"])
+        p.groupby(["itemName", "supplierExternalId"])
         .agg(spend=("spend", "sum"), qty=("qty", "sum"), po=("unitPriceUsd", "size"))
         .reset_index()
     )
@@ -757,13 +757,13 @@ def _cost_premium_points(purchases):
 
     # item benchmark: spend-weighted avg unit price across all suppliers of the item.
     item = (
-        g.groupby("itemDescription")
+        g.groupby("itemName")
         .agg(item_spend=("spend", "sum"), item_qty=("qty", "sum"), n_sup=("supplierExternalId", "nunique"))
         .reset_index()
     )
     item = item[item["item_qty"] > 0].copy()
     item["item_avg"] = item["item_spend"] / item["item_qty"]
-    g = g.merge(item[["itemDescription", "item_avg", "n_sup"]], on="itemDescription", how="inner")
+    g = g.merge(item[["itemName", "item_avg", "n_sup"]], on="itemName", how="inner")
 
     g["premium"] = g["avg_price"] / g["item_avg"] - 1.0
     # qualifying rows: supplier has >=2 POs of the item AND the item is benchmarkable.

@@ -38,7 +38,7 @@ export async function GET(
     prisma.purchase.findMany({
       where: { supplierExternalId: id },
       select: {
-        itemDescription: true,
+        itemName: true,
         totalValueUsd: true,
         paymentDate: true,
         prDate: true,
@@ -99,13 +99,13 @@ export async function GET(
       const itemMap = new Map<string, { spend: number; count: number }>();
       for (const pu of inPeriod) {
         spend += pu.totalValueUsd;
-        const cur = itemMap.get(pu.itemDescription) ?? { spend: 0, count: 0 };
+        const cur = itemMap.get(pu.itemName) ?? { spend: 0, count: 0 };
         cur.spend += pu.totalValueUsd;
         cur.count += 1;
-        itemMap.set(pu.itemDescription, cur);
+        itemMap.set(pu.itemName, cur);
       }
       const topItems = [...itemMap.entries()]
-        .map(([itemDescription, v]) => ({ itemDescription, ...v }))
+        .map(([itemName, v]) => ({ itemName, ...v }))
         .sort((a, b) => b.spend - a.spend)
         .slice(0, 5);
 

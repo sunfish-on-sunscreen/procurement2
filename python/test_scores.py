@@ -33,7 +33,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scores  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RAW_XLSX = os.path.join(HERE, "..", "data", "raw", "procurement_data_raw.xlsx")
+# The two separated raw input files (the canonical upload format). Supplier
+# identity comes from the Suppliers file; the SupplierMetrics sheet was dropped.
+DATA_RAW = os.path.join(HERE, "..", "data", "raw")
+SUPPLIERS_XLSX = os.path.join(DATA_RAW, "procurement_suppliers.xlsx")
+PURCHASES_XLSX = os.path.join(DATA_RAW, "procurement_purchases.xlsx")
+
+
+def _load_raw():
+    """Load the two separated raw input files into (suppliers, purchases) frames.
+    `suppliers` is BOTH the roster source and the supplier-identity source that
+    build_period_metrics carries constant across periods."""
+    sup = pd.read_excel(SUPPLIERS_XLSX, sheet_name="Suppliers")
+    pur = pd.read_excel(PURCHASES_XLSX, sheet_name="Purchases")
+    return sup, pur
+
+
 DEFAULT_BASELINE = os.path.join(
     r"C:\Users\indra\AppData\Local\Temp\claude",
     "C--Users-indra-Downloads-procurement-analytics-app",
@@ -117,10 +132,9 @@ def test_window_matches_period():
     aggregates, soft, identity, and all 6 scores — for every supplier. Locks zero
     formula drift between the generalized window engine (any filter) and the
     per-period engine, so Stage 2 can compute a live composite for any window."""
-    sh = pd.read_excel(RAW_XLSX, sheet_name=None)
-    soft, pur, sup = sh["SupplierMetrics"], sh["Purchases"], sh["Suppliers"]
+    sup, pur = _load_raw()
     roster = scores.roster_category_counts(sup)
-    bpm = scores.compute_scores(scores.build_period_metrics(soft, pur), roster)
+    bpm = scores.compute_scores(scores.build_period_metrics(sup, pur), roster)
     # Slice each year's POs by the SAME payment-year (pr fallback) rule that
     # build_period_metrics buckets on.
     pyear = (
@@ -129,7 +143,7 @@ def test_window_matches_period():
         .dt.year
     )
     for year in sorted(int(y) for y in bpm["period"].unique()):
-        bwm = scores.build_window_metrics(soft, pur[pyear == year], roster)
+        bwm = scores.build_window_metrics(sup, pur[pyear == year], roster)
         cols = list(bwm.columns)  # window output carries no 'period' column
         assert "period" not in cols
         a = bwm.sort_values("supplier_id").reset_index(drop=True)[cols]
@@ -146,9 +160,9 @@ def test_window_matches_period():
 # Layer 2 — baseline reproduction
 # --------------------------------------------------------------------------- #
 def recompute_from_raw() -> pd.DataFrame:
-    sh = pd.read_excel(RAW_XLSX, sheet_name=None)
-    m = scores.build_period_metrics(sh["SupplierMetrics"], sh["Purchases"])
-    roster = scores.roster_category_counts(sh["Suppliers"])
+    sup, pur = _load_raw()
+    m = scores.build_period_metrics(sup, pur)
+    roster = scores.roster_category_counts(sup)
     m = scores.compute_scores(m, roster)
     m["period"] = m["period"].astype(int)
     return m

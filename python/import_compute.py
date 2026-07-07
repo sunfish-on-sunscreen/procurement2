@@ -36,22 +36,27 @@ METRIC_COLS = (
 
 def compute_supplier_metrics(
     suppliers: pd.DataFrame,
-    metrics: pd.DataFrame,
     purchases: pd.DataFrame,
 ) -> pd.DataFrame:
     """Full per-period SupplierMetric rows from RAW inputs.
 
-    `suppliers` — the Suppliers master (drives the roster concentration count).
-    `metrics`   — the RAW SupplierMetrics soft-survey rows (one per supplier:
-                  identity + defect/complaints/rfx/response/single-source).
+    `suppliers` — the Suppliers master. It drives the roster concentration count
+                  AND is the single source of supplier identity (supplier_id,
+                  supplier_name, country, category) that build_period_metrics
+                  carries constant across each supplier's periods. (The old
+                  separate raw SupplierMetrics sheet was an identity-only
+                  duplicate of Suppliers and has been dropped — there are no
+                  soft-survey columns any more.)
     `purchases` — the Purchases rows (drive per-period operational aggregates +
-                  the payment-year bucketing).
+                  the payment-year bucketing, incl. the per-PO defect/complaint
+                  counts that quality is aggregated from).
 
-    Returns one row per ACTIVE supplier-period with all 6 scores computed. The
-    `period` column is the integer payment-year; Stage 3 maps it to a periodId.
+    Returns one row per ACTIVE supplier-period with all scores computed. The
+    `period` column is the integer payment-year; the import route maps it to a
+    periodId.
     """
     roster = scores.roster_category_counts(suppliers)
-    m = scores.build_period_metrics(metrics, purchases)
+    m = scores.build_period_metrics(suppliers, purchases)
     m = scores.compute_scores(m, roster)
     return m[METRIC_COLS].reset_index(drop=True)
 
@@ -69,20 +74,20 @@ def _json_default(o):
 
 
 if __name__ == "__main__":
-    # CLI bridge for the import route (Stage 3): read {suppliers, purchases,
-    # metrics} as JSON on stdin, emit the computed per-period rows as JSON on
-    # stdout. Any failure -> stderr + non-zero exit so the route aborts before
-    # writing anything. allow_nan=False turns a stray NaN into a hard failure
-    # rather than a silent bad write.
+    # CLI bridge for the import route: read {suppliers, purchases} as JSON on
+    # stdin, emit the computed per-period rows as JSON on stdout. Any failure ->
+    # stderr + non-zero exit so the route aborts before writing anything.
+    # allow_nan=False turns a stray NaN into a hard failure rather than a silent
+    # bad write. (The old `metrics` payload — the identity-only SupplierMetrics
+    # sheet — was dropped; identity now comes from `suppliers`.)
     import json
     import traceback
 
     try:
         payload = json.load(sys.stdin)
         suppliers = pd.DataFrame(payload.get("suppliers", []))
-        metrics = pd.DataFrame(payload.get("metrics", []))
         purchases = pd.DataFrame(payload.get("purchases", []))
-        rows = compute_supplier_metrics(suppliers, metrics, purchases)
+        rows = compute_supplier_metrics(suppliers, purchases)
         json.dump(rows.to_dict(orient="records"), sys.stdout,
                   allow_nan=False, default=_json_default)
     except Exception as exc:  # noqa: BLE001

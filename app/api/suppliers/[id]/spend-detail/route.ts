@@ -113,7 +113,7 @@ export async function GET(
     select: {
       poId: true,
       supplierName: true,
-      itemDescription: true,
+      itemName: true,
       unit: true,
       quantity: true,
       unitPriceUsd: true,
@@ -173,20 +173,20 @@ export async function GET(
     const d = p.invoiceDate ?? p.prDate;
     if (d && (!earliest || d < earliest)) earliest = d;
     if (d && (!latest || d > latest)) latest = d;
-    const cur = byItemMap.get(p.itemDescription) ?? { poCount: 0, totalSpend: 0 };
+    const cur = byItemMap.get(p.itemName) ?? { poCount: 0, totalSpend: 0 };
     cur.poCount += 1;
     cur.totalSpend += p.totalValueUsd;
-    byItemMap.set(p.itemDescription, cur);
+    byItemMap.set(p.itemName, cur);
   }
 
   const byItem = [...byItemMap.entries()]
-    .map(([itemDescription, v]) => ({ itemDescription, ...v }))
+    .map(([itemName, v]) => ({ itemName, ...v }))
     .sort((a, b) => b.totalSpend - a.totalSpend);
 
   const pos = purchases
     .map((p) => ({
       poId: p.poId,
-      itemDescription: p.itemDescription,
+      itemName: p.itemName,
       prDate: iso(p.prDate),
       invoiceDate: iso(p.invoiceDate),
       paymentDate: iso(p.paymentDate),

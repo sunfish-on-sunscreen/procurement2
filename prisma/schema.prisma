@@ -78,7 +78,7 @@ model Purchase {
   supplierExternalId    String
   supplierName          String
   category              String
-  itemDescription       String
+  itemName              String
   unit                  String
   quantity              Float
   unitPriceUsd          Float

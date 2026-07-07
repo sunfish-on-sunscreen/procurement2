@@ -34,12 +34,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import scores            # noqa: E402
 import import_compute    # noqa: E402
-from test_scores import _load_baseline, RAW_XLSX, PERIOD_INDEP  # noqa: E402
+from test_scores import _load_baseline, _load_raw, PERIOD_INDEP  # noqa: E402
 
 
 def _recompute():
-    sh = pd.read_excel(RAW_XLSX, sheet_name=None)
-    rec = import_compute.compute_supplier_metrics(sh["Suppliers"], sh["SupplierMetrics"], sh["Purchases"])
+    sup, pur = _load_raw()
+    rec = import_compute.compute_supplier_metrics(sup, pur)
     rec["period"] = rec["period"].astype(int)
     return rec
 
@@ -55,12 +55,12 @@ def test_shape_and_columns():
 
 def test_wrapper_matches_engine():
     # The wrapper must be a pure pass-through over scores.py (no altered values).
-    sh = pd.read_excel(RAW_XLSX, sheet_name=None)
+    sup, pur = _load_raw()
     direct = scores.compute_scores(
-        scores.build_period_metrics(sh["SupplierMetrics"], sh["Purchases"]),
-        scores.roster_category_counts(sh["Suppliers"]),
+        scores.build_period_metrics(sup, pur),
+        scores.roster_category_counts(sup),
     )
-    wrap = import_compute.compute_supplier_metrics(sh["Suppliers"], sh["SupplierMetrics"], sh["Purchases"])
+    wrap = import_compute.compute_supplier_metrics(sup, pur)
     for c in scores.SCORE_COLS:
         a = direct.sort_values(["supplier_id", "period"])[c].round(2).reset_index(drop=True)
         b = wrap.sort_values(["supplier_id", "period"])[c].round(2).reset_index(drop=True)
