@@ -357,7 +357,7 @@ function GroupInsightsPanel({
               href="/action-dashboard"
               className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
             >
-              View &amp; treat these in Action Dashboard <ArrowRight className="h-3.5 w-3.5" />
+              View &amp; treat these in Action Priorities <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </>

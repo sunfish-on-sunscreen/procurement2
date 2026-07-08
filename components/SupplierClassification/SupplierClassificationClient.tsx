@@ -20,16 +20,19 @@ export function SupplierClassificationClient({
   endDate,
   periodLabel,
   isRangeMode,
+  initialSupplierId = null,
 }: {
   startDate: string;
   endDate: string;
   periodLabel: string;
   isRangeMode: boolean;
+  /** Deep-link target (?supplier=): opens that supplier's detail panel on load. */
+  initialSupplierId?: string | null;
 }) {
   const spanKey = `${startDate}_${endDate}`;
   const [loaded, setLoaded] = useState<{ key: string; data: ClassificationPageData } | null>(null);
   const [errored, setErrored] = useState<{ key: string; msg: string } | null>(null);
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(initialSupplierId);
   const [activeSynthesis, setActiveSynthesis] = useState<SynthesisKey | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 

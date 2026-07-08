@@ -14,8 +14,14 @@ function toIsoDate(d: Date): string {
  * Overview), then a client wrapper fetches the combined data and owns the
  * interactive synthesis filter + drill-down panel.
  */
-export default async function SupplierClassificationPage() {
+export default async function SupplierClassificationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ supplier?: string }>;
+}) {
   await requireAuth();
+  const sp = await searchParams;
+  const initialSupplierId = typeof sp.supplier === "string" ? sp.supplier : null;
   const selection = await getCurrentPeriodSelection();
   const source = await resolveAnalysisSource(selection);
 
@@ -75,6 +81,7 @@ export default async function SupplierClassificationPage() {
         endDate={endDate}
         periodLabel={label}
         isRangeMode={source.kind === "range"}
+        initialSupplierId={initialSupplierId}
       />
     </div>
   );

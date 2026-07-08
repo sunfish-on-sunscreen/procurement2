@@ -99,6 +99,13 @@
   /* StatBlock accent helpers (theme has --destructive already). */
   --warning: #f59e0b;
   --success: #84cc16;
+  /* Action Priorities category colours (one per bucket). concentrate is a violet
+     distinct from the zone/quadrant families. Light values ≈ *-500. */
+  --priority-engage: #ef4444;
+  --priority-mitigate: #f59e0b;
+  --priority-promote: #10b981;
+  --priority-improve: #3b82f6;
+  --priority-concentrate: #8b5cf6;
   /* Category palette — deliberately a separate family from --abc-* / --quadrant-*
      (no pure red/amber/lime/green), so the Spend-by-Category donut never collides
      with ABC class or Kraljic quadrant colours. Blues/violets/cyans/magentas. */
@@ -163,6 +170,12 @@
   --zone-long-tail: #cbd5e1;
   --warning: #fbbf24;
   --success: #a3e635;
+  /* Action Priorities — dark values ≈ *-400 (brighter). */
+  --priority-engage: #f87171;
+  --priority-mitigate: #fbbf24;
+  --priority-promote: #34d399;
+  --priority-improve: #60a5fa;
+  --priority-concentrate: #a78bfa;
   --category-1: #60a5fa;
   --category-2: #a78bfa;
   --category-3: #22d3ee;

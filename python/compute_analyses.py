@@ -977,6 +977,13 @@ def kraljic_analysis(purchases, suppliers, metrics):
 #    normalized to [0, 100] so the global ranking is comparable across the 5
 #    categories, while each remains proportional to its category's key metric.
 # --------------------------------------------------------------------------- #
+# Concentration (resilience) thresholds — a category or supplier whose share of
+# total spend exceeds these is surfaced as a structural-exposure item. Named so
+# they're easy to defend/tune.
+CATEGORY_CONC_THRESHOLD = 0.30  # a spend category > 30% of total
+SUPPLIER_CONC_THRESHOLD = 0.10  # a single supplier > 10% of total
+
+
 def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     from datetime import datetime, timezone
 
@@ -1055,11 +1062,12 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         key=lambda s: total_spend_map[s],
         reverse=True,
     )[:5]
-    for s in crit:
+    for i, s in enumerate(crit):
         gap = max(0.0, perf_med - perf_of(s))
         recs.append({
             "type": "critical_issues_engagement",
             "action": "engage",
+            "priority_rank": i + 1,
             "supplier_id": s,
             "supplier_name": name_of(s),
             "reasoning": (
@@ -1081,11 +1089,12 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         reverse=True,
     )[:5]
     denom = (100.0 - perf_med) or 1.0
-    for s in gems:
+    for i, s in enumerate(gems):
         surplus = max(0.0, perf_of(s) - perf_med)
         recs.append({
             "type": "hidden_gems_promotion",
             "action": "promote",
+            "priority_rank": i + 1,
             "supplier_id": s,
             "supplier_name": name_of(s),
             "reasoning": (
@@ -1104,11 +1113,12 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         key=lambda s: risk_map.get(s, 0.0),
         reverse=True,
     )[:5]
-    for s in bottleneck:
+    for i, s in enumerate(bottleneck):
         ctry = country_of(s)
         recs.append({
             "type": "bottleneck_risk",
             "action": "mitigate",
+            "priority_rank": i + 1,
             "supplier_id": s,
             "supplier_name": name_of(s),
             "reasoning": (
@@ -1167,7 +1177,56 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
                 ),
                 "impact_score": num(min(100.0, v.mean() / 18.0 * 100.0)),
             })
-    recs.extend(proc[:3])
+    proc.sort(key=lambda r: r["impact_score"] if r["impact_score"] is not None else 0.0, reverse=True)
+    proc = proc[:3]
+    for i, r in enumerate(proc):
+        r["priority_rank"] = i + 1
+    recs.extend(proc)
+
+    # CATEGORY 5: concentration (resilience exposure — distinct from performance).
+    # Category-level (share > 30%) + supplier-level (share > 10%), ranked by share.
+    # Framing is a light "worth a look" nudge; the raw % lives on the card chip +
+    # the Classification page, so the reasoning does NOT restate it.
+    total_spend = float(spend_raw.sum())
+    conc_items = []
+    if total_spend > 0:
+        cat_spend = purchases.groupby("category")["totalValueUsd"].sum()
+        for cat, csp in cat_spend.items():
+            share = float(csp) / total_spend
+            if share > CATEGORY_CONC_THRESHOLD:
+                conc_items.append({
+                    "type": "concentration", "action": "diversify",
+                    "concentration_kind": "category", "category": str(cat),
+                    "share_pct": num(share * 100.0), "total_spend_usd": num(float(csp)),
+                    "reasoning": (
+                        f"Spend is heavily concentrated in {cat}. A disruption here would "
+                        f"hit hard with limited fallback — worth a category-diversification "
+                        f"or second-source review."
+                    ),
+                    "impact_score": num(min(100.0, share * 100.0)),
+                    "_share": share,
+                })
+        for s, ssp in spend_raw.items():
+            share = float(ssp) / total_spend
+            if share > SUPPLIER_CONC_THRESHOLD:
+                conc_items.append({
+                    "type": "concentration", "action": "diversify",
+                    "concentration_kind": "supplier", "supplier_id": s,
+                    "supplier_name": name_of(s),
+                    "share_pct": num(share * 100.0), "total_spend_usd": num(float(ssp)),
+                    "reasoning": (
+                        f"A large share of total spend rides on {name_of(s)} alone. Heavy "
+                        f"single-supplier reliance — a qualified second source would cut the "
+                        f"exposure if they falter."
+                    ),
+                    "impact_score": num(min(100.0, share * 100.0)),
+                    "_share": share,
+                })
+        conc_items.sort(key=lambda r: r["_share"], reverse=True)
+        for i, r in enumerate(conc_items):
+            r["priority_rank"] = i + 1
+            del r["_share"]
+        recs.extend(conc_items)
 
     recs.sort(key=lambda r: r["impact_score"] if r["impact_score"] is not None else 0.0, reverse=True)
 
@@ -1176,9 +1235,30 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         "hidden_gems_promotion": 0,
         "bottleneck_risk": 0,
         "process_improvement": 0,
+        "concentration": 0,
     }
     for r in recs:
         by_category[r["type"]] = by_category.get(r["type"], 0) + 1
+
+    # SYNTHESIS narrative (fixed-structure, real numbers) for the page's headline.
+    n_suppliers = int(purchases["supplierExternalId"].nunique())
+    top10 = set(spend_raw.sort_values(ascending=False).head(10).index)
+    attention = {
+        r.get("supplier_id")
+        for r in recs
+        if r.get("supplier_id")
+        and (
+            r["type"] in ("critical_issues_engagement", "bottleneck_risk")
+            or (r["type"] == "concentration" and r.get("concentration_kind") == "supplier")
+        )
+    }
+    top10_in_attention = len(top10 & attention)
+    if total_spend > 0 and len(purchases):
+        cat_spend2 = purchases.groupby("category")["totalValueUsd"].sum()
+        top_cat = str(cat_spend2.idxmax())
+        top_cat_share = float(cat_spend2.max()) / total_spend * 100.0
+    else:
+        top_cat, top_cat_share = "", 0.0
 
     return {
         "period_label": period_label,
@@ -1188,6 +1268,13 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             "total_recommendations": len(recs),
             "by_category": by_category,
             "highest_impact": recs[0] if recs else None,
+            "narrative": {
+                "n_suppliers": n_suppliers,
+                "total_spend": num(total_spend),
+                "top10_in_attention": top10_in_attention,
+                "top_category_name": top_cat,
+                "top_category_share_pct": num(top_cat_share),
+            },
         },
     }
 

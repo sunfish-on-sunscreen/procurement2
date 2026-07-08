@@ -24,11 +24,7 @@ export default async function ActionDashboardPage() {
       source.periodId,
       "recommendations",
     );
-    body = data ? (
-      <ActionDashboardView data={data} period={label} />
-    ) : (
-      <EmptyState />
-    );
+    body = data ? <ActionDashboardView data={data} /> : <EmptyState />;
   } else {
     label = source.periodLabel;
     body = (
@@ -37,16 +33,21 @@ export default async function ActionDashboardPage() {
         kind="recommendations"
         startDate={source.startDate}
         endDate={source.endDate}
-        period={label}
       />
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">
-        Action Dashboard{label ? ` — ${label}` : ""}
-      </h1>
+      <div>
+        <h1 className="text-2xl font-semibold">
+          Action Priorities{label ? ` — ${label}` : ""}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Where to look first{label ? ` — ${label}` : ""} · grounded in the Spend,
+          Classification, and Process analyses.
+        </p>
+      </div>
       {body}
     </div>
   );

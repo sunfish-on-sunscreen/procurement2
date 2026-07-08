@@ -74,7 +74,7 @@ export const REPORT_PILLS: ReportPill[] = [
   {
     id: "action-plan",
     label: "Action plan focus",
-    description: "Executive + Action Dashboard + Methodology",
+    description: "Executive + Action Priorities + Methodology",
     sections: {
       spendOverview: false,
       abc: false,

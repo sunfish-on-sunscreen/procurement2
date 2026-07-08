@@ -233,20 +233,25 @@ export type RecommendationCategory =
   | "critical_issues_engagement"
   | "hidden_gems_promotion"
   | "bottleneck_risk"
-  | "process_improvement";
+  | "process_improvement"
+  | "concentration";
 
 export type RecommendationAction =
   | "promote"
   | "engage"
   | "mitigate"
-  | "improve";
+  | "improve"
+  | "diversify";
 
 // A `type` alias (not `interface`) so it satisfies Prisma's JSON index-signature
 // when persisted in ExecutiveSummary.metricsJson.
 export type Recommendation = {
   type: RecommendationCategory;
   action: RecommendationAction;
-  supplier_id?: string; // absent for process_improvement
+  // 1-based rank WITHIN this recommendation's category (presentation: "Priority N
+  // of M"). The cross-category `impact_score` is retained for reports + ranking.
+  priority_rank?: number;
+  supplier_id?: string; // absent for process_improvement + category-level concentration
   supplier_name?: string;
   reasoning: string;
   impact_score: number;
@@ -257,6 +262,19 @@ export type Recommendation = {
   supply_risk_score?: number;
   country?: string;
   scope?: string; // for process_improvement
+  // Concentration-specific:
+  concentration_kind?: "category" | "supplier";
+  category?: string; // spend category for a category-level concentration item
+  share_pct?: number; // share of total spend
+};
+
+/** Fixed-structure synthesis numbers for the page headline (both compute modes). */
+export type RecommendationsNarrative = {
+  n_suppliers: number;
+  total_spend: number;
+  top10_in_attention: number;
+  top_category_name: string;
+  top_category_share_pct: number;
 };
 
 export interface RecommendationsResult {
@@ -267,6 +285,8 @@ export interface RecommendationsResult {
     total_recommendations: number;
     by_category: Record<RecommendationCategory, number>;
     highest_impact: Recommendation | null;
+    // Optional: old cached rows (pre-redesign) won't have it — the UI guards.
+    narrative?: RecommendationsNarrative;
   };
 }
 

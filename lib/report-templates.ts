@@ -54,6 +54,7 @@ const ACTION_VERB: Record<RecommendationAction, string> = {
   engage: "Engage",
   mitigate: "Mitigate risk for",
   improve: "Improve",
+  diversify: "Diversify",
 };
 
 /** First sentence of a reasoning string, for compact bullets. */

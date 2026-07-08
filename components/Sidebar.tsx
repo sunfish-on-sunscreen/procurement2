@@ -27,7 +27,7 @@ const navItems: NavItem[] = [
   { href: "/spend-overview", label: "Spend Overview", icon: LayoutDashboard },
   { href: "/supplier-classification", label: "Supplier Classification", icon: Layers },
   { href: "/process-health", label: "Process Health Monitoring", icon: Clock },
-  { href: "/action-dashboard", label: "Action Dashboard", icon: Zap },
+  { href: "/action-dashboard", label: "Action Priorities", icon: Zap },
   { href: "/import", label: "Import", icon: Upload, adminOnly: true },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/methodology", label: "Methodology", icon: BookOpen },

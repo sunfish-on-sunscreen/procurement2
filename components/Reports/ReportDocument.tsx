@@ -241,7 +241,7 @@ export function ReportDocument({
     add(sections.kraljic && analyses.kraljic, "kraljic", "Supplier Quadrant");
     add(sections.performanceSpend && analyses.performance_spend, "performanceSpend", "Performance vs Spend");
     add(sections.cycleTime && (legacyCycle || analyses.cycle_time), "cycleTime", "Cycle Time");
-    add(sections.actionDashboard, "actionDashboard", "Action Dashboard");
+    add(sections.actionDashboard, "actionDashboard", "Action Priorities");
     add(sections.methodology, "methodology", "Methodology");
     return list;
   }, [brief, sections, analyses, legacyCycle]);

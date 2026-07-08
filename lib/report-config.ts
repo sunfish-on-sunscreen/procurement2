@@ -59,6 +59,7 @@ export const ALL_REC_CATEGORIES: RecommendationCategory[] = [
   "bottleneck_risk",
   "hidden_gems_promotion",
   "process_improvement",
+  "concentration",
 ];
 
 export const REC_CATEGORY_LABELS: Record<RecommendationCategory, string> = {
@@ -66,6 +67,7 @@ export const REC_CATEGORY_LABELS: Record<RecommendationCategory, string> = {
   bottleneck_risk: "Bottleneck Risk",
   hidden_gems_promotion: "Hidden Gems",
   process_improvement: "Process Improvement",
+  concentration: "Concentration",
 };
 
 // Smart defaults: which sections the category filter applies to out of the box.
@@ -89,7 +91,7 @@ export const SECTION_LABELS: Record<SectionKey, string> = {
   kraljic: "Supplier Quadrant",
   performanceSpend: "Performance vs Spend",
   cycleTime: "Cycle Time",
-  actionDashboard: "Action Dashboard",
+  actionDashboard: "Action Priorities",
   methodology: "Methodology",
 };
 

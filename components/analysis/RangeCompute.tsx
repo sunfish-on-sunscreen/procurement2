@@ -32,12 +32,10 @@ export function RangeCompute({
   kind,
   startDate,
   endDate,
-  period = "",
 }: {
   kind: View;
   startDate: string;
   endDate: string;
-  period?: string;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
 
@@ -99,10 +97,7 @@ export function RangeCompute({
   }
   if (kind === "recommendations") {
     return state.data.recommendations ? (
-      <ActionDashboardView
-        data={state.data.recommendations}
-        period={period}
-      />
+      <ActionDashboardView data={state.data.recommendations} />
     ) : (
       <EmptyState />
     );
