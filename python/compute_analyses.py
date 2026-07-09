@@ -974,14 +974,17 @@ def kraljic_analysis(purchases, suppliers, metrics):
 # f) Recommendations engine  (synthesizes all 4 analyses into ranked actions)
 #    Self-contained: recomputes its own intermediate data via the shared 11A
 #    helpers so it never depends on execution order. All impact scores are
-#    normalized to [0, 100] so the global ranking is comparable across the 5
+#    normalized to [0, 100] so the global ranking is comparable across the
 #    categories, while each remains proportional to its category's key metric.
 # --------------------------------------------------------------------------- #
-# Concentration (resilience) thresholds — a category or supplier whose share of
-# total spend exceeds these is surfaced as a structural-exposure item. Named so
-# they're easy to defend/tune.
+# Concentration (resilience) threshold — a spend CATEGORY whose share of total
+# spend exceeds this is surfaced as a structural-exposure item. Concentration is
+# now CATEGORY-LEVEL ONLY; supplier-level criticality (the old >10% supplier
+# branch) moved to the Critical Spend (A-items) category to de-dupe the two.
 CATEGORY_CONC_THRESHOLD = 0.30  # a spend category > 30% of total
-SUPPLIER_CONC_THRESHOLD = 0.10  # a single supplier > 10% of total
+# Tail-spend threshold — a supplier under this share of total spend counts as
+# "tail" (a long-tail consolidation candidate).
+TAIL_SPEND_SHARE = 0.01  # a single supplier < 1% of total
 
 
 def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
@@ -991,6 +994,12 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     total_spend_map = {sid: float(v) for sid, v in spend_raw.items()}
     log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
     max_log = max(log_spend_map.values()) if log_spend_map else 1.0
+    total_spend = float(spend_raw.sum())
+
+    # Reuse the existing ABC/Pareto tiers (80/95 cumulative split) — do NOT
+    # re-implement the classify. The A-tier drives Critical Spend; the tail
+    # (sub-1% suppliers) drives Tail spend; the A-count feeds the Spend finding.
+    abc = abc_analysis(purchases, suppliers, metrics)
 
     risk_map, comp_map, _components = compute_supply_risk(purchases, suppliers, metrics)
     krj_sids = [s for s in log_spend_map if s in risk_map]
@@ -1156,38 +1165,57 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
             ),
             "impact_score": num(min(100.0, wq[1])),
         })
-    # Internal P2P process stages only. PO→Delivery is physical supplier lead
-    # time (not an internal process stage), so it is excluded from the process
-    # friction flag to avoid a non-actionable false positive.
-    stage_cols = [
-        ("prToPoDays", "PR to PO"),
-        ("deliveryToInvoiceDays", "Delivery to Invoice"),
-        ("invoiceToPaymentDays", "Invoice to Payment"),
-    ]
-    for col, label in stage_cols:
-        v = pd.to_numeric(purchases[col], errors="coerce").dropna()
-        if len(v) and v.mean() > 8:
-            proc.append({
-                "type": "process_improvement",
-                "action": "improve",
-                "scope": f"Stage: {label}",
-                "reasoning": (
-                    f"{label} averages {v.mean():.1f} days — a slow internal "
-                    f"process stage worth investigating."
-                ),
-                "impact_score": num(min(100.0, v.mean() / 18.0 * 100.0)),
-            })
-    proc.sort(key=lambda r: r["impact_score"] if r["impact_score"] is not None else 0.0, reverse=True)
-    proc = proc[:3]
+    # Improve is now COMPLIANCE-ONLY: the per-stage timing items moved to the
+    # dedicated slow_stage category (CATEGORY 4b) so a slow stage isn't listed
+    # under two Process-group categories at once.
     for i, r in enumerate(proc):
         r["priority_rank"] = i + 1
     recs.extend(proc)
 
+    # CATEGORY 4b: slowest stage — the internal P2P stages above the 8-day flag,
+    # ranked by average days desc. PO→Delivery is physical supplier lead time
+    # (not an internal stage), so it is excluded — consistent with the Improve
+    # flag. Reuses the same per-stage means the flag uses; share-of-cycle = this
+    # stage's mean / the sum of all four stage means (matches the "% of cycle"
+    # the Process Health page shows).
+    internal_stages = [
+        ("prToPoDays", "PR to PO"),
+        ("deliveryToInvoiceDays", "Delivery to Invoice"),
+        ("invoiceToPaymentDays", "Invoice to Payment"),
+    ]
+    all_stage_means = []
+    for col in ("prToPoDays", "poToDeliveryDays", "deliveryToInvoiceDays", "invoiceToPaymentDays"):
+        sv = pd.to_numeric(purchases[col], errors="coerce").dropna()
+        all_stage_means.append(float(sv.mean()) if len(sv) else 0.0)
+    cycle_sum = sum(all_stage_means) or 1.0
+    slow = []
+    for col, label in internal_stages:
+        sv = pd.to_numeric(purchases[col], errors="coerce").dropna()
+        if len(sv) and sv.mean() > 8:
+            slow.append((label, float(sv.mean())))
+    slow.sort(key=lambda x: x[1], reverse=True)
+    for i, (label, avg) in enumerate(slow):
+        lead = (
+            "the longest internal stage, well above the 8-day flag — the main "
+            "drag on cycle time"
+            if i == 0
+            else "above the 8-day flag — a secondary drag on cycle time"
+        )
+        recs.append({
+            "type": "slow_stage",
+            "action": "streamline",
+            "priority_rank": i + 1,
+            "scope": f"Stage: {label}",
+            "reasoning": f"{label} averages {avg:.1f} days — {lead}.",
+            "impact_score": num(min(100.0, avg / 18.0 * 100.0)),
+            "avg_days": num(avg),
+            "cycle_share_pct": num(avg / cycle_sum * 100.0),
+        })
+
     # CATEGORY 5: concentration (resilience exposure — distinct from performance).
-    # Category-level (share > 30%) + supplier-level (share > 10%), ranked by share.
-    # Framing is a light "worth a look" nudge; the raw % lives on the card chip +
-    # the Classification page, so the reasoning does NOT restate it.
-    total_spend = float(spend_raw.sum())
+    # CATEGORY-LEVEL ONLY now (share > 30%); supplier-level criticality moved to
+    # Critical Spend. Framing is a light "worth a look" nudge; the raw % lives on
+    # the card chip + the Classification page, so the reasoning does NOT restate it.
     conc_items = []
     if total_spend > 0:
         cat_spend = purchases.groupby("category")["totalValueUsd"].sum()
@@ -1206,27 +1234,70 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
                     "impact_score": num(min(100.0, share * 100.0)),
                     "_share": share,
                 })
-        for s, ssp in spend_raw.items():
-            share = float(ssp) / total_spend
-            if share > SUPPLIER_CONC_THRESHOLD:
-                conc_items.append({
-                    "type": "concentration", "action": "diversify",
-                    "concentration_kind": "supplier", "supplier_id": s,
-                    "supplier_name": name_of(s),
-                    "share_pct": num(share * 100.0), "total_spend_usd": num(float(ssp)),
-                    "reasoning": (
-                        f"A large share of total spend rides on {name_of(s)} alone. Heavy "
-                        f"single-supplier reliance — a qualified second source would cut the "
-                        f"exposure if they falter."
-                    ),
-                    "impact_score": num(min(100.0, share * 100.0)),
-                    "_share": share,
-                })
         conc_items.sort(key=lambda r: r["_share"], reverse=True)
         for i, r in enumerate(conc_items):
             r["priority_rank"] = i + 1
             del r["_share"]
         recs.extend(conc_items)
+
+    # CATEGORY 6: critical spend — the A-tier "vital few" (reuse ABC). Supplier
+    # criticality (moved from Concentration's old supplier-level branch); ranked
+    # by spend desc. Light stewardship nudge, NOT a number restatement.
+    a_items = sorted(
+        [c for c in abc["classifications"] if c["abc_class"] == "A"],
+        key=lambda c: c["total"],
+        reverse=True,
+    )
+    for i, c in enumerate(a_items):
+        share_pct = float(c["pct"]) * 100.0
+        recs.append({
+            "type": "critical_spend",
+            "action": "steward",
+            "priority_rank": i + 1,
+            "supplier_id": c["supplier_id"],
+            "supplier_name": c["supplier_name"],
+            "abc_class": "A",
+            "reasoning": (
+                "One of your largest spend relationships — make sure a formal "
+                "contract, SLA, and regular business review are in place so a "
+                "supplier this central is actively managed, not merely paid."
+            ),
+            "impact_score": num(min(100.0, share_pct)),
+            "total_spend_usd": num(float(c["total"])),
+            "share_pct": num(share_pct),
+        })
+
+    # CATEGORY 7: tail spend — ONE portfolio-summary card (not per-supplier).
+    # Suppliers each under 1% of total spend: their count, combined spend share,
+    # and share of the supplier roster — long-tail consolidation candidates.
+    tail = []
+    if total_spend > 0:
+        tail = [
+            (s, float(v)) for s, v in spend_raw.items()
+            if (float(v) / total_spend) < TAIL_SPEND_SHARE
+        ]
+    if tail:
+        n_total = int(len(spend_raw))
+        tail_count = len(tail)
+        tail_sum = sum(v for _, v in tail)
+        tail_share = tail_sum / total_spend * 100.0
+        tail_sup_pct = tail_count / n_total * 100.0
+        recs.append({
+            "type": "tail_spend",
+            "action": "consolidate",
+            "priority_rank": 1,
+            "scope": "Tail spend",
+            "reasoning": (
+                f"{tail_count} suppliers each under 1% of spend account for "
+                f"{tail_share:.0f}% of spend but {tail_sup_pct:.0f}% of your supplier "
+                f"count — a long tail worth reviewing for consolidation."
+            ),
+            "impact_score": num(min(100.0, tail_sup_pct)),
+            "total_spend_usd": num(tail_sum),
+            "tail_supplier_count": tail_count,
+            "tail_spend_share_pct": num(tail_share),
+            "tail_supplier_pct": num(tail_sup_pct),
+        })
 
     recs.sort(key=lambda r: r["impact_score"] if r["impact_score"] is not None else 0.0, reverse=True)
 
@@ -1236,21 +1307,25 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         "bottleneck_risk": 0,
         "process_improvement": 0,
         "concentration": 0,
+        "critical_spend": 0,
+        "tail_spend": 0,
+        "slow_stage": 0,
     }
     for r in recs:
         by_category[r["type"]] = by_category.get(r["type"], 0) + 1
 
-    # SYNTHESIS narrative (fixed-structure, real numbers) for the page's headline.
+    # SYNTHESIS narrative — one computed finding per source analysis (Spend /
+    # Suppliers / Process) for the page's "what each analysis found" strip.
     n_suppliers = int(purchases["supplierExternalId"].nunique())
     top10 = set(spend_raw.sort_values(ascending=False).head(10).index)
+    # Supplier "attention" = the supplier-level problem categories (engage +
+    # mitigate). Critical Spend is deliberately excluded — it's spend-side and
+    # would trivially pull in every top-10 spender.
     attention = {
         r.get("supplier_id")
         for r in recs
         if r.get("supplier_id")
-        and (
-            r["type"] in ("critical_issues_engagement", "bottleneck_risk")
-            or (r["type"] == "concentration" and r.get("concentration_kind") == "supplier")
-        )
+        and r["type"] in ("critical_issues_engagement", "bottleneck_risk")
     }
     top10_in_attention = len(top10 & attention)
     if total_spend > 0 and len(purchases):
@@ -1259,6 +1334,11 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         top_cat_share = float(cat_spend2.max()) / total_spend * 100.0
     else:
         top_cat, top_cat_share = "", 0.0
+    # Spend finding also cites the A-item count; Process finding cites the
+    # slowest internal stage (None when nothing clears the 8-day flag).
+    a_items_count = int(sum(1 for c in abc["classifications"] if c["abc_class"] == "A"))
+    slowest_stage_name = slow[0][0] if slow else ""
+    slowest_stage_avg = num(slow[0][1]) if slow else None
 
     return {
         "period_label": period_label,
@@ -1274,6 +1354,9 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
                 "top10_in_attention": top10_in_attention,
                 "top_category_name": top_cat,
                 "top_category_share_pct": num(top_cat_share),
+                "a_items_count": a_items_count,
+                "slowest_stage_name": slowest_stage_name,
+                "slowest_stage_avg_days": slowest_stage_avg,
             },
         },
     }

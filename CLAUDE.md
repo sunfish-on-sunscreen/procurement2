@@ -8,7 +8,8 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **HEAD as of last doc update:
-> `44c904c`.**
+> the Action Priorities dashboard-rebuild commit (2026-07-09) — run `git log` for
+> the hash.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -25,11 +26,80 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
 Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
-Classification, Process Health Monitoring, Action Dashboard
+Classification, Process Health Monitoring, Action Priorities
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
-`/spend-overview` (both redirects).
+`/spend-overview` (both redirects). The Action Priorities page (`/action-dashboard`
+URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
+session block.
 
-### MOST RECENT SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE — read this FIRST
+### MOST RECENT SESSION (2026-07-09) — ACTION PRIORITIES → 3-GROUP DASHBOARD GRID — read this FIRST
+
+**Action Priorities restructured into 3 analysis-grouped sections + 3 new
+categories, rendered as a compact instrument-panel dashboard grid.** ONE commit
+covering BOTH the compute/data changes AND the tiled-view rebuild (an earlier
+stacked-card version of the grouping was rejected and superseded by the grid).
+The existing 4 categories' compute + impact formulas + `priority_rank` are
+UNCHANGED; the new work is additive + a presentation rebuild.
+
+- **3 groups (`ACTION_GROUPS` in `lib/action-priorities.ts`):** Spend → Suppliers
+  → Process, one per diagnostic analysis. Spend = Concentration · Critical Spend ·
+  Tail Spend; Suppliers = Engage · Promote · Mitigate (three equal list tiles);
+  Process = Improve · Slowest Stage.
+- **3 NEW categories (`recommendations_analysis`, `python/compute_analyses.py`):**
+  - `critical_spend` / **steward** — the A-tier "vital few" (REUSES `abc_analysis`
+    80/95 tiers — no re-implement), ranked by spend; drills to the supplier.
+  - `tail_spend` / **consolidate** — ONE portfolio-summary card: sub-1% suppliers
+    (`TAIL_SPEND_SHARE = 0.01`) — count + combined spend share + roster share.
+  - `slow_stage` / **streamline** — internal P2P stages above the 8-day flag
+    (PO→Delivery excluded), ranked by avg days; carries `avg_days` +
+    `cycle_share_pct`.
+- **De-dups (the only two existing categories that changed):** Concentration is now
+  **CATEGORY-LEVEL ONLY** (`CATEGORY_CONC_THRESHOLD` 0.30; the old supplier-level
+  >10% branch + `SUPPLIER_CONC_THRESHOLD` are GONE → supplier criticality lives in
+  Critical Spend). `process_improvement` (Improve) is now **COMPLIANCE-ONLY** (the
+  worst-quadrant 3-way-match item; the per-stage timing items moved to Slowest
+  Stage). No item appears under two Process-group categories.
+- **Narrative (`summary_stats.narrative`) gained** `a_items_count`,
+  `slowest_stage_name`, `slowest_stage_avg_days` (all optional → old cached rows
+  degrade). `attention` (the "N of top-10" stat) is now **engage + mitigate only**
+  (the removed supplier-concentration term is gone; Critical Spend is deliberately
+  excluded so it doesn't pull in every top spender). `by_category` has 8 keys.
+- **Tokens (`app/globals.css`, light+dark):** `--priority-steward` (cyan),
+  `--priority-consolidate` (teal), `--priority-slowstage` (indigo — NOT improve's
+  blue; they share the Process group). Types: `RecommendationCategory`/`Action` +3
+  each; new optional `Recommendation` fields (`abc_class` / `avg_days` /
+  `cycle_share_pct` / `tail_*`). Reports render the new cats **generically**
+  (`ALL_REC_CATEGORIES` + `REC_CATEGORY_LABELS` + `ACTION_VERB` extended). ⚠️
+  reports still show "Impact N" — known follow-up, no report redesign this batch.
+- **View = instrument-panel dashboard grid** (`components/ActionDashboardView.tsx`,
+  full rewrite; **`ActionRecommendationCard.tsx` DELETED**). 3 bands (accent header
+  + tagline + "N flagged" + one computed finding) over a 3-col tile grid. Tile
+  kinds (lightweight inline SVG/CSS, tokens only): **donut** (Concentration share),
+  **list** (Critical Spend / Engage / Promote / Mitigate — top-4 + "+N more" inline
+  expand, drill-through rows), **stat** (Tail spend; Match compliance = the
+  worst-quadrant failure %, which IS `process_improvement.impact_score`), **bar**
+  (P2P stages — slowest accented, others dimmed, an 8-day flag line). Advice is
+  stated **ONCE per tile** (small-caps action verb + the existing `CATEGORY_NUDGE`,
+  de-"Suggested:"d) — NOT per row. Fits ~1 screen.
+- **⚠️ The P2P bar tile reads the CACHED `cycle_time` analysis** (all three
+  internal `stage_breakdown.*.mean`) — `recommendations` alone only carries FLAGGED
+  stages. Plumbed with NO compute change: the page loads
+  `getAnalysisResult(period,"cycle_time")` in cached mode and `RangeCompute` passes
+  `state.data.cycle_time` in range mode → `ActionDashboardView` gets an optional
+  `cycleTime` prop.
+- **Drill-through preserved** (supplier_id → `/supplier-classification?supplier=`;
+  concentration-category → `/spend-overview`). Graceful degradation: no stage
+  clears 8d → bars all "balanced" + no streamline advice; empty category → neutral
+  tile.
+- **Compute + `AnalysisResult` SHAPE unchanged by the view rebuild.** When the 3
+  categories were ADDED, the cache was recomputed once via the safe recipe
+  (per-period `--period-id` ×3 + clear the `periodId IS NULL` range rows); source
+  data untouched. ⚠️ **VERIFIED numbers:** 2024 slow_stage = Invoice→Payment ~17.9d
+  (range ~12.2d); **2025 & 2026 have NO slow_stage** (no internal stage clears 8d →
+  Process band shows "balanced"). Critical Spend counts = A-tier (2024/25/26 =
+  8/10/4). Both compute modes render; dark-mode token-safe; no hardcoded hex.
+
+### MOST RECENT SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE
 
 **The performance composite is now FILTER-LIVE** — recomputed from the POs in the
 current time filter (single-year = that year's POs; range = all POs in the span)

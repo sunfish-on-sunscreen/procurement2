@@ -97,7 +97,10 @@ export function RangeCompute({
   }
   if (kind === "recommendations") {
     return state.data.recommendations ? (
-      <ActionDashboardView data={state.data.recommendations} />
+      <ActionDashboardView
+        data={state.data.recommendations}
+        cycleTime={state.data.cycle_time}
+      />
     ) : (
       <EmptyState />
     );

@@ -234,14 +234,20 @@ export type RecommendationCategory =
   | "hidden_gems_promotion"
   | "bottleneck_risk"
   | "process_improvement"
-  | "concentration";
+  | "concentration"
+  | "critical_spend" // A-tier "vital few" — supplier criticality (Spend group)
+  | "tail_spend" // sub-1% suppliers, one portfolio-summary card (Spend group)
+  | "slow_stage"; // slowest internal P2P stage(s) above the 8-day flag (Process group)
 
 export type RecommendationAction =
   | "promote"
   | "engage"
   | "mitigate"
   | "improve"
-  | "diversify";
+  | "diversify"
+  | "steward" // critical_spend
+  | "consolidate" // tail_spend
+  | "streamline"; // slow_stage
 
 // A `type` alias (not `interface`) so it satisfies Prisma's JSON index-signature
 // when persisted in ExecutiveSummary.metricsJson.
@@ -261,11 +267,20 @@ export type Recommendation = {
   kraljic_quadrant?: KraljicQuadrant;
   supply_risk_score?: number;
   country?: string;
-  scope?: string; // for process_improvement
+  scope?: string; // for process_improvement / slow_stage / tail_spend
   // Concentration-specific:
   concentration_kind?: "category" | "supplier";
   category?: string; // spend category for a category-level concentration item
   share_pct?: number; // share of total spend
+  // Critical Spend (A-items):
+  abc_class?: "A" | "B" | "C";
+  // Slowest stage:
+  avg_days?: number; // this stage's average duration
+  cycle_share_pct?: number; // this stage's share of the total cycle
+  // Tail spend (portfolio summary):
+  tail_supplier_count?: number;
+  tail_spend_share_pct?: number; // combined tail spend as % of total
+  tail_supplier_pct?: number; // tail count as % of the supplier roster
 };
 
 /** Fixed-structure synthesis numbers for the page headline (both compute modes). */
@@ -275,6 +290,10 @@ export type RecommendationsNarrative = {
   top10_in_attention: number;
   top_category_name: string;
   top_category_share_pct: number;
+  // "What each analysis found" strip (optional — old cached rows lack these).
+  a_items_count?: number; // # of A-tier suppliers (Spend finding)
+  slowest_stage_name?: string; // slowest internal stage (Process finding)
+  slowest_stage_avg_days?: number | null; // its average days, null if none flagged
 };
 
 export interface RecommendationsResult {

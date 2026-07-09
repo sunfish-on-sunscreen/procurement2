@@ -106,6 +106,11 @@
   --priority-promote: #10b981;
   --priority-improve: #3b82f6;
   --priority-concentrate: #8b5cf6;
+  /* New categories (Spend/Process groups). Cool family, distinct from the above;
+     slowstage is indigo (NOT improve's blue — they share the Process group). */
+  --priority-steward: #0891b2; /* cyan — critical_spend */
+  --priority-consolidate: #0d9488; /* teal — tail_spend */
+  --priority-slowstage: #6366f1; /* indigo — slow_stage */
   /* Category palette — deliberately a separate family from --abc-* / --quadrant-*
      (no pure red/amber/lime/green), so the Spend-by-Category donut never collides
      with ABC class or Kraljic quadrant colours. Blues/violets/cyans/magentas. */
@@ -176,6 +181,9 @@
   --priority-promote: #34d399;
   --priority-improve: #60a5fa;
   --priority-concentrate: #a78bfa;
+  --priority-steward: #22d3ee; /* cyan — critical_spend */
+  --priority-consolidate: #2dd4bf; /* teal — tail_spend */
+  --priority-slowstage: #818cf8; /* indigo — slow_stage */
   --category-1: #60a5fa;
   --category-2: #a78bfa;
   --category-3: #22d3ee;

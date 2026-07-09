@@ -60,6 +60,9 @@ export const ALL_REC_CATEGORIES: RecommendationCategory[] = [
   "hidden_gems_promotion",
   "process_improvement",
   "concentration",
+  "critical_spend",
+  "tail_spend",
+  "slow_stage",
 ];
 
 export const REC_CATEGORY_LABELS: Record<RecommendationCategory, string> = {
@@ -68,6 +71,9 @@ export const REC_CATEGORY_LABELS: Record<RecommendationCategory, string> = {
   hidden_gems_promotion: "Hidden Gems",
   process_improvement: "Process Improvement",
   concentration: "Concentration",
+  critical_spend: "Critical Spend",
+  tail_spend: "Tail Spend",
+  slow_stage: "Slowest Stage",
 };
 
 // Smart defaults: which sections the category filter applies to out of the box.
