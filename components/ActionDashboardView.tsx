@@ -19,7 +19,7 @@ import {
   CATEGORY_COLOR_VAR,
   CATEGORY_NUDGE,
 } from "@/lib/action-priorities";
-import { SupplierClassificationDetailPanel } from "@/components/SupplierClassification/SupplierClassificationDetailPanel";
+import { UnifiedSupplierDetailModal } from "@/components/UnifiedSupplierDetailModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -548,14 +548,15 @@ export function ActionDashboardView({
         </Card>
       )}
 
-      {/* In-place supplier detail — centered modal over the dashboard. */}
+      {/* In-place unified supplier detail — one centered modal, three analysis tabs. */}
       {canDrill && perf && startDate && endDate && (
-        <SupplierClassificationDetailPanel
+        <UnifiedSupplierDetailModal
           supplierId={selectedSupplierId}
           startDate={startDate}
           endDate={endDate}
           kraljic={kraljic ?? null}
           perf={perf}
+          cycleTime={cycleTime ?? null}
           onClose={() => setSelectedSupplierId(null)}
           onSupplierClick={setSelectedSupplierId}
         />

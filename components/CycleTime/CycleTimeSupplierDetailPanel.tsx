@@ -703,16 +703,6 @@ export function CycleTimeSupplierDetailPanel({
   const loading = !!supplierId && !current;
   const span = periodSpanLabel(startDate, endDate);
 
-  // PO block view (Table default — exact dates are the primary record, matching
-  // Spend's default). Reset to Table when a different supplier opens (render-time
-  // adjust-on-prop-change, the same pattern SpendDecompositionPanel uses).
-  const [poView, setPoView] = useState<View>("table");
-  const [prevSupplierId, setPrevSupplierId] = useState(supplierId);
-  if (prevSupplierId !== supplierId) {
-    setPrevSupplierId(supplierId);
-    setPoView("table");
-  }
-
   useEffect(() => {
     if (!supplierId) return;
     const k = `${supplierId}_${startDate}_${endDate}`;
@@ -730,7 +720,6 @@ export function CycleTimeSupplierDetailPanel({
   }, [supplierId, startDate, endDate]);
 
   const s = current?.data?.supplier;
-  const cyc = current?.data?.cycle;
 
   return (
     <Dialog open={!!supplierId} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -773,16 +762,59 @@ export function CycleTimeSupplierDetailPanel({
           </Button>
         </header>
 
-        {loading && (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading cycle detail…
-          </div>
-        )}
-        {current?.err && <p className="p-4 text-sm text-destructive">{current.err}</p>}
+        <ProcessDetailBody
+          supplierId={supplierId}
+          data={current?.data}
+          dataErr={current?.err}
+          dataLoading={loading}
+          stageDominatedPoIds={stageDominatedPoIds}
+          inconsistent={inconsistent}
+          portfolio={portfolio}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-        {current?.data && s && cyc && (
-          <>
-            {/* Section 2: cycle stats (enriched with portfolio comparison) */}
+// ---- Body (presentational; reused by the Action Priorities unified modal) --- #
+export function ProcessDetailBody({
+  supplierId,
+  data,
+  dataErr,
+  dataLoading,
+  stageDominatedPoIds,
+  inconsistent = false,
+  portfolio,
+}: {
+  supplierId: string | null;
+  data: CycleSupplierDetail | undefined;
+  dataErr: string | undefined;
+  dataLoading: boolean;
+  stageDominatedPoIds: Set<string>;
+  inconsistent?: boolean;
+  portfolio?: CyclePortfolioContext;
+}) {
+  const [poView, setPoView] = useState<View>("table");
+  const [prevSupplierId, setPrevSupplierId] = useState(supplierId);
+  if (prevSupplierId !== supplierId) {
+    setPrevSupplierId(supplierId);
+    setPoView("table");
+  }
+  const s = data?.supplier;
+  const cyc = data?.cycle;
+
+  return (
+    <>
+      {dataLoading && (
+        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading cycle detail…
+        </div>
+      )}
+      {dataErr && <p className="p-4 text-sm text-destructive">{dataErr}</p>}
+
+      {data && s && cyc && (
+        <>
+          {/* Section 2: cycle stats (enriched with portfolio comparison) */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Cycle stats</h4>
               <CycleStatsBlock cyc={cyc} portfolio={portfolio} inconsistent={inconsistent} />
@@ -793,7 +825,7 @@ export function CycleTimeSupplierDetailPanel({
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">
                 Per-stage average — this supplier vs portfolio
               </h4>
-              <StageBars stages={current.data.stages} />
+              <StageBars stages={data.stages} />
             </div>
 
             {/* Section 5+6 merged: ONE convertible block — Table (5 milestone dates)
@@ -821,18 +853,18 @@ export function CycleTimeSupplierDetailPanel({
                   </span>
                 </div>
               )}
-              {current.data.pos.length > 0 ? (
+              {data.pos.length > 0 ? (
                 <>
                   <ViewToggle view={poView} setView={setPoView} />
                   {poView === "table" ? (
-                    <PoList pos={current.data.pos} stageDominatedPoIds={stageDominatedPoIds} />
+                    <PoList pos={data.pos} stageDominatedPoIds={stageDominatedPoIds} />
                   ) : (
                     <>
                       <p className="mb-2 text-xs text-muted-foreground">
                         Cycle days per order (by date) · red = outside the inconsistency band (median ± the flag&apos;s threshold)
                       </p>
                       <CycleConsistencyChart
-                        pos={current.data.pos}
+                        pos={data.pos}
                         median={cyc.median_cycle}
                         // Band half-width = the flag threshold (portfolio-median IQR × 1.5), so
                         // crossings ⟺ the Inconsistent flag. Absent portfolio → their own 1.5×IQR.
@@ -850,7 +882,6 @@ export function CycleTimeSupplierDetailPanel({
             </div>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

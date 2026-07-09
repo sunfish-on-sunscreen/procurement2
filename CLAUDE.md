@@ -123,6 +123,44 @@ MODAL.** Two presentation/interaction additions to Action Priorities; compute +
   non-clickable. Both modes render; single-year degradation preserved; dark-mode
   token-safe.
 
+**Follow-up (later 2026-07-09) — UNIFIED SUPPLIER DETAIL MODAL (3 analysis tabs).**
+The Action Priorities supplier click now opens ONE centered modal
+(`components/UnifiedSupplierDetailModal.tsx`, NEW) with three top-level tabs —
+**Classification / Spend / Process** — replacing the single Classification panel.
+Presentation/interaction only; compute + the 3 source pages unchanged.
+- **⚠️ BODY EXTRACTION — the reuse mechanism.** Each of the three page panels was
+  split into its **shell** (Dialog + own fetch + identity header) and a
+  **presentational body**, both exported from the SAME file:
+  `SpendDetailBody` (`SpendDecompositionPanel.tsx`), `ClassificationDetailBody`
+  (`SupplierClassificationDetailPanel.tsx`), `ProcessDetailBody`
+  (`CycleTimeSupplierDetailPanel.tsx`). The bodies are presentational — they take
+  the fetched data + loading/error as PROPS and own only their sub-tab state; the
+  shells keep their fetch + header and render `Dialog(header + <XBody>)`. **The
+  three own pages (Supplier Classification, Spend Overview, Process Health) render
+  byte-identically** (the JSX moved into a child at the same position) — verified:
+  each page's panel still opens with its own header + sub-tabs and NO top-level
+  analysis tabs. Do NOT re-inline the bodies.
+- **Shared/deduped fetch:** the modal fetches `spend-detail` + `evolution` ONCE
+  (its own useEffects, keyed on supplier) and feeds BOTH the Classification and
+  Spend bodies as props → opening Classification then Spend does **not** re-fetch
+  (verified: spend-detail=1 / evolution=1). The header identity is sourced from
+  `spend-detail.supplier` (same fields the Spend panel header uses).
+- **Process = FULL FIDELITY, lazy.** The Process tab fetches
+  `/api/cycle-time/breakdown` (span roster) + the per-supplier
+  `cycle-time/supplier-detail` **only on first open** (verified: cycle-time fired
+  0× until Process opened), then derives `iqrCutoff = 1.5·median(roster.iqr)`,
+  `inconsistent`, `stageDominatedPoIds = Set(stageAnomalies.po_id)`, and
+  `portfolio` (`{…cycleTime.distribution median/p25/p75, supplierMedians, iqrCutoff}`)
+  — the SAME derivation `CycleTimeClient` + `CycleSupplierSection` do — so the tab
+  shows the speed-rank gauge, portfolio deltas, inconsistency flag, and
+  stage-dominated PO flags identically to the Process Health panel. `cycleTime` is
+  already on Action Priorities (P2P tile) and is passed into the modal.
+- **Wiring:** `ActionDashboardView` mounts `UnifiedSupplierDetailModal`
+  (perf/kraljic/cycleTime/dates already available). Peer-supplier links inside the
+  Classification body re-target the modal (resets to the Classification tab).
+  Concentration-category donut keeps `/spend-overview`; other tiles non-clickable.
+  Both AP modes; dark-mode safe; no compute change.
+
 ### MOST RECENT SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE
 
 **The performance composite is now FILTER-LIVE** — recomputed from the POs in the

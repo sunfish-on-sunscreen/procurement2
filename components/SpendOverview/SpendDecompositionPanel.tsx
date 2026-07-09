@@ -282,26 +282,11 @@ export function SpendDecompositionPanel({
   const detailKey = supplierId ? `${supplierId}_${startDate}_${endDate}` : "";
   const [detailState, setDetailState] = useState<{ key: string; detail?: SpendDetail; err?: string } | null>(null);
   const [evo, setEvo] = useState<{ id: string; data?: SupplierEvolution; err?: string } | null>(null);
-  const [tab, setTab] = useState<Tab>("byItem");
-  const [itemView, setItemView] = useState<View>("chart");
-  const [posView, setPosView] = useState<View>("chart");
 
   const detail = detailState?.key === detailKey ? detailState.detail : undefined;
   const detailErr = detailState?.key === detailKey ? detailState.err : undefined;
   const detailLoading = !!supplierId && !detail && !detailErr;
-
-  // Reset transient UI when the supplier changes.
-  const [prevId, setPrevId] = useState(supplierId);
-  if (prevId !== supplierId) {
-    setPrevId(supplierId);
-    setTab("byItem");
-    setItemView("chart");
-    setPosView("chart");
-  }
   const span = periodSpanLabel(startDate, endDate);
-  // Single-year selection (slices the sub-score sparklines); null in range mode.
-  const selectedYear =
-    startDate.slice(0, 4) === endDate.slice(0, 4) ? startDate.slice(0, 4) : null;
 
   // Period-scoped spend detail (refetch on supplier OR span change).
   useEffect(() => {
@@ -335,11 +320,8 @@ export function SpendDecompositionPanel({
   }, [supplierId]);
 
   const evoData = evo?.id === supplierId ? evo.data : undefined;
-
+  const evoErr = evo?.id === supplierId ? evo.err : undefined;
   const s = detail?.supplier;
-  const st = detail?.stats;
-  // No purchases in the selected period — render an honest "absent" view.
-  const absent = st != null && st.poCount === 0;
 
   return (
     <Dialog open={!!supplierId} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -380,16 +362,75 @@ export function SpendDecompositionPanel({
           </Button>
         </header>
 
-        {detailLoading && (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading spend detail…
-          </div>
-        )}
-        {detailErr && <p className="p-4 text-sm text-destructive">{detailErr}</p>}
+        <SpendDetailBody
+          supplierId={supplierId}
+          startDate={startDate}
+          endDate={endDate}
+          detail={detail}
+          detailErr={detailErr}
+          detailLoading={detailLoading}
+          evo={evoData}
+          evoErr={evoErr}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-        {detail && st && s && (
-          <>
-            {/* Section 1: spend stats — 4-card grid incl. period composite. */}
+// ---- Body (presentational; reused by the Action Priorities unified modal) --- #
+export function SpendDetailBody({
+  supplierId,
+  startDate,
+  endDate,
+  detail,
+  detailErr,
+  detailLoading,
+  evo,
+  evoErr,
+}: {
+  supplierId: string | null;
+  startDate: string;
+  endDate: string;
+  detail: SpendDetail | undefined;
+  detailErr: string | undefined;
+  detailLoading: boolean;
+  evo: SupplierEvolution | undefined;
+  evoErr: string | undefined;
+}) {
+  const [tab, setTab] = useState<Tab>("byItem");
+  const [itemView, setItemView] = useState<View>("chart");
+  const [posView, setPosView] = useState<View>("chart");
+
+  // Reset transient UI when the supplier changes.
+  const [prevId, setPrevId] = useState(supplierId);
+  if (prevId !== supplierId) {
+    setPrevId(supplierId);
+    setTab("byItem");
+    setItemView("chart");
+    setPosView("chart");
+  }
+  const span = periodSpanLabel(startDate, endDate);
+  // Single-year selection (slices the sub-score sparklines); null in range mode.
+  const selectedYear =
+    startDate.slice(0, 4) === endDate.slice(0, 4) ? startDate.slice(0, 4) : null;
+  const evoData = evo;
+  const s = detail?.supplier;
+  const st = detail?.stats;
+  // No purchases in the selected period — render an honest "absent" view.
+  const absent = st != null && st.poCount === 0;
+
+  return (
+    <>
+      {detailLoading && (
+        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading spend detail…
+        </div>
+      )}
+      {detailErr && <p className="p-4 text-sm text-destructive">{detailErr}</p>}
+
+      {detail && st && s && (
+        <>
+          {/* Section 1: spend stats — 4-card grid incl. period composite. */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Spend at a glance</h4>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -538,8 +579,8 @@ export function SpendDecompositionPanel({
               {tab === "evolution" && (
                 <>
                   <p className="mb-3 text-[11px] text-muted-foreground">All years (not period-scoped).</p>
-                  {evo?.err ? (
-                    <p className="text-sm text-destructive">{evo.err}</p>
+                  {evoErr ? (
+                    <p className="text-sm text-destructive">{evoErr}</p>
                   ) : evoData ? (
                     <EvolutionTab data={evoData} />
                   ) : (
@@ -552,7 +593,6 @@ export function SpendDecompositionPanel({
             </div>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }

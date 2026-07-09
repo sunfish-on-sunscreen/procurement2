@@ -483,21 +483,11 @@ export function SupplierClassificationDetailPanel({
   const detailKey = supplierId ? `${supplierId}_${startDate}_${endDate}` : "";
   const [detailState, setDetailState] = useState<{ key: string; detail?: SpendDetail; err?: string } | null>(null);
   const [evo, setEvo] = useState<{ id: string; data?: SupplierEvolution; err?: string } | null>(null);
-  const [tab, setTab] = useState<Tab>("risk");
-  const [perfOpen, setPerfOpen] = useState(true);
 
   const detail = detailState?.key === detailKey ? detailState.detail : undefined;
   const detailErr = detailState?.key === detailKey ? detailState.err : undefined;
   const detailLoading = !!supplierId && !detail && !detailErr;
-
-  const [prevId, setPrevId] = useState(supplierId);
-  if (prevId !== supplierId) {
-    setPrevId(supplierId);
-    setTab("risk");
-    setPerfOpen(true);
-  }
   const span = periodSpanLabel(startDate, endDate);
-  const selectedYear = startDate.slice(0, 4) === endDate.slice(0, 4) ? startDate.slice(0, 4) : null;
 
   useEffect(() => {
     if (!supplierId) return;
@@ -529,15 +519,7 @@ export function SupplierClassificationDetailPanel({
   }, [supplierId]);
 
   const evoData = evo?.id === supplierId ? evo.data : undefined;
-
   const s = detail?.supplier;
-  const st = detail?.stats;
-  const absent = st != null && st.poCount === 0;
-
-  // This supplier's period-scoped Kraljic assignment (risk breakdown source).
-  const myAssignment = supplierId
-    ? kraljic?.quadrant_assignments.find((q) => q.supplier_id === supplierId)
-    : undefined;
 
   // This supplier's period-scoped Performance-vs-Spend zone (identity subline).
   const myZone = supplierId
@@ -583,16 +565,78 @@ export function SupplierClassificationDetailPanel({
           </Button>
         </header>
 
-        {detailLoading && (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading detail…
-          </div>
-        )}
-        {detailErr && <p className="p-4 text-sm text-destructive">{detailErr}</p>}
+        <ClassificationDetailBody
+          supplierId={supplierId}
+          startDate={startDate}
+          endDate={endDate}
+          kraljic={kraljic}
+          perf={perf}
+          onSupplierClick={onSupplierClick}
+          detail={detail}
+          detailErr={detailErr}
+          detailLoading={detailLoading}
+          evo={evoData}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-        {detail && st && s && (
-          <>
-            {/* Section 1: classification insights — expandable card + tenure card. */}
+// ---- Body (presentational; reused by the Action Priorities unified modal) --- #
+export function ClassificationDetailBody({
+  supplierId,
+  startDate,
+  endDate,
+  kraljic,
+  perf,
+  onSupplierClick,
+  detail,
+  detailErr,
+  detailLoading,
+  evo,
+}: {
+  supplierId: string | null;
+  startDate: string;
+  endDate: string;
+  kraljic: KraljicResult | null;
+  perf: PerformanceSpendResult;
+  onSupplierClick: (id: string) => void;
+  detail: SpendDetail | undefined;
+  detailErr: string | undefined;
+  detailLoading: boolean;
+  evo: SupplierEvolution | undefined;
+}) {
+  const [tab, setTab] = useState<Tab>("risk");
+  const [perfOpen, setPerfOpen] = useState(true);
+  const [prevId, setPrevId] = useState(supplierId);
+  if (prevId !== supplierId) {
+    setPrevId(supplierId);
+    setTab("risk");
+    setPerfOpen(true);
+  }
+  const span = periodSpanLabel(startDate, endDate);
+  const selectedYear = startDate.slice(0, 4) === endDate.slice(0, 4) ? startDate.slice(0, 4) : null;
+  const evoData = evo;
+  const s = detail?.supplier;
+  const st = detail?.stats;
+  const absent = st != null && st.poCount === 0;
+  // This supplier's period-scoped Kraljic assignment (risk breakdown source).
+  const myAssignment = supplierId
+    ? kraljic?.quadrant_assignments.find((q) => q.supplier_id === supplierId)
+    : undefined;
+
+  return (
+    <>
+      {detailLoading && (
+        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading detail…
+        </div>
+      )}
+      {detailErr && <p className="p-4 text-sm text-destructive">{detailErr}</p>}
+
+      {detail && st && s && (
+        <>
+          {/* Section 1: classification insights — expandable card + tenure card. */}
             <div className="border-b p-4">
               <h4 className="mb-2 text-sm font-medium text-muted-foreground">Classification insights</h4>
               {absent ? (
@@ -662,7 +706,6 @@ export function SupplierClassificationDetailPanel({
             </div>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+    </>
   );
 }
