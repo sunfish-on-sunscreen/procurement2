@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown, Lightbulb } from "lucide-react";
 import type {
   RecommendationsResult,
   RecommendationsNarrative,
@@ -10,6 +10,8 @@ import type {
   RecommendationAction,
   Recommendation,
   CycleTimeResult,
+  PerformanceSpendResult,
+  KraljicResult,
 } from "@/lib/analysis-types";
 import {
   ACTION_GROUPS,
@@ -17,6 +19,7 @@ import {
   CATEGORY_COLOR_VAR,
   CATEGORY_NUDGE,
 } from "@/lib/action-priorities";
+import { SupplierClassificationDetailPanel } from "@/components/SupplierClassification/SupplierClassificationDetailPanel";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -30,34 +33,41 @@ const usd = (n: number) =>
   }).format(n);
 const intFmt = new Intl.NumberFormat("en-US");
 
-// ---- drill-through (preserved from the old card) -------------------------- //
-function drillHref(r: Recommendation): string | null {
-  if (r.supplier_id)
-    return `/supplier-classification?supplier=${encodeURIComponent(r.supplier_id)}`;
-  if (r.type === "concentration" && r.concentration_kind === "category")
-    return "/spend-overview";
-  return null;
-}
-
 /** The single advice string for a category = its shared nudge, minus the
  *  "Suggested: " prefix (the verb is shown separately as a small-caps chip). */
 function adviceText(type: RecommendationCategory): string {
   return CATEGORY_NUDGE[type].replace(/^Suggested:\s*/i, "").replace(/\.$/, "");
 }
 
-// ---- computed-finding lines (guarded; old cached rows degrade) ------------ //
-function spendFinding(n: RecommendationsNarrative): string {
+// ---- insight text (interpretive takeaways from the existing narrative) ----- //
+function synthesisHeadline(n: RecommendationsNarrative): string {
   const parts: string[] = [];
+  if (n.top10_in_attention > 0)
+    parts.push(`${n.top10_in_attention} of your top-10 suppliers by spend need attention`);
   if (n.top_category_name)
-    parts.push(`${Math.round(n.top_category_share_pct)}% of spend in ${n.top_category_name}`);
-  if (n.a_items_count != null && n.a_items_count > 0)
-    parts.push(`${n.a_items_count} A-tier supplier${n.a_items_count === 1 ? "" : "s"} concentrate the vital few`);
-  return parts.length ? `${parts.join("; ")}.` : "Spend is spread fairly evenly.";
+    parts.push(
+      `${Math.round(n.top_category_share_pct)}% of spend sits in ${n.top_category_name} — the portfolio's largest structural exposure`,
+    );
+  if (parts.length === 0)
+    return "The portfolio looks broadly balanced across spend, suppliers, and process this period.";
+  return `${parts.join(", and ")}.`;
 }
-function processFinding(n: RecommendationsNarrative): string {
-  if (n.slowest_stage_name && n.slowest_stage_avg_days != null)
-    return `${n.slowest_stage_name} is the slowest internal stage, averaging ${n.slowest_stage_avg_days.toFixed(1)} days.`;
-  return "No internal stage clears the 8-day flag — the cycle is balanced.";
+function spendInsight(n: RecommendationsNarrative): string {
+  if (!n.top_category_name) return "Spend is spread fairly evenly across categories.";
+  const s = Math.round(n.top_category_share_pct);
+  return n.top_category_share_pct >= 50
+    ? `Spend is heavily concentrated — ${n.top_category_name} alone is ${s}% of the total.`
+    : `${n.top_category_name} is the largest category at ${s}% of spend.`;
+}
+function suppliersInsight(n: RecommendationsNarrative): string {
+  return n.top10_in_attention > 0
+    ? `${n.top10_in_attention} of the top-10 spenders need attention — high-spend suppliers underperforming or hard to replace.`
+    : "None of the top-10 spenders are flagged for attention this period.";
+}
+function processInsight(n: RecommendationsNarrative): string {
+  return n.slowest_stage_name && n.slowest_stage_avg_days != null
+    ? `One internal stage — ${n.slowest_stage_name} — drives most of the cycle delay, averaging ${n.slowest_stage_avg_days.toFixed(1)} days.`
+    : "Internal stages are balanced — none exceeds the 8-day flag.";
 }
 
 // ---- tile shell ----------------------------------------------------------- //
@@ -107,9 +117,9 @@ function Tile({
   );
 }
 
-// ---- list tile (top-few + "+N more" inline expand, drill-through rows) ----- //
+// ---- list tile (top-few + "+N more"; rows open the in-place supplier panel) - //
 type ListRow = {
-  href: string | null;
+  supplierId: string | null;
   rank?: number;
   name: string;
   context?: string;
@@ -122,6 +132,7 @@ function ListTile({
   color,
   rows,
   advice,
+  onSupplier,
   wide,
   initial = 4,
 }: {
@@ -129,17 +140,21 @@ function ListTile({
   color: string;
   rows: ListRow[];
   advice?: { verb: string; text: string };
+  /** Present when supplier detail can open in-place; absent → rows non-clickable. */
+  onSupplier?: (id: string) => void;
   wide?: boolean;
   initial?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? rows : rows.slice(0, initial);
   const extra = rows.length - initial;
+  const rowClass = "flex items-center justify-between gap-2 rounded px-1.5 py-1 text-sm";
 
   return (
     <Tile label={label} color={color} count={rows.length} wide={wide} advice={advice}>
       <ul className="flex flex-col">
         {shown.map((row, i) => {
+          const clickable = !!row.supplierId && !!onSupplier;
           const body = (
             <>
               <span className="flex min-w-0 items-baseline gap-1.5">
@@ -160,19 +175,21 @@ function ListTile({
                     {row.sub}
                   </span>
                 )}
-                {row.href && (
+                {clickable && (
                   <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
                 )}
               </span>
             </>
           );
-          const rowClass =
-            "flex items-center justify-between gap-2 rounded px-1.5 py-1 text-sm";
-          return row.href ? (
+          return clickable ? (
             <li key={i}>
-              <Link href={row.href} className={cn("group", rowClass, "hover:bg-muted/60")}>
+              <button
+                type="button"
+                onClick={() => onSupplier!(row.supplierId!)}
+                className={cn("group w-full text-left", rowClass, "hover:bg-muted/60")}
+              >
                 {body}
-              </Link>
+              </button>
             </li>
           ) : (
             <li key={i} className={rowClass}>
@@ -220,7 +237,7 @@ function StatTile({
   );
 }
 
-// ---- donut tile (concentration) ------------------------------------------- //
+// ---- donut tile (concentration; keeps its /spend-overview link) ------------ //
 function DonutTile({
   label,
   color,
@@ -362,7 +379,7 @@ function BarTile({
 // ---- row builders per category (presentation of the same recs) ------------ //
 function criticalSpendRows(items: Recommendation[]): ListRow[] {
   return items.map((r) => ({
-    href: drillHref(r),
+    supplierId: r.supplier_id ?? null,
     rank: r.priority_rank,
     name: r.supplier_name ?? "—",
     context: r.abc_class ? `${r.abc_class}` : undefined,
@@ -372,7 +389,7 @@ function criticalSpendRows(items: Recommendation[]): ListRow[] {
 }
 function engageRows(items: Recommendation[]): ListRow[] {
   return items.map((r) => ({
-    href: drillHref(r),
+    supplierId: r.supplier_id ?? null,
     rank: r.priority_rank,
     name: r.supplier_name ?? "—",
     context: r.kraljic_quadrant ?? undefined,
@@ -382,7 +399,7 @@ function engageRows(items: Recommendation[]): ListRow[] {
 }
 function promoteRows(items: Recommendation[]): ListRow[] {
   return items.map((r) => ({
-    href: drillHref(r),
+    supplierId: r.supplier_id ?? null,
     rank: r.priority_rank,
     name: r.supplier_name ?? "—",
     main: r.performance_score != null ? r.performance_score.toFixed(0) : "—",
@@ -391,7 +408,7 @@ function promoteRows(items: Recommendation[]): ListRow[] {
 }
 function mitigateRows(items: Recommendation[]): ListRow[] {
   return items.map((r) => ({
-    href: drillHref(r),
+    supplierId: r.supplier_id ?? null,
     rank: r.priority_rank,
     name: r.supplier_name ?? "—",
     context: r.country ?? undefined,
@@ -404,49 +421,77 @@ function verbFor(items: Recommendation[], fallback: RecommendationAction): strin
   return (items[0]?.action ?? fallback).toUpperCase();
 }
 
+type ActionGroupId = (typeof ACTION_GROUPS)[number]["id"];
+
 export function ActionDashboardView({
   data,
   cycleTime,
+  perf,
+  kraljic,
+  startDate,
+  endDate,
 }: {
   data: RecommendationsResult;
   cycleTime?: CycleTimeResult | null;
+  /** Period-scoped analyses that power the in-place supplier drawer. When perf +
+   *  dates are present, supplier rows open the drawer instead of navigating. */
+  perf?: PerformanceSpendResult | null;
+  kraljic?: KraljicResult | null;
+  startDate?: string;
+  endDate?: string;
 }) {
   const { recommendations, summary_stats } = data;
   const narrative = summary_stats.narrative;
   const byCat = summary_stats.by_category;
   const of = (t: RecommendationCategory) => recommendations.filter((r) => r.type === t);
 
-  const findings: Record<ActionGroupId, string | null> = {
-    spend: narrative ? spendFinding(narrative) : null,
-    suppliers: narrative
-      ? `${narrative.top10_in_attention} of your top-10 suppliers by spend need attention.`
-      : null,
-    process: narrative ? processFinding(narrative) : null,
+  // In-place supplier detail (replaces the old ?supplier= redirect). Only wired
+  // when the period's perf + dates are available.
+  const canDrill = !!(perf && startDate && endDate);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+  const spanKey = `${startDate ?? ""}_${endDate ?? ""}`;
+  const [prevSpan, setPrevSpan] = useState(spanKey);
+  if (prevSpan !== spanKey) {
+    setPrevSpan(spanKey);
+    if (selectedSupplierId !== null) setSelectedSupplierId(null);
+  }
+  const onSupplier = canDrill ? setSelectedSupplierId : undefined;
+
+  const insights: Record<ActionGroupId, string | null> = {
+    spend: narrative ? spendInsight(narrative) : null,
+    suppliers: narrative ? suppliersInsight(narrative) : null,
+    process: narrative ? processInsight(narrative) : null,
   };
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Intro */}
+      {/* Intro + synthesis headline */}
       {narrative && (
-        <div className="space-y-1">
-          <div className="font-mono text-xs text-muted-foreground">
-            {intFmt.format(narrative.n_suppliers)} suppliers · {usd(narrative.total_spend)}
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <div className="font-mono text-xs text-muted-foreground">
+              {intFmt.format(narrative.n_suppliers)} suppliers · {usd(narrative.total_spend)}
+            </div>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Pulling together what the Spend, Supplier, and Process analyses each surfaced.
+              This page flags <span className="font-medium text-foreground">where</span> to
+              focus; the <span className="font-medium text-foreground">what</span> to do stays
+              with you.
+            </p>
           </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            Pulling together what the Spend, Supplier, and Process analyses each surfaced.
-            This page flags <span className="font-medium text-foreground">where</span> to
-            focus; the <span className="font-medium text-foreground">what</span> to do stays
-            with you.
-          </p>
+          <div className="flex max-w-3xl items-start gap-2 rounded-md border bg-muted/30 p-3">
+            <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <p className="text-sm font-medium text-foreground">{synthesisHeadline(narrative)}</p>
+          </div>
         </div>
       )}
 
       {ACTION_GROUPS.map((group) => {
         const groupCount = group.categories.reduce((n, c) => n + (byCat[c] ?? 0), 0);
-        const finding = findings[group.id];
+        const insight = insights[group.id];
         return (
           <section key={group.id} className="flex flex-col gap-2">
-            {/* Band header */}
+            {/* Band header + interpretive line */}
             <div
               className="flex items-center gap-2 rounded-md px-3 py-1.5"
               style={{ backgroundColor: `color-mix(in srgb, ${group.colorVar} 10%, transparent)` }}
@@ -461,7 +506,7 @@ export function ActionDashboardView({
                 {groupCount} flagged
               </span>
             </div>
-            {finding && <p className="px-3 text-xs text-muted-foreground">{finding}</p>}
+            {insight && <p className="px-3 text-xs text-muted-foreground">{insight}</p>}
 
             {/* Tile grid */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -471,6 +516,7 @@ export function ActionDashboardView({
                   critical={of("critical_spend")}
                   tail={of("tail_spend")}
                   narrative={narrative}
+                  onSupplier={onSupplier}
                 />
               )}
               {group.id === "suppliers" && (
@@ -478,6 +524,7 @@ export function ActionDashboardView({
                   engage={of("critical_issues_engagement")}
                   promote={of("hidden_gems_promotion")}
                   mitigate={of("bottleneck_risk")}
+                  onSupplier={onSupplier}
                 />
               )}
               {group.id === "process" && (
@@ -500,11 +547,22 @@ export function ActionDashboardView({
           </CardContent>
         </Card>
       )}
+
+      {/* In-place supplier detail — centered modal over the dashboard. */}
+      {canDrill && perf && startDate && endDate && (
+        <SupplierClassificationDetailPanel
+          supplierId={selectedSupplierId}
+          startDate={startDate}
+          endDate={endDate}
+          kraljic={kraljic ?? null}
+          perf={perf}
+          onClose={() => setSelectedSupplierId(null)}
+          onSupplierClick={setSelectedSupplierId}
+        />
+      )}
     </div>
   );
 }
-
-type ActionGroupId = (typeof ACTION_GROUPS)[number]["id"];
 
 // ---- Spend band ----------------------------------------------------------- //
 function SpendBand({
@@ -512,11 +570,13 @@ function SpendBand({
   critical,
   tail,
   narrative,
+  onSupplier,
 }: {
   concentration: Recommendation[];
   critical: Recommendation[];
   tail: Recommendation[];
   narrative?: RecommendationsNarrative;
+  onSupplier?: (id: string) => void;
 }) {
   // Concentration donut: the flagged category if any, else the largest category
   // (informational) from the narrative so the finding still surfaces.
@@ -526,7 +586,7 @@ function SpendBand({
         sharePct: top.share_pct ?? 0,
         categoryName: top.category ?? "Top category",
         spendUsd: top.total_spend_usd ?? null,
-        href: drillHref(top),
+        href: "/spend-overview",
         note:
           concentration.length > 1
             ? `+${concentration.length - 1} more over 30%`
@@ -560,6 +620,7 @@ function SpendBand({
           label={CATEGORY_LABEL.critical_spend}
           color={CATEGORY_COLOR_VAR.critical_spend}
           rows={criticalSpendRows(critical)}
+          onSupplier={onSupplier}
           advice={{ verb: verbFor(critical, "steward"), text: adviceText("critical_spend") }}
         />
       ) : (
@@ -602,10 +663,12 @@ function SuppliersBand({
   engage,
   promote,
   mitigate,
+  onSupplier,
 }: {
   engage: Recommendation[];
   promote: Recommendation[];
   mitigate: Recommendation[];
+  onSupplier?: (id: string) => void;
 }) {
   return (
     <>
@@ -613,18 +676,21 @@ function SuppliersBand({
         label={CATEGORY_LABEL.critical_issues_engagement}
         color={CATEGORY_COLOR_VAR.critical_issues_engagement}
         rows={engageRows(engage)}
+        onSupplier={onSupplier}
         advice={{ verb: verbFor(engage, "engage"), text: adviceText("critical_issues_engagement") }}
       />
       <ListTile
         label={CATEGORY_LABEL.hidden_gems_promotion}
         color={CATEGORY_COLOR_VAR.hidden_gems_promotion}
         rows={promoteRows(promote)}
+        onSupplier={onSupplier}
         advice={{ verb: verbFor(promote, "promote"), text: adviceText("hidden_gems_promotion") }}
       />
       <ListTile
         label={CATEGORY_LABEL.bottleneck_risk}
         color={CATEGORY_COLOR_VAR.bottleneck_risk}
         rows={mitigateRows(mitigate)}
+        onSupplier={onSupplier}
         advice={{ verb: verbFor(mitigate, "mitigate"), text: adviceText("bottleneck_risk") }}
       />
     </>

@@ -100,6 +100,10 @@ export function RangeCompute({
       <ActionDashboardView
         data={state.data.recommendations}
         cycleTime={state.data.cycle_time}
+        perf={state.data.performance_spend}
+        kraljic={state.data.kraljic}
+        startDate={startDate}
+        endDate={endDate}
       />
     ) : (
       <EmptyState />

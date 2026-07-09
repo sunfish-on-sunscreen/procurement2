@@ -99,6 +99,30 @@ UNCHANGED; the new work is additive + a presentation rebuild.
   Process band shows "balanced"). Critical Spend counts = A-tier (2024/25/26 =
   8/10/4). Both compute modes render; dark-mode token-safe; no hardcoded hex.
 
+**Follow-up (later 2026-07-09) — INSIGHT LAYER + IN-PLACE CENTERED SUPPLIER
+MODAL.** Two presentation/interaction additions to Action Priorities; compute +
+`AnalysisResult` shape unchanged.
+- **Insight layer (light):** a computed synthesis headline below the intro (from
+  `summary_stats.narrative` — `top10_in_attention` + top-category share) plus one
+  interpretive takeaway line per band (Spend concentration / supplier attention /
+  slowest stage), replacing the bare per-band finding. Tiles untouched, page not
+  re-bloated.
+- **In-place supplier detail — the `?supplier=` REDIRECT IS GONE.** Clicking a
+  supplier row (Critical Spend / Engage / Promote / Mitigate) now opens
+  `SupplierClassificationDetailPanel` as a **centered modal** over the dashboard
+  (URL stays `/action-dashboard`; Esc / close / click-outside returns; the user
+  stays on Action Priorities). The panel is **REUSED AS-IS** — it's self-contained
+  (fetches its own spend-detail + evolution) and already renders as a centered
+  `Dialog`, so **no change to the shared Dialog primitive or the panel**. It only
+  needs `perf` + `kraljic` + the period span, which `page.tsx` loads in cached mode
+  (`getAnalysisResult` + `getDateRangeFromSelection`) and `RangeCompute` passes
+  from `state.data` in range mode (no new fetch). *(A right-slide-over variant was
+  explored first, then dropped for the centered default.)*
+- The **concentration-category donut keeps its `/spend-overview` link** (a category
+  has no supplier panel); Tail spend, the P2P bars, and the stat tiles stay
+  non-clickable. Both modes render; single-year degradation preserved; dark-mode
+  token-safe.
+
 ### MOST RECENT SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE
 
 **The performance composite is now FILTER-LIVE** — recomputed from the POs in the

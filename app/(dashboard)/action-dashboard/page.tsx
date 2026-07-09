@@ -1,9 +1,15 @@
 import { requireAuth } from "@/lib/auth";
-import { getCurrentPeriodSelection, resolveAnalysisSource } from "@/lib/period";
+import {
+  getCurrentPeriodSelection,
+  resolveAnalysisSource,
+  getDateRangeFromSelection,
+} from "@/lib/period";
 import {
   getAnalysisResult,
   type RecommendationsResult,
   type CycleTimeResult,
+  type PerformanceSpendResult,
+  type KraljicResult,
 } from "@/lib/analysis-types";
 import { EmptyState } from "@/components/EmptyState";
 import { ActionDashboardView } from "@/components/ActionDashboardView";
@@ -21,13 +27,30 @@ export default async function ActionDashboardPage() {
     body = <EmptyState />;
   } else if (source.kind === "cached") {
     label = source.periodLabel;
-    // cycle_time is read alongside recommendations so the P2P bar tile has all
-    // three internal stage means (recommendations only carries flagged stages).
-    const [data, cycle] = await Promise.all([
+    // cycle_time feeds the P2P bar tile (recommendations only carries flagged
+    // stages); performance_spend + kraljic + the period span power the in-place
+    // supplier detail drawer (same inputs the Classification panel needs).
+    const [data, cycle, perf, kraljic, span] = await Promise.all([
       getAnalysisResult<RecommendationsResult>(source.periodId, "recommendations"),
       getAnalysisResult<CycleTimeResult>(source.periodId, "cycle_time"),
+      getAnalysisResult<PerformanceSpendResult>(source.periodId, "performance_spend"),
+      getAnalysisResult<KraljicResult>(source.periodId, "kraljic"),
+      getDateRangeFromSelection(selection),
     ]);
-    body = data ? <ActionDashboardView data={data} cycleTime={cycle} /> : <EmptyState />;
+    const start = span ? span.startDate.toISOString().slice(0, 10) : "";
+    const end = span ? span.endDate.toISOString().slice(0, 10) : "";
+    body = data ? (
+      <ActionDashboardView
+        data={data}
+        cycleTime={cycle}
+        perf={perf}
+        kraljic={kraljic}
+        startDate={start}
+        endDate={end}
+      />
+    ) : (
+      <EmptyState />
+    );
   } else {
     label = source.periodLabel;
     body = (
