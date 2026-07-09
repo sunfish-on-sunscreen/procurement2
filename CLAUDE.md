@@ -859,26 +859,29 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   input (`DERIVED_COLS`, clear abort message), computes, and writes `XLSX`. The
   import zod schema still requires the derived columns, so it reads the enriched
   output — unchanged.
-- **Fixed industry bounds** (NOT population min/max), so scores are stable when
-  data changes. `norm_high/norm_low` clamp to [0,100]:
-  - `quality = (norm_low(defect_rate_pct,0,10) + norm_low(complaint_count,0,10))/2`
+- ⚠️ **CURRENT COMPOSITE MODEL (`aca864c`) — this supersedes the pre-`aca864c`
+  formulas/stats in this section. `python/scores.py` is the source of truth.**
+  Composite = **`0.30·Quality + 0.30·Delivery + 0.22·Process + 0.18·Risk`** (4
+  dimensions — the **Service dimension was DROPPED**; its 15% redistributed
+  proportionally, priorities unchanged). All 2dp.
+  - `quality  = (norm_low(defect_rate_pct,0,10) + norm_low(complaint_rate_pct,0,100))/2`
+    — **per-PO derived + filter-live**: defect_rate = Σdefect_count/Σqty·100,
+    complaint_rate = orders-with-≥1-complaint / num_pos·100 (0–100). NOT survey
+    constants.
   - `delivery = (norm_high(on_time_delivery_pct,0,100) + norm_low(avg_lead_time_days,0,60))/2`
-  - `service = (norm_low(avg_response_time_days,0,14) + norm_high(rfx_response_rate_pct,0,100))/2`
-  - `process = norm_high(three_way_match_pct,0,100)`
-- **`risk_score` is now fully derivable (Decision C), higher = SAFER:**
-  `100 − (0.4·country_distance_score + 0.3·min(complaints×10,100) + 0.3·single_source_risk×100)`
-  where `country_distance_score` = ID 0 / ASEAN 30 / Asia-Pacific 60 / other 100.
-  ⚠️ This **corrected a polarity bug**: the old risk_score was higher=riskier yet
-  positively weighted in the composite. The fix (plus fixed bounds) is why
-  composites/tiers shifted on the rebuild (composite mean ~68→76; calc-tier
-  ~12/38/5 → 32/21/2 Core/Est/Std; mismatch 25→27).
-- `single_source_risk` is read as an **existing 0/1 data field** (no longer
-  regenerated) so the transformer carries no randomness; `composite_score`
-  (weights 0.25/0.25/0.15/0.20/0.15) recomputes over the derived sub-scores;
-  `process_score` reproduces the prior identity exactly (= three_way_match_pct),
-  so it shows 0 change in the diff. ⚠️ **`calculated_tier` + `tier_mismatch` were
-  REMOVED** (see the data-integrity batch below) — the transformer no longer
-  computes them, `DERIVED_COLS` is 6, and they're dropped from the schema/zod.
+  - `process  = norm_high(three_way_match_pct,0,100)`
+  - `risk     = 100 − (0.6·country_distance + 0.4·roster_concentration)` — **purely
+    STRUCTURAL, higher = SAFER**. country_distance = ID 0 / ASEAN 30 / Asia-Pacific
+    60 / other 100. **NO complaint term** (dropped — double-counted Quality), **NO
+    single_source flag** (replaced by the continuous roster-concentration measure,
+    the same signal Kraljic's supply_concentration uses, scaled 0–100).
+- **Fixed industry bounds** (NOT population min/max) so scores are stable when data
+  changes; `norm_high/norm_low` clamp to [0,100]. ⚠️ **The formulas + rebuild stats
+  BELOW are the PRE-`aca864c` transform_dataset.py-era model (5 dims incl. Service,
+  single_source in risk, weights 0.25/0.25/0.15/0.20/0.15) — kept as history, NOT
+  current.** On the old model: `risk_score` fix corrected a polarity bug and the
+  rebuild shifted composites (mean ~68→76). `calculated_tier` + `tier_mismatch` were
+  REMOVED (data-integrity batch); the transformer no longer computes them.
 - **`scripts/transform_dataset.py` logs an old-vs-new diff** (summary + buckets +
   top-5/score + tier crossings + mismatch flips) and saves the full diff to
   `scripts/score_rebuild_diff.json` (**gitignored**, intermediate). ⚠️ The diff
@@ -1048,7 +1051,7 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   - **supply_concentration** (≤50): roster-derived step on the # of OTHER suppliers in the same period-scoped category — `0→50, 1→35, 2→22, 3→12, 4→5, ≥5→0`. MERGES the former single_source flag + category_competition (the stored single-source flag contradicted the roster for ~91% of flagged suppliers AND double-counted with competition).
   - **cost_premium** (≤25): period-scoped item-price premium. Per item, benchmark = spend-weighted avg unit price across ALL its suppliers; supplier premium = its spend-weighted avg unit price / item_avg − 1, counted ONLY when supplier×item ≥2 POs AND the item has ≥2 suppliers (single-source items → neutral); `clip(premium × 62.5, 0, 25)`; at/below market → 0.
   - **import_friction** (≤25): Indonesia trade-agreement coverage (NOT geographic distance) — `ID→0 / AFTA→8 / RCEP-non-ASEAN (JP,KR,CN,AU,NZ)→16 / else→25` (explicit safe default).
-  - ⚠️ Emitted as `risk_components` per `quadrant_assignment` (each 2dp; total == `supply_risk_score`, reconciles with the detail-panel breakdown bars). ⚠️ DISTINCT from the **performance composite's `risk_score` sub-score** (line ~257, still `country_distance` + complaints + `single_source`) — same word "risk", different metric; don't conflate.
+  - ⚠️ Emitted as `risk_components` per `quadrant_assignment` (each 2dp; total == `supply_risk_score`, reconciles with the detail-panel breakdown bars). ⚠️ DISTINCT from the **performance composite's `risk_score` sub-score** (`scores.py`, now `100 − (0.6·country_distance + 0.4·roster_concentration)` — structural only, NO complaints, NO single_source; changed in `aca864c`) — same word "risk", different metric; don't conflate. Both share the roster-concentration signal.
 - **Kraljic quadrants** = median split on `log_spend` × `supply_risk_score` (Strategic = hi/hi, Leverage = hi-spend/lo-risk, Bottleneck = lo-spend/hi-risk, Routine = lo/lo).
 - **Performance score** = the composite. ⚠️ **UPDATED — now filter-live** (see the
   top session block): `compute_analyses` recomputes it from the filtered POs via
