@@ -87,11 +87,12 @@ export default async function MethodologyPage() {
           </ul>
           <p>
             The dataset was originally generated externally (the generator is
-            not in this repository). A transformer script (
-            <code>scripts/transform_dataset.py</code>) then applies two
-            data-quality fixes — varied supply-risk scores and single-source
-            flags — deterministically with a fixed seed of <strong>42</strong>.
-            A full from-scratch generator is planned for a future phase.
+            not in this repository). The import path takes{" "}
+            <strong>raw operational measurements only</strong>; every scorecard
+            value is then <strong>computed server-side at import</strong> by{" "}
+            <code>python/scores.py</code>, deterministically, so each stored score
+            is reproducible from the underlying records. A full from-scratch
+            generator is planned for a future phase.
           </p>
         </CardContent>
       </Card>
@@ -159,8 +160,9 @@ export default async function MethodologyPage() {
             <ul className="list-disc space-y-1 pl-5">
               <li>
                 <strong>Supply concentration</strong> (≤50) — a step curve on the
-                number of <em>other</em> suppliers in the same category within the
-                period: <code>0 → 50</code> (true single source), <code>1 → 35</code>,{" "}
+                number of <em>other</em> suppliers in the same category across the
+                full supplier roster (all known suppliers, active or not):{" "}
+                <code>0 → 50</code> (true single source), <code>1 → 35</code>,{" "}
                 <code>2 → 22</code>, <code>3 → 12</code>, <code>4 → 5</code>,{" "}
                 <code>≥5 → 0</code>. This <em>merges</em> the former single-source and
                 category-competition components into one measure derived purely from
@@ -259,9 +261,8 @@ export default async function MethodologyPage() {
             <p>
               The diagnostic cross-references with the Kraljic quadrant analysis
               via the color coding on the scatter, surfacing engagement
-              priorities. Performance score uses the existing
-              CIPS-aligned composite score (quality 25%, delivery 25%, process
-              20%, service 15%, risk 15%).
+              priorities. Performance score uses the CIPS-aligned composite score
+              (quality 30%, delivery 30%, process 22%, risk 18% — see Section 4).
             </p>
             <p className="text-xs">
               Reference: CIPS supplier scorecard methodology; cross-tabulation
@@ -343,13 +344,14 @@ export default async function MethodologyPage() {
         <CardContent className="space-y-6 text-sm leading-relaxed text-muted-foreground">
           <p>
             Each supplier carries a 0–100 <strong>composite performance score</strong>,
-            built from five sub-scores that are <strong>derived in code from raw
-            operational data</strong> (deliveries, three-way-match results, quality and
-            service records). Every sub-score is normalized to 0–100 against{" "}
-            <strong>fixed industry bounds</strong>, so a supplier is measured against
-            absolute standards — not against whoever else happens to be in the dataset.
-            The source data contains <strong>operational measurements only</strong>; all
-            scorecard values are computed in our transformer, so every stored score is
+            built from four sub-scores that are <strong>derived in code from raw
+            operational data</strong> (deliveries, three-way-match results, and per-PO
+            quality records — defect and complaint counts). Every sub-score is normalized
+            to 0–100 against <strong>fixed industry bounds</strong>, so a supplier is
+            measured against absolute standards — not against whoever else happens to be
+            in the dataset. The source data contains <strong>operational measurements
+            only</strong>; all scorecard values are computed in code (
+            <code>python/scores.py</code>) at import, so every stored score is
             reproducible from the underlying records.
           </p>
 
@@ -358,22 +360,20 @@ export default async function MethodologyPage() {
             <ul className="list-disc space-y-1.5 pl-5">
               <li>
                 <strong>Quality</strong> — average of defect rate (bound 0–10%) and
-                annual complaints (0–10), both lower-is-better.
+                complaint rate — the share of orders with a complaint (0–100%) — both
+                lower-is-better, derived <strong>per purchase order</strong> from defect
+                and complaint counts.
               </li>
               <li>
                 <strong>Delivery</strong> — average of on-time-delivery % (0–100,
                 higher-better) and average lead time (0–60 days, lower-better).
               </li>
               <li>
-                <strong>Service</strong> — average of response time (0–14 days,
-                lower-better) and RFx response rate (0–100, higher-better).
-              </li>
-              <li>
                 <strong>Process</strong> — three-way-match pass rate (0–100).
               </li>
               <li>
-                <strong>Risk</strong> — a geographic/operational/dependency index
-                (see 4.3).
+                <strong>Risk</strong> — a purely structural index: geography + roster
+                concentration (see 4.3).
               </li>
             </ul>
             <p className="rounded-md bg-muted/50 p-2 text-xs">
@@ -383,10 +383,9 @@ export default async function MethodologyPage() {
               </code>
             </p>
             <p className="text-xs">
-              Bounds reflect procurement conventions: near-zero-defect quality, a
-              two-week response SLA, a 60-day lead-time ceiling; percentages are 0–100
-              by definition. Clamping means values outside a bound score 0 or 100, never
-              negative or &gt;100.
+              Bounds reflect procurement conventions: near-zero-defect quality and a
+              60-day lead-time ceiling; percentages are 0–100 by definition. Clamping
+              means values outside a bound score 0 or 100, never negative or &gt;100.
             </p>
           </section>
 
@@ -396,20 +395,26 @@ export default async function MethodologyPage() {
             </h3>
             <p>
               The <strong>Performance score</strong> shown across the dashboard is a{" "}
-              <strong>composite</strong> of the five weighted sub-scores (quality 25%,
-              delivery 25%, process 20%, service 15%, risk 15%).
+              <strong>composite</strong> of the four weighted sub-scores (quality 30%,
+              delivery 30%, process 22%, risk 18%).
             </p>
             <p className="rounded-md bg-muted/50 p-2 text-xs">
               <code>
-                composite = 0.25·quality + 0.25·delivery + 0.20·process + 0.15·service
-                + 0.15·risk
+                composite = 0.30·quality + 0.30·delivery + 0.22·process + 0.18·risk
               </code>
             </p>
             <p>
               Quality and delivery carry the most weight — in mining, defective or late
               equipment and consumables halt production. Process reflects documentation
-              discipline; service and risk act as modifiers. Weights align with CIPS and
-              APQC supplier-scorecard guidance for heavy industry.
+              discipline; the structural Risk sub-score acts as a modifier. A former{" "}
+              <strong>Service</strong> dimension (RFx response rate + average response
+              time) was <strong>removed</strong> — it relied on manual survey estimates
+              the transaction data doesn&apos;t measure — and its 15% weight was
+              redistributed across the remaining four dimensions in proportion to their
+              prior weights (the clean 30/30/22/18 above), leaving the relative
+              priorities unchanged: Quality and Delivery co-dominant, Process above Risk.
+              Weights align with CIPS and APQC supplier-scorecard guidance for heavy
+              industry.
             </p>
           </section>
 
@@ -417,14 +422,27 @@ export default async function MethodologyPage() {
             <h3 className="text-base font-semibold text-foreground">4.3 Risk score</h3>
             <p className="rounded-md bg-muted/50 p-2 text-xs">
               <code>
-                risk = 100 − (0.4·country_distance + 0.3·min(complaints×10, 100) +
-                0.3·single_source×100)
+                risk = 100 − (0.6·country_distance + 0.4·roster_concentration)
               </code>
             </p>
             <p>
-              Higher = safer. Geographic distance tiers: Indonesia 0 · ASEAN 30 ·
-              Asia-Pacific 60 · other 100. The score is fully deterministic, with no
-              random component.
+              Higher = safer. The sub-score is <strong>purely structural</strong> —
+              geography plus supplier availability, with no performance or complaint
+              term. Geographic distance tiers: Indonesia 0 · ASEAN 30 · Asia-Pacific 60 ·
+              other 100. <strong>Roster concentration</strong> is a continuous 0–100
+              measure of how few alternatives exist in the same category across the full
+              roster (true single source → 100, ≥5 alternatives → 0) — the same roster
+              signal the Kraljic supply-risk axis uses. The score is fully deterministic,
+              with no random component.
+            </p>
+            <p className="text-xs">
+              Note: this composite <strong>Risk sub-score</strong> is distinct from the{" "}
+              <strong>Kraljic supply-risk score</strong> (Section 3.2) — same word,
+              different metric, opposite polarity by design (here higher = safer; on the
+              Kraljic axis higher = riskier). The old complaint and binary single-source
+              terms were dropped: complaints now live only in Quality (avoiding
+              double-counting), and the single-source flag was replaced by the continuous
+              roster-concentration measure the two scores share.
             </p>
           </section>
 
@@ -499,14 +517,22 @@ export default async function MethodologyPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm leading-relaxed text-muted-foreground">
           <p>
-            The Action Dashboard synthesizes findings from the 4 analyses into
-            ranked, specific actions. The recommendations engine evaluates:
+            <strong>Action Priorities</strong> synthesizes findings from the four
+            analyses into ranked, specific actions, organized into three groups
+            that mirror the diagnostic analyses:
           </p>
           <ul className="list-disc space-y-1 pl-5">
-            <li>High-spend underperformers (Critical Issues).</li>
-            <li>Low-spend high performers (Hidden Gems).</li>
-            <li>High-risk low-impact suppliers (Bottleneck Risk).</li>
-            <li>Process compliance issues by stage and quadrant.</li>
+            <li>
+              <strong>Spend</strong> — Concentration, Critical Spend, and Tail
+              Spend.
+            </li>
+            <li>
+              <strong>Suppliers</strong> — Critical Issues Engagement, Hidden Gems
+              Promotion, and Bottleneck Risk Mitigation.
+            </li>
+            <li>
+              <strong>Process</strong> — Process Improvement and Slowest Stage.
+            </li>
           </ul>
           <p>
             Each recommendation is ranked by an impact score (normalized to
@@ -598,9 +624,9 @@ export default async function MethodologyPage() {
               operations — it is calibrated to benchmarks, but not real.
             </li>
             <li>
-              Supplier quality metrics (defect rate, complaints, RFx
-              responsiveness) are annual aggregates from the scorecard system, not
-              per-transaction values.
+              Defect and complaint counts are recorded per purchase order and
+              aggregated per supplier for the Quality sub-score; the former RFx /
+              response-time (Service) inputs were removed from the model.
             </li>
             <li>
               Currency is normalized to USD using period averages; real systems
@@ -612,7 +638,7 @@ export default async function MethodologyPage() {
             </li>
             <li>
               The analytical methodology is fixed: users cannot adjust thresholds
-              or parameters (ABC 80/95, k = 4, Mann-Whitney U, α = 0.05).
+              or parameters (ABC 80/95, Mann-Whitney U, α = 0.05).
             </li>
             <li>
               The process structure is influenced by Indonesian government

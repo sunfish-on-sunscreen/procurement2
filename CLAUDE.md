@@ -32,6 +32,30 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
+### DOC FIX (2026-07-10, latest) — METHODOLOGY PAGE ALIGNED TO CURRENT MODEL
+
+**The in-app Methodology page (`app/(dashboard)/methodology/page.tsx`) was the LAST
+stale scoring surface — now corrected.** It described the pre-`aca864c` model
+(Service dimension, weights 25/25/20/15/15, `risk = 100 − (0.4·country +
+0.3·complaints + 0.3·single_source)`), which contradicted the live dashboard AND
+`methodology_defense_doc.md`. Now consistent with both (`python/scores.py` = source
+of truth): composite **0.30·Q + 0.30·D + 0.22·P + 0.18·R** (four dims), **Service
+removed** (survey-based RFx/response-time; 15% redistributed proportionally),
+**Risk `100 − (0.6·country_distance + 0.4·roster_concentration)`** structural-only,
+**Quality per-PO** (defect+complaint counts), and the **two-risk-scores distinction**
+(composite Risk higher=safer vs Kraljic supply-risk higher=riskier, shared
+roster-concentration signal). Also fixed: §8 inverted "annual aggregates / not
+per-transaction" claim → per-PO; §2 dropped the stale single-source-flags mention
+(scores now computed at import via `scores.py`); §3.2 supply_concentration "within
+the period" → "across the full roster"; §8 dropped leftover "k = 4" (no clustering
+analysis exists). §6 light-touched: "Action Dashboard" → **Action Priorities** with
+its current **8 categories** (Concentration · Critical Spend · Tail Spend · Critical
+Issues Engagement · Hidden Gems Promotion · Bottleneck Risk Mitigation · Process
+Improvement · Slowest Stage); §6 impact-formula detail left for a future pass. ⚠️
+**Presentation/copy ONLY — no `scores.py`/compute change.** §1/3.1/3.4/5/7/9 left
+as-is (already current). tsc/ESLint clean; renders correctly (formula blocks +
+dark-mode verified).
+
 ### MOST RECENT SESSION (2026-07-10, later) — CROSS-PAGE ANOMALIES, BATCH 2: "CROSS-ANALYSIS ANOMALY HUB" — read this FIRST
 
 **Batch 2 shipped: Batch 1's standalone process-anomaly section was RESTRUCTURED
