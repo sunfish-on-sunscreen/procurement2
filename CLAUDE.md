@@ -32,7 +32,57 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
-### MOST RECENT SESSION (2026-07-10) — CROSS-PAGE ANOMALIES, BATCH 1: "ANOMALY EXPOSURE" — read this FIRST
+### MOST RECENT SESSION (2026-07-10, later) — CROSS-PAGE ANOMALIES, BATCH 2: "CROSS-ANALYSIS ANOMALY HUB" — read this FIRST
+
+**Batch 2 shipped: Batch 1's standalone process-anomaly section was RESTRUCTURED
+into a unified "Cross-Analysis Anomaly Hub" holding TWO anomaly families, and a
+NEW second family was added — cross-lens classification disagreement.** One amber
+section: hub header + hub-level synthesis + Block 1 (process) + Block 2
+(classification). Pure compute added to `lib/anomaly-crossref.ts`; NO Python, NO
+new endpoint, NO migration, NO recompute. Both AP modes; dark-mode/token-safe.
+
+- **⚠️ `lib/cycle-flags.ts` + Process Health UNTOUCHED** (verified still 11/2/35 on
+  the Range). Batch 1's `buildAnomalyCrossref` is UNCHANGED and reused inside the
+  new `buildAnomalyHub`. `AnomalyExposureSection` → `CrossAnalysisAnomalyHub`.
+- **Block 1 — Process anomalies** = Batch 1's content verbatim (cycle flags ×
+  ABC/Kraljic/zone, severity-inverting synthesis, Exposure `$` stat tile, flagged
+  list), now a sub-block. Rows → unified modal **Process** tab.
+- **Block 2 — Classification anomalies (NEW): cross-lens DISAGREEMENT ranking.**
+  For each roster supplier, percentile-rank three lenses — **S = spend**
+  (`perf.total_spend_usd`), **P = performance** (`perf.performance_score`), **R =
+  supply-risk** (⚠️ numeric `kraljic.quadrant_assignments[].supply_risk_score` — the
+  `kraljic` prop AP already passes; `perf` only carries the categorical quadrant).
+  `disagreement = max(S,P,R) − min(S,P,R)`; percentiles are **integer-rounded FIRST**
+  so the bars reconcile with the displayed spread exactly. **Cutoff =
+  `CLASSIFICATION_DISAGREEMENT_CUTOFF = 80`** (a named const in the lib, referenced
+  by the display copy so they stay in sync). Ranked by spread desc; each row shows
+  rank · name · spread · **three-lens mini-bars** (S blue `--quadrant-routine` / P
+  green `--zone-stars` / R red `--quadrant-strategic`, distinct hues so the
+  contradiction is visible) · a **computed verdict** ("Top performance, bottom
+  spend" etc., from the max/min axes) · position chips. Rows → unified modal
+  **Classification** tab.
+- **⚠️ Cutoff CALIBRATED to 80 (was 50).** ≥50 flagged ~60% of the roster (33/55
+  Range, 13/20 2026) — not an "anomaly". The live spread distribution has a natural
+  break at **87→80→79**, so 80 cuts just above the dense 78-79 tail → flags the
+  genuine extremes only (one lens ~top-decile, another ~bottom-decile): **11/55
+  Range (20%), 3/20 2026 (15%)**. The striking top is unchanged (Total Energies 96,
+  Lintas Marga 94, Kobexindo 93, Madhani 91).
+- **Hub-level synthesis** ties both families: "N suppliers show a cross-analysis
+  anomaly — M process, K classification, J both. X on important relationships."
+  **Compound badge** (`⧉ also process` / `⧉ also classification`) marks suppliers in
+  BOTH families — the cross-supplier overlap surfaced without a merged list. Violet
+  accent (`--zone-hidden-gems`) for the classification family vs amber for the hub.
+- **Drill routing:** hub process rows → Process tab, hub classification rows →
+  Classification tab (reuses Batch 1's `initialTab` prop; band rows still →
+  Classification, unchanged).
+- **⚠️ VERIFIED numbers (cutoff 80).** RANGE: **41 flagged = 36 process + 11
+  classification − 6 both**; 17 important. 2026: **11 = 10 + 3 − 2**; 5 important.
+  Both reconcile. Disagreement math spot-checked (Total Energies S2/P4/R98 → spread
+  96 "high supply-risk, bottom spend"; Kobexindo S85/P98/R5 → 93 "top performance,
+  low supply-risk"; bars match the spread). Dark-mode tokens resolve (amber
+  `#fbbf24`, violet `#a78bfa`, bars `#60a5fa`/`#34d399`/`#f87171`). tsc/ESLint clean.
+
+### SESSION (2026-07-10) — CROSS-PAGE ANOMALIES, BATCH 1: "ANOMALY EXPOSURE"
 
 **Batch 1 of the cross-page-anomaly project shipped: a new AMBER "Anomaly
 exposure" section on Action Priorities that cross-references the THREE EXISTING

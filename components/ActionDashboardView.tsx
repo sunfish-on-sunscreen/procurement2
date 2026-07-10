@@ -25,7 +25,12 @@ import {
   CATEGORY_NUDGE,
 } from "@/lib/action-priorities";
 import { deriveCycleFlags } from "@/lib/cycle-flags";
-import { buildAnomalyCrossref, type CrossAnomalyRow } from "@/lib/anomaly-crossref";
+import {
+  buildAnomalyHub,
+  CLASSIFICATION_DISAGREEMENT_CUTOFF,
+  type CrossAnomalyRow,
+  type ClassificationAnomalyRow,
+} from "@/lib/anomaly-crossref";
 import { UnifiedSupplierDetailModal } from "@/components/UnifiedSupplierDetailModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -488,13 +493,31 @@ function PositionChip({ label, important }: { label: string; important?: boolean
   );
 }
 
+const CLASS_ACCENT = "var(--zone-hidden-gems)"; // violet — the classification family
+
+/** A subtle badge marking a supplier flagged in BOTH anomaly families. */
+function CompoundBadge({ label }: { label: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded border border-dashed px-1 py-0.5 text-[10px] text-muted-foreground"
+      style={{ borderColor: "color-mix(in srgb, var(--foreground) 30%, transparent)" }}
+      title="Flagged in both anomaly families"
+    >
+      ⧉ {label}
+    </span>
+  );
+}
+
 /** One flagged-supplier row: name + spend, then flag chips + position chips. */
 function AnomalyRow({
   row,
   onSupplier,
+  compound,
 }: {
   row: CrossAnomalyRow;
   onSupplier?: (id: string) => void;
+  /** Also flagged in the classification family → show the compound badge. */
+  compound?: boolean;
 }) {
   const clickable = !!onSupplier;
   const body = (
@@ -525,6 +548,7 @@ function AnomalyRow({
           />
         )}
         {row.zone && <PositionChip label={row.zone} />}
+        {compound && <CompoundBadge label="also classification" />}
       </div>
     </>
   );
@@ -544,29 +568,339 @@ function AnomalyRow({
   );
 }
 
-function AnomalyExposureSection({
+// ---- Classification family: three-lens disagreement --------------------------- //
+/** Three horizontal percentile bars (Spend / Performance / Supply-risk), distinct
+ *  hues so the contradiction is visible at a glance. */
+function LensBars({ s, p, r }: { s: number; p: number; r: number }) {
+  const bars = [
+    { label: "S", val: s, color: "var(--quadrant-routine)", title: "Spend percentile" },
+    { label: "P", val: p, color: "var(--zone-stars)", title: "Performance percentile" },
+    { label: "R", val: r, color: "var(--quadrant-strategic)", title: "Supply-risk percentile" },
+  ];
+  return (
+    <div className="flex flex-col gap-1">
+      {bars.map((b) => (
+        <div key={b.label} className="flex items-center gap-1.5" title={`${b.title}: ${b.val}`}>
+          <span className="w-2.5 shrink-0 font-mono text-[10px] text-muted-foreground">{b.label}</span>
+          <div
+            className="h-1.5 flex-1 overflow-hidden rounded-full"
+            style={{ backgroundColor: "color-mix(in srgb, var(--foreground) 10%, transparent)" }}
+          >
+            <div className="h-full rounded-full" style={{ width: `${b.val}%`, backgroundColor: b.color }} />
+          </div>
+          <span className="w-6 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
+            {b.val}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One disagreement-ranking row: rank + name + spread, the 3 lens bars, the verdict,
+ *  and position chips. Rows open the unified modal on the Classification tab. */
+function ClassificationRow({
+  row,
+  rank,
+  compound,
+  onSupplier,
+}: {
+  row: ClassificationAnomalyRow;
+  rank: number;
+  compound?: boolean;
+  onSupplier?: (id: string) => void;
+}) {
+  const clickable = !!onSupplier;
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="font-mono text-xs text-muted-foreground">{rank}</span>
+          <span className="truncate text-sm font-medium">{row.supplier_name}</span>
+          {clickable && (
+            <ArrowRight className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          )}
+        </span>
+        <span className="shrink-0 text-xs">
+          <span className="font-mono font-semibold tabular-nums" style={{ color: CLASS_ACCENT }}>
+            {row.disagreement}
+          </span>
+          <span className="ml-1 text-muted-foreground">spread</span>
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <div className="w-full shrink-0 sm:w-44">
+          <LensBars s={row.spend_pct} p={row.performance_pct} r={row.risk_pct} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs font-medium" style={{ color: CLASS_ACCENT }}>
+            {row.verdict}
+          </span>
+          <div className="flex flex-wrap items-center gap-1">
+            {row.abc_class && (
+              <PositionChip label={`Class ${row.abc_class}`} important={row.abc_class === "A"} />
+            )}
+            {row.kraljic_quadrant && (
+              <PositionChip
+                label={row.kraljic_quadrant}
+                important={row.kraljic_quadrant === "Strategic"}
+              />
+            )}
+            {row.zone && <PositionChip label={row.zone} />}
+            {compound && <CompoundBadge label="also process" />}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+  const cls = "block w-full rounded px-1.5 py-1.5 text-left";
+  return clickable ? (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSupplier!(row.supplier_id)}
+        className={cn("group hover:bg-muted/60", cls)}
+      >
+        {body}
+      </button>
+    </li>
+  ) : (
+    <li className={cls}>{body}</li>
+  );
+}
+
+/** Light sub-block header inside the hub (a dot + label, not a full band — the hub
+ *  header owns the band styling). */
+function SubBlockHeader({
+  accent,
+  title,
+  tagline,
+  count,
+}: {
+  accent: string;
+  title: string;
+  tagline: string;
+  count: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: accent }} />
+      <span className="text-sm font-semibold" style={{ color: accent }}>
+        {title}
+      </span>
+      <span className="hidden text-xs text-muted-foreground sm:inline">— {tagline}</span>
+      <span className="ml-auto font-mono text-xs text-muted-foreground">{count} flagged</span>
+    </div>
+  );
+}
+
+// ---- Process block (Batch 1's content, now a sub-block of the hub) ------------ //
+function ProcessBlock({
+  xref,
+  degraded,
+  compoundIds,
+  onSupplier,
+}: {
+  xref: ReturnType<typeof buildAnomalyHub>["process"];
+  degraded: boolean;
+  compoundIds: Set<string>;
+  onSupplier?: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { rows, flaggedCount, importantCount, importantSpend, flagMix } = xref;
+
+  const head = (
+    <SubBlockHeader
+      accent={ANOMALY_ACCENT}
+      title="Process anomalies"
+      tagline="cycle execution, weighted by who it hits"
+      count={flaggedCount}
+    />
+  );
+
+  if (flaggedCount === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        {head}
+        <p className="px-3 text-xs text-muted-foreground">No cycle-time anomalies flagged this period.</p>
+      </div>
+    );
+  }
+
+  const synthesis =
+    importantCount > 0
+      ? `${importantCount} of ${flaggedCount} suppliers with cycle-time anomalies ${importantCount === 1 ? "is" : "are"} A-tier or Strategic — ${usd(importantSpend)} of spend. A process problem concentrated on your most important relationships.`
+      : `None of the ${flaggedCount} suppliers with cycle-time anomalies are A-tier or Strategic — the anomalies sit on lower-spend, more replaceable suppliers. Lower urgency.`;
+
+  const INITIAL = 4;
+  const shown = expanded ? rows : rows.slice(0, INITIAL);
+  const extra = rows.length - INITIAL;
+  const flagMixLine = `Outlier ${flagMix.has_outlier} · Inconsistent ${flagMix.inconsistent} · Stage-dom ${flagMix.has_stage_dom}`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {head}
+      <p className="px-3 text-xs text-muted-foreground">{synthesis}</p>
+      {degraded && (
+        <p className="px-3 text-xs text-muted-foreground/80">
+          Full breakdown unavailable — showing outlier flags only.
+        </p>
+      )}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StatTile
+          label="Exposure"
+          color={ANOMALY_ACCENT}
+          value={usd(importantSpend)}
+          caption={
+            <>
+              {importantCount} of {flaggedCount} flagged suppliers are A-tier or Strategic
+              <br />
+              {flagMixLine}
+            </>
+          }
+        />
+        <Tile label="Flagged suppliers" color={ANOMALY_ACCENT} count={flaggedCount} wide>
+          <ul className="flex flex-col">
+            {shown.map((row) => (
+              <AnomalyRow
+                key={row.supplier_id}
+                row={row}
+                onSupplier={onSupplier}
+                compound={compoundIds.has(row.supplier_id)}
+              />
+            ))}
+          </ul>
+          {extra > 0 && (
+            <button
+              onClick={() => setExpanded((e) => !e)}
+              className="mt-1 flex items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+              {expanded ? "Show less" : `+${extra} more`}
+            </button>
+          )}
+        </Tile>
+      </div>
+    </div>
+  );
+}
+
+// ---- Classification block (Batch 2: cross-lens disagreement ranking) ---------- //
+function ClassificationBlock({
+  cls,
+  compoundIds,
+  onSupplier,
+}: {
+  cls: ReturnType<typeof buildAnomalyHub>["classification"];
+  compoundIds: Set<string>;
+  onSupplier?: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { rows, flaggedCount, rosterSize } = cls;
+
+  const head = (
+    <SubBlockHeader
+      accent={CLASS_ACCENT}
+      title="Classification anomalies"
+      tagline="where your spend / performance / supply-risk lenses disagree"
+      count={flaggedCount}
+    />
+  );
+
+  if (flaggedCount === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        {head}
+        <p className="px-3 text-xs text-muted-foreground">
+          No lens disagreements this period — spend, performance, and supply-risk broadly agree.
+        </p>
+      </div>
+    );
+  }
+
+  const top = rows[0];
+  const INITIAL = 4;
+  const shown = expanded ? rows : rows.slice(0, INITIAL);
+  const extra = rows.length - INITIAL;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {head}
+      <p className="px-3 text-xs text-muted-foreground">
+        {flaggedCount} of {rosterSize} suppliers rank ≥ {CLASSIFICATION_DISAGREEMENT_CUTOFF} points
+        apart across the three lenses — the two matrices disagree about where they sit. Ranked by
+        the size of the gap.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StatTile
+          label="Widest gap"
+          color={CLASS_ACCENT}
+          value={String(top.disagreement)}
+          caption={
+            <>
+              {top.supplier_name}: {top.verdict.toLowerCase()}
+              <br />
+              {flaggedCount} suppliers span ≥ {CLASSIFICATION_DISAGREEMENT_CUTOFF} across spend ·
+              performance · supply-risk
+            </>
+          }
+        />
+        <Tile label="Disagreement ranking" color={CLASS_ACCENT} count={flaggedCount} wide>
+          <ul className="flex flex-col gap-1">
+            {shown.map((row, i) => (
+              <ClassificationRow
+                key={row.supplier_id}
+                row={row}
+                rank={i + 1}
+                compound={compoundIds.has(row.supplier_id)}
+                onSupplier={onSupplier}
+              />
+            ))}
+          </ul>
+          {extra > 0 && (
+            <button
+              onClick={() => setExpanded((e) => !e)}
+              className="mt-1 flex items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+              {expanded ? "Show less" : `+${extra} more`}
+            </button>
+          )}
+        </Tile>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The unified Cross-Analysis Anomaly Hub (Batch 2). One amber section holding two
+ * families: PROCESS anomalies (Batch 1's cycle flags × position) and CLASSIFICATION
+ * anomalies (the cross-lens disagreement ranking). Self-fetches the breakdown
+ * roster (span-scoped); the process side degrades to outlier-only if it fails, the
+ * classification side reads perf + kraljic (no breakdown needed). A compound badge
+ * marks suppliers flagged in both families.
+ */
+function CrossAnalysisAnomalyHub({
   cycleTime,
   perf,
+  kraljic,
   startDate,
   endDate,
-  onSupplier,
+  onProcessSupplier,
+  onClassificationSupplier,
 }: {
   cycleTime?: CycleTimeResult | null;
   perf?: PerformanceSpendResult | null;
+  kraljic?: KraljicResult | null;
   startDate?: string;
   endDate?: string;
-  onSupplier?: (id: string) => void;
+  onProcessSupplier?: (id: string) => void;
+  onClassificationSupplier?: (id: string) => void;
 }) {
   const [bd, setBd] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
-  const [expanded, setExpanded] = useState(false);
   const key = `${startDate ?? ""}_${endDate ?? ""}`;
 
-  // Span-scoped breakdown fetch (same route Process Health uses). Reset expand on span change.
-  const [prevKey, setPrevKey] = useState(key);
-  if (prevKey !== key) {
-    setPrevKey(key);
-    if (expanded) setExpanded(false);
-  }
+  // Span-scoped breakdown fetch (same route Process Health uses).
   useEffect(() => {
     if (!startDate || !endDate) return;
     let cancelled = false;
@@ -596,8 +930,8 @@ function AnomalyExposureSection({
   const roster = breakdown?.bySupplier ?? [];
   const stageAnomalies = breakdown?.stageAnomalies ?? [];
 
-  // Full derivation when the breakdown is present; otherwise degrade to
-  // outlier-only (has_outlier needs no breakdown — it's in cycle_time.anomalies).
+  // Process flags: full derivation when the breakdown is present; otherwise degrade
+  // to outlier-only (has_outlier needs no breakdown — it's in cycle_time.anomalies).
   const degraded = !breakdown && !!breakdownErr;
   let flagsBySupplier: Map<string, SupplierFlagState>;
   if (breakdown) {
@@ -614,14 +948,19 @@ function AnomalyExposureSection({
     }
   }
 
-  const xref = buildAnomalyCrossref({
+  // Numeric supply-risk score per supplier (Kraljic), for the classification lens.
+  const supplyRiskById = new Map<string, number>();
+  for (const q of kraljic?.quadrant_assignments ?? []) {
+    supplyRiskById.set(q.supplier_id, q.supply_risk_score);
+  }
+
+  const hub = buildAnomalyHub({
     flagsBySupplier,
     perfSuppliers: perf?.suppliers ?? [],
     roster,
+    supplyRiskById,
   });
-  const { rows, flaggedCount, importantCount, importantSpend, flagMix } = xref;
 
-  // Header (always shown once we have a span).
   const header = (
     <div
       className="flex items-center gap-2 rounded-md px-3 py-1.5"
@@ -629,14 +968,14 @@ function AnomalyExposureSection({
     >
       <TriangleAlert className="h-4 w-4 shrink-0" style={{ color: ANOMALY_ACCENT }} aria-hidden />
       <span className="text-sm font-semibold" style={{ color: ANOMALY_ACCENT }}>
-        Anomaly exposure
+        Cross-Analysis Anomaly Hub
       </span>
       <span className="hidden text-xs text-muted-foreground sm:inline">
-        — process anomalies, weighted by who they hit
+        — process + classification anomalies across your analyses
       </span>
       {!pending && (
         <span className="ml-auto font-mono text-xs text-muted-foreground">
-          {flaggedCount} flagged
+          {hub.distinctFlagged} flagged
         </span>
       )}
     </div>
@@ -644,78 +983,50 @@ function AnomalyExposureSection({
 
   if (pending) {
     return (
-      <section className="flex flex-col gap-2">
+      <section className="flex flex-col gap-3">
         {header}
-        <p className="px-3 text-xs text-muted-foreground">Cross-referencing process anomalies…</p>
+        <p className="px-3 text-xs text-muted-foreground">Cross-referencing anomalies…</p>
       </section>
     );
   }
 
-  // Zero flagged → neutral state (still show the section so its absence reads as a signal).
-  if (flaggedCount === 0) {
+  // Both families empty → one neutral state for the whole hub.
+  if (hub.distinctFlagged === 0) {
     return (
-      <section className="flex flex-col gap-2">
+      <section className="flex flex-col gap-3">
         {header}
         <p className="px-3 text-xs text-muted-foreground">
-          No cycle-time anomalies flagged this period.
+          No cross-analysis anomalies flagged this period.
         </p>
       </section>
     );
   }
 
-  const synthesis =
-    importantCount > 0
-      ? `${importantCount} of ${flaggedCount} suppliers with cycle-time anomalies ${importantCount === 1 ? "is" : "are"} A-tier or Strategic — ${usd(importantSpend)} of spend. A process problem concentrated on your most important relationships.`
-      : `None of the ${flaggedCount} suppliers with cycle-time anomalies are A-tier or Strategic — the anomalies sit on lower-spend, more replaceable suppliers. Lower urgency.`;
-
-  const INITIAL = 4;
-  const shown = expanded ? rows : rows.slice(0, INITIAL);
-  const extra = rows.length - INITIAL;
-  const flagMixLine = `Outlier ${flagMix.has_outlier} · Inconsistent ${flagMix.inconsistent} · Stage-dom ${flagMix.has_stage_dom}`;
+  const { process, classification, distinctFlagged, compoundCount, compoundIds, importantUnionCount } = hub;
+  const hubSynthesis =
+    `${distinctFlagged} supplier${distinctFlagged === 1 ? "" : "s"} show a cross-analysis anomaly — ` +
+    `${process.flaggedCount} on process (cycle execution), ${classification.flaggedCount} on classification (lens disagreement), ` +
+    `${compoundCount} on both. ${importantUnionCount} sit on important relationships (A-tier or Strategic).`;
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex flex-col gap-3">
       {header}
-      <p className="px-3 text-xs text-muted-foreground">{synthesis}</p>
-      {degraded && (
-        <p className="px-3 text-xs text-muted-foreground/80">
-          Full breakdown unavailable — showing outlier flags only.
-        </p>
-      )}
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {/* Stat tile: $ exposure + coverage + flag mix. */}
-        <StatTile
-          label="Exposure"
-          color={ANOMALY_ACCENT}
-          value={usd(importantSpend)}
-          caption={
-            <>
-              {importantCount} of {flaggedCount} flagged suppliers are A-tier or Strategic
-              <br />
-              {flagMixLine}
-            </>
-          }
-        />
-
-        {/* Wide list tile: flagged suppliers, important first. */}
-        <Tile label="Flagged suppliers" color={ANOMALY_ACCENT} count={flaggedCount} wide>
-          <ul className="flex flex-col">
-            {shown.map((row) => (
-              <AnomalyRow key={row.supplier_id} row={row} onSupplier={onSupplier} />
-            ))}
-          </ul>
-          {extra > 0 && (
-            <button
-              onClick={() => setExpanded((e) => !e)}
-              className="mt-1 flex items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
-              {expanded ? "Show less" : `+${extra} more`}
-            </button>
-          )}
-        </Tile>
+      <div className="flex max-w-3xl items-start gap-2 rounded-md border bg-muted/30 p-3">
+        <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        <p className="text-sm font-medium text-foreground">{hubSynthesis}</p>
       </div>
+
+      <ProcessBlock
+        xref={process}
+        degraded={degraded}
+        compoundIds={compoundIds}
+        onSupplier={onProcessSupplier}
+      />
+      <ClassificationBlock
+        cls={classification}
+        compoundIds={compoundIds}
+        onSupplier={onClassificationSupplier}
+      />
     </section>
   );
 }
@@ -762,7 +1073,10 @@ export function ActionDashboardView({
     setSelectedSupplierId(id);
   };
   const onSupplier = canDrill ? (id: string) => openSupplier(id, "classification") : undefined;
-  const onAnomalySupplier = canDrill ? (id: string) => openSupplier(id, "process") : undefined;
+  // Hub rows open the modal on the tab of their family: process → Process,
+  // classification → Classification.
+  const onProcessSupplier = canDrill ? (id: string) => openSupplier(id, "process") : undefined;
+  const onClassificationSupplier = canDrill ? (id: string) => openSupplier(id, "classification") : undefined;
 
   const insights: Record<ActionGroupId, string | null> = {
     spend: narrative ? spendInsight(narrative) : null,
@@ -846,15 +1160,17 @@ export function ActionDashboardView({
         );
       })}
 
-      {/* Cross-cutting 4th section: process anomalies × classification position.
-          The first "hub" piece — it spans analyses, so it sits outside the three
-          per-analysis bands. Self-fetches the breakdown roster (span-scoped). */}
-      <AnomalyExposureSection
+      {/* Cross-cutting 4th section: the Cross-Analysis Anomaly Hub — process
+          anomalies (Batch 1) + classification lens-disagreement (Batch 2) in one
+          area. Spans analyses, so it sits outside the three per-analysis bands. */}
+      <CrossAnalysisAnomalyHub
         cycleTime={cycleTime}
         perf={perf}
+        kraljic={kraljic}
         startDate={startDate}
         endDate={endDate}
-        onSupplier={onAnomalySupplier}
+        onProcessSupplier={onProcessSupplier}
+        onClassificationSupplier={onClassificationSupplier}
       />
 
       {/* Nothing flagged at all */}
