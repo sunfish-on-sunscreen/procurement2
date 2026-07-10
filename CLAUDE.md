@@ -32,7 +32,58 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
-### CROSS-PAGE ANOMALIES, BATCH 3 (2026-07-10, latest) — TEMPORAL FAMILY → 3-FAMILY HUB COMPLETE
+### SUPPLIER SELECTION VIEW (2026-07-10, latest) — BEST-SUPPLIER-PER-CATEGORY ENGINE
+
+**New page `/supplier-selection` (nav: after Action Priorities) — the
+decision-support half of the cross-page vision (the anomaly hub was the diagnostic
+half).** Per procurement CATEGORY, ranks suppliers by a transparent weighted blend
+of THREE EXISTING signals and surfaces a recommended pick with reasoning. NO new
+fundamental scoring, NO Python/compute change, NO new endpoint (reuses
+compute-range). 5th analytical page.
+
+- **`lib/supplier-selection.ts` (NEW, pure):** `fit = 0.50·Performance +
+  0.30·Safety + 0.20·PriceValue` (all 0–100). `SELECTION_WEIGHTS = {perf:0.50,
+  safety:0.30, price:0.20}` — NAMED constant, tunable. **Performance** =
+  `perf.performance_score` (composite); **Safety** = `100 − Kraljic
+  supply_risk_score`; **PriceValue** = `100 − cost_premium×4` (the 0–25 Kraljic
+  cost-premium term). `buildSupplierSelection` ranks per category (fit desc),
+  flags the top pick, derives a plain "why" from the component pattern, sets
+  `soleSource` (1 supplier) / `thinData` (≤2) edge flags; categories sorted
+  most-spend-first.
+- **⚠️ PRICEVALUE IS AN OVERPRICING PENALTY, NOT A CHEAPNESS REWARD.** The source
+  `cost_premium` is `clip(premium×62.5, 0, 25)` — below-market clips to 0, so
+  at-market, below-market, AND un-benchmarked suppliers ALL score PriceValue 100;
+  only measured above-benchmark pricing is docked. Live: 31/55 suppliers at
+  premium 0, 24/55 with a measured premium. **Surfaced honestly in the UI** — Price
+  bars labelled "Price vs. benchmark" + a page-level caveat box ("reflects not
+  overpaying… not a 'cheapest' ranking"). No-benchmark fallback = PriceValue 100.
+  **⚠️ FUTURE REFINEMENT (Path B, deliberately NOT this batch):** a SIGNED
+  price-from-Purchase signal (per-supplier per-item unit price vs the item
+  spend-weighted benchmark, keeping the below-market sign) would REWARD cheapness
+  and map no-benchmark → neutral 50 — needs a new TS route querying Purchase
+  (replicating `_cost_premium_points`); no Python change. Noted as a follow-up.
+- **`components/SupplierSelection/SupplierSelectionClient.tsx` (NEW):** client
+  fetches span-scoped `perf` + `kraljic` (+ `cycle_time` for the modal) via
+  `/api/analyses/compute-range`, runs the pure blend, renders per-category cards —
+  ranked rows with **★ Recommended** (amber ring), 3-component bars (Perf green
+  `--zone-stars` / Safety blue `--quadrant-routine` / Price amber `--warning`), fit
+  score, the "why", and meta chips (ABC / Kraljic / zone / spend / country). Rows →
+  **REUSE `UnifiedSupplierDetailModal`** (perf/kraljic/cycleTime/dates all in hand).
+  Keyed on the span so a period change remounts (avoids set-state-in-effect).
+- **`page.tsx` (NEW, server):** resolves the span (BOTH modes), loads the GLOBAL
+  catalog maps `getSupplierCategoryMap` + `getSupplierDirectory` (category + country
+  — the analysis rows don't carry these), passes to the client. **Span-scoped like
+  the other analyses** (single-year + range both via compute-range).
+- **⚠️ VERIFIED (Range 2024–2026).** Picks sensible: Heavy Equipment OEM ★
+  Kobexindo fit 95.5 (Perf 91/Safety 100/Price 100); Mining Contractor ★ Madhani
+  (C-tier hidden gem); Cipta Kridatama correctly docked to 80.5 (Price 60, +9.9%
+  premium → "prices well above the category benchmark"). fit math verified; "why"
+  matches components; thin-data note (Conveyor & Belt 2 suppliers). Single-year 2026
+  recomputes (United Tractors ★ 98.6). Rows→modal (Classification tab). Dark-mode
+  token-safe. **No regressions** (Process Health, anomaly hub, modal intact after
+  the shared `Sidebar.tsx` nav edit). tsc/ESLint clean; Python untouched.
+
+### CROSS-PAGE ANOMALIES, BATCH 3 (2026-07-10) — TEMPORAL FAMILY → 3-FAMILY HUB COMPLETE
 
 **The Cross-Analysis Anomaly Hub is now COMPLETE with 3 families: process (Batch 1)
 · classification (Batch 2) · changed-over-time (Batch 3, NEW).** The temporal
