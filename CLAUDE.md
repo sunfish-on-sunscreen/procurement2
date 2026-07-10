@@ -32,7 +32,64 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
-### MOST RECENT SESSION (2026-07-09) — ACTION PRIORITIES → 3-GROUP DASHBOARD GRID — read this FIRST
+### MOST RECENT SESSION (2026-07-10) — CROSS-PAGE ANOMALIES, BATCH 1: "ANOMALY EXPOSURE" — read this FIRST
+
+**Batch 1 of the cross-page-anomaly project shipped: a new AMBER "Anomaly
+exposure" section on Action Priorities that cross-references the THREE EXISTING
+Process Health cycle-time anomaly flags against each flagged supplier's ABC /
+Kraljic / performance-zone position.** The first "hub" piece — it spans analyses,
+so it renders as a dedicated 4th section BELOW the 3 `ACTION_GROUPS` bands (not
+inside any one band). Presentation + a pure join only; NO compute change, NO new
+endpoint, NO migration, NO range-cache clear. Both AP modes; dark-mode/token-safe.
+
+- **Shared flag helper (`lib/cycle-flags.ts`, NEW) — the regression-sensitive
+  extraction.** The ~15-line flag derivation was lifted VERBATIM out of
+  `CycleTimeClient.tsx` into `deriveCycleFlags({roster, anomalies, stageAnomalies})
+  → {flagsBySupplier, flagCounts, flagPoCounts, iqrCutoff}`. Same
+  `IQR > 1.5×median(roster IQRs)` rule, same outlier-set + stage-dom-set
+  membership. **Imported by BOTH `CycleTimeClient` AND `ActionDashboardView`** so
+  the flags are guaranteed identical across the two pages. ⚠️ **Process Health is a
+  regression surface** — verified byte-identical via independent recompute (Range:
+  outlier 11 suppliers / 15 POs, inconsistent 2, stage-dom 35 / 95 POs; roster
+  chips + filter sync unchanged). Do NOT re-inline this logic.
+- **Cross-reference (`lib/anomaly-crossref.ts`, NEW, pure):**
+  `buildAnomalyCrossref({flagsBySupplier, perfSuppliers, roster})` joins each
+  flagged supplier's `{flags}` with `{abc_class}` (from the breakdown roster) +
+  `{total_spend_usd, kraljic_quadrant, zone}` (from `performance_spend`).
+  **`important = abc_class==='A' OR kraljic_quadrant==='Strategic'`.** Rolls up
+  `flaggedCount / importantCount / importantSpend / flagMix`, rows sorted
+  IMPORTANT-first then spend-desc.
+- **Plumbing = ONE breakdown fetch, no new endpoint.** `ActionDashboardView`'s new
+  `AnomalyExposureSection` self-fetches `/api/cycle-time/breakdown?start&end`
+  (span-scoped, keyed on the dates AP already passes in BOTH modes — the exact
+  route + lazy pattern Process Health / the unified modal use). `has_outlier` comes
+  from the already-loaded `cycleTime.anomalies` (needs no breakdown); ABC comes
+  FREE from `breakdown.bySupplier[].abc_class`; spend/Kraljic/zone from the `perf`
+  prop AP already loads.
+- **The section (amber accent = `--warning`):** band header "Anomaly exposure —
+  process anomalies, weighted by who they hit" + "N flagged"; a
+  severity-INVERTING synthesis line (≥1 important → "concentrated on your most
+  important relationships"; 0 important → "lower urgency"); a `$`-exposure StatTile
+  (importantSpend + coverage + flag-mix line); a wide list tile (flagged suppliers,
+  important-first, top-4 + "+N more") with FLAG chips (Outlier=`--warning`,
+  Inconsistent=`--primary`, Stage-dom=`--destructive` — mirrors PH's `FLAG_META`)
+  and bordered POSITION chips (Class A / Kraljic / zone — A-tier + Strategic
+  highlighted amber). Rows call `onSupplier(id)` → the **unified modal**.
+- **Row → unified modal opens on the PROCESS tab.** Added an optional `initialTab?:
+  Tab` prop to `UnifiedSupplierDetailModal` (default `"classification"` → all
+  existing callers unchanged); the anomaly rows pass `"process"`, and
+  `processOpened` is seeded true so the lazy Process fetch fires. Band rows +
+  peer-links still open on Classification.
+- **⚠️ VERIFIED numbers (2026-07-10).** RANGE (2024–2026): **36 flagged / 16
+  important / $491.8M** exposure / flag-mix outlier 11 · inconsistent 2 · stage-dom
+  35. SINGLE-YEAR 2026: **10 / 5 / $23.2M** / mix **0** · 7 · 4 (exercises the
+  Outlier-0 case). Both match an independent recompute EXACTLY. tsc + ESLint clean;
+  no console/server errors on a cold build. **Degraded (breakdown-fetch-fail →
+  outlier-only + note) + zero-flagged (neutral state) branches are
+  written-and-type-checked but NOT runtime-forced** (no failing/empty span was
+  available to trigger them) — accepted as defensive for Batch 1.
+
+### SESSION (2026-07-09) — ACTION PRIORITIES → 3-GROUP DASHBOARD GRID
 
 **Action Priorities restructured into 3 analysis-grouped sections + 3 new
 categories, rendered as a compact instrument-panel dashboard grid.** ONE commit

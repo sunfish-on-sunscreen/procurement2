@@ -3,20 +3,14 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { CycleTimeResult, RangeAnalyses } from "@/lib/analysis-types";
-import type { CycleBreakdown, CycleFlagKey, SupplierFlagState } from "@/lib/cycle-time-types";
+import type { CycleBreakdown, CycleFlagKey } from "@/lib/cycle-time-types";
 import { CycleTimeGlancePanel } from "@/components/CycleTime/CycleTimeGlancePanel";
 import { CycleStatGrid } from "@/components/CycleTime/CycleStatGrid";
 import { CycleTimeAnomalyCards } from "@/components/CycleTime/CycleTimeAnomalyCards";
 import { CycleTimeView } from "@/components/CycleTimeView";
 import { CycleSupplierSection } from "@/components/CycleTime/CycleSupplierSection";
 import { StageBreakdownSection } from "@/components/CycleTime/StageBreakdownSection";
-
-const median = (xs: number[]) => {
-  if (xs.length === 0) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
+import { deriveCycleFlags } from "@/lib/cycle-flags";
 
 /**
  * Client wrapper that owns the Cycle Time page's interactive coordination: the
@@ -114,36 +108,18 @@ export function CycleTimeClient({
   }
 
   // ---- Supplier-level flag derivation (breakdown-dependent) --------------- #
-  // Every flag is derived CLIENT-SIDE from already-fetched data; the same
-  // flagsBySupplier map drives the cards, the roster chips/column, and the roster
-  // filter, so a card's count always equals the number of rows its filter shows.
+  // Derived CLIENT-SIDE from already-fetched data via the SHARED helper
+  // (lib/cycle-flags) so the Action Priorities cross-page section computes the
+  // exact same flags. The same flagsBySupplier map drives the cards, the roster
+  // chips/column, and the roster filter, so a card's count always equals the
+  // number of rows its filter shows.
   const roster = breakdown?.bySupplier ?? [];
   const stageAnomalies = breakdown?.stageAnomalies ?? [];
-  // "Inconsistent" = IQR beyond 1.5× the portfolio median (Tukey 1.5×IQR
-  // convention), so only genuinely high-variability suppliers are flagged.
-  const iqrMedian = roster.length ? median(roster.map((r) => r.iqr)) : 0;
-  const iqrCutoff = iqrMedian * 1.5;
-  const outlierSup = new Set(cycleTime.anomalies.map((a) => a.supplier_id));
-  const stageDomSup = new Set(stageAnomalies.map((a) => a.supplier_id));
-
-  const flagsBySupplier = new Map<string, SupplierFlagState>();
-  for (const r of roster) {
-    flagsBySupplier.set(r.supplier_id, {
-      has_outlier: outlierSup.has(r.supplier_id),
-      inconsistent: r.iqr > iqrCutoff,
-      has_stage_dom: stageDomSup.has(r.supplier_id),
-    });
-  }
-  const flagCounts: Record<CycleFlagKey, number> = { has_outlier: 0, inconsistent: 0, has_stage_dom: 0 };
-  for (const f of flagsBySupplier.values()) {
-    if (f.has_outlier) flagCounts.has_outlier++;
-    if (f.inconsistent) flagCounts.inconsistent++;
-    if (f.has_stage_dom) flagCounts.has_stage_dom++;
-  }
-  const flagPoCounts: Partial<Record<CycleFlagKey, number>> = {
-    has_outlier: cycleTime.anomalies.length,
-    has_stage_dom: stageAnomalies.length,
-  };
+  const { flagsBySupplier, flagCounts, flagPoCounts, iqrCutoff } = deriveCycleFlags({
+    roster,
+    anomalies: cycleTime.anomalies,
+    stageAnomalies,
+  });
 
   // Portfolio cycle context for the drill-down panel's stat comparison: the
   // population median/typical-range (cycle_time.distribution) + every supplier's
@@ -155,7 +131,8 @@ export function CycleTimeClient({
     supplierMedians: roster.map((r) => r.median_cycle),
     // Flag threshold (1.5 × median supplier IQR) → the consistency chart's band
     // half-width, so out-of-band crossings agree with the Inconsistent flag.
-    iqrCutoff: roster.length ? iqrCutoff : null,
+    // Already null-guarded on an empty roster by deriveCycleFlags.
+    iqrCutoff,
   };
 
   // Single active flag drives cards + chips (shared state). Cards scroll to the

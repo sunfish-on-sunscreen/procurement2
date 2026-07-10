@@ -52,6 +52,7 @@ export function UnifiedSupplierDetailModal({
   cycleTime,
   onClose,
   onSupplierClick,
+  initialTab = "classification",
 }: {
   supplierId: string | null;
   startDate: string;
@@ -61,19 +62,24 @@ export function UnifiedSupplierDetailModal({
   cycleTime: CycleTimeResult | null;
   onClose: () => void;
   onSupplierClick: (id: string) => void;
+  /** Which tab opens first. Defaults to Classification (all existing callers);
+   *  the Anomaly-exposure rows pass "process" to land on the cycle detail. */
+  initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("classification");
-  // Process is fetched only after its tab is first opened.
-  const [processOpened, setProcessOpened] = useState(false);
+  const [tab, setTab] = useState<Tab>(initialTab);
+  // Process is fetched only after its tab is first opened (seeded true when the
+  // modal is asked to open directly on Process).
+  const [processOpened, setProcessOpened] = useState(initialTab === "process");
 
   // Reset the tab + lazy Process flag whenever the supplier OR span changes
-  // (render-time compare — no set-state-in-effect).
+  // (render-time compare — no set-state-in-effect). Resets to whichever tab the
+  // opener requested, so re-opening on Process re-lands on Process.
   const resetKey = `${supplierId}_${startDate}_${endDate}`;
   const [prevReset, setPrevReset] = useState(resetKey);
   if (prevReset !== resetKey) {
     setPrevReset(resetKey);
-    setTab("classification");
-    setProcessOpened(false);
+    setTab(initialTab);
+    setProcessOpened(initialTab === "process");
   }
 
   const openTab = (t: Tab) => {

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowRight, ChevronDown, Lightbulb } from "lucide-react";
+import { ArrowRight, ChevronDown, Lightbulb, TriangleAlert } from "lucide-react";
 import type {
   RecommendationsResult,
   RecommendationsNarrative,
@@ -13,12 +13,19 @@ import type {
   PerformanceSpendResult,
   KraljicResult,
 } from "@/lib/analysis-types";
+import type {
+  CycleBreakdown,
+  CycleFlagKey,
+  SupplierFlagState,
+} from "@/lib/cycle-time-types";
 import {
   ACTION_GROUPS,
   CATEGORY_LABEL,
   CATEGORY_COLOR_VAR,
   CATEGORY_NUDGE,
 } from "@/lib/action-priorities";
+import { deriveCycleFlags } from "@/lib/cycle-flags";
+import { buildAnomalyCrossref, type CrossAnomalyRow } from "@/lib/anomaly-crossref";
 import { UnifiedSupplierDetailModal } from "@/components/UnifiedSupplierDetailModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -421,6 +428,298 @@ function verbFor(items: Recommendation[], fallback: RecommendationAction): strin
   return (items[0]?.action ?? fallback).toUpperCase();
 }
 
+// ===========================================================================
+// Anomaly exposure — the first cross-page "hub" section (Batch 1).
+// Cross-references the three EXISTING process anomaly flags (from the shared
+// deriveCycleFlags helper — identical to Process Health) against each flagged
+// supplier's ABC / Kraljic / zone position, so the hub can weight a cycle
+// problem by WHO it lands on. Self-fetches the breakdown roster (span-scoped);
+// degrades to outlier-only if that fetch fails.
+// ===========================================================================
+type DetailTab = "classification" | "spend" | "process";
+
+const ANOMALY_ACCENT = "var(--warning)"; // amber — marks the cross-cutting section
+
+// Flag identity — mirrors Process Health's FLAG_META exactly (colour + label).
+const ANOMALY_FLAG_META: Record<CycleFlagKey, { label: string; color: string }> = {
+  has_outlier: { label: "Outlier", color: "var(--warning)" },
+  inconsistent: { label: "Inconsistent", color: "var(--primary)" },
+  has_stage_dom: { label: "Stage-dom", color: "var(--destructive)" },
+};
+const ANOMALY_FLAG_ORDER: CycleFlagKey[] = ["has_outlier", "inconsistent", "has_stage_dom"];
+
+/** A coloured flag chip (dot + label — never colour alone). */
+function FlagChip({ k }: { k: CycleFlagKey }) {
+  const meta = ANOMALY_FLAG_META[k];
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium"
+      style={{
+        color: meta.color,
+        backgroundColor: `color-mix(in srgb, ${meta.color} 14%, transparent)`,
+      }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: meta.color }} />
+      {meta.label}
+    </span>
+  );
+}
+
+/** A bordered position chip; `important` (A-tier / Strategic) gets the amber highlight. */
+function PositionChip({ label, important }: { label: string; important?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded border px-1.5 py-0.5 text-[11px]",
+        !important && "text-muted-foreground",
+      )}
+      style={
+        important
+          ? {
+              color: ANOMALY_ACCENT,
+              borderColor: ANOMALY_ACCENT,
+              backgroundColor: `color-mix(in srgb, ${ANOMALY_ACCENT} 12%, transparent)`,
+            }
+          : { borderColor: "color-mix(in srgb, var(--foreground) 15%, transparent)" }
+      }
+    >
+      {label}
+    </span>
+  );
+}
+
+/** One flagged-supplier row: name + spend, then flag chips + position chips. */
+function AnomalyRow({
+  row,
+  onSupplier,
+}: {
+  row: CrossAnomalyRow;
+  onSupplier?: (id: string) => void;
+}) {
+  const clickable = !!onSupplier;
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium">{row.supplier_name}</span>
+          {clickable && (
+            <ArrowRight className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          )}
+        </span>
+        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+          {row.total_spend_usd != null ? usd(row.total_spend_usd) : "—"}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {ANOMALY_FLAG_ORDER.filter((k) => row.flags[k]).map((k) => (
+          <FlagChip key={k} k={k} />
+        ))}
+        <span className="mx-0.5 text-muted-foreground/40">·</span>
+        {row.abc_class && (
+          <PositionChip label={`Class ${row.abc_class}`} important={row.abc_class === "A"} />
+        )}
+        {row.kraljic_quadrant && (
+          <PositionChip
+            label={row.kraljic_quadrant}
+            important={row.kraljic_quadrant === "Strategic"}
+          />
+        )}
+        {row.zone && <PositionChip label={row.zone} />}
+      </div>
+    </>
+  );
+  const cls = "block w-full rounded px-1.5 py-1.5 text-left";
+  return clickable ? (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSupplier!(row.supplier_id)}
+        className={cn("group hover:bg-muted/60", cls)}
+      >
+        {body}
+      </button>
+    </li>
+  ) : (
+    <li className={cls}>{body}</li>
+  );
+}
+
+function AnomalyExposureSection({
+  cycleTime,
+  perf,
+  startDate,
+  endDate,
+  onSupplier,
+}: {
+  cycleTime?: CycleTimeResult | null;
+  perf?: PerformanceSpendResult | null;
+  startDate?: string;
+  endDate?: string;
+  onSupplier?: (id: string) => void;
+}) {
+  const [bd, setBd] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const key = `${startDate ?? ""}_${endDate ?? ""}`;
+
+  // Span-scoped breakdown fetch (same route Process Health uses). Reset expand on span change.
+  const [prevKey, setPrevKey] = useState(key);
+  if (prevKey !== key) {
+    setPrevKey(key);
+    if (expanded) setExpanded(false);
+  }
+  useEffect(() => {
+    if (!startDate || !endDate) return;
+    let cancelled = false;
+    const k = `${startDate}_${endDate}`;
+    fetch(`/api/cycle-time/breakdown?start=${startDate}&end=${endDate}`)
+      .then(async (res) => {
+        if (!res.ok)
+          throw new Error(
+            ((await res.json().catch(() => ({}))) as { error?: string }).error ||
+              "Failed to load breakdown",
+          );
+        return res.json() as Promise<CycleBreakdown>;
+      })
+      .then((d) => { if (!cancelled) setBd({ key: k, data: d }); })
+      .catch((e: unknown) => { if (!cancelled) setBd({ key: k, err: e instanceof Error ? e.message : String(e) }); });
+    return () => { cancelled = true; };
+  }, [startDate, endDate]);
+
+  // No span → can't fetch (shouldn't happen: both AP modes pass dates).
+  if (!startDate || !endDate) return null;
+
+  const breakdown = bd?.key === key ? bd.data : undefined;
+  const breakdownErr = bd?.key === key ? bd.err : undefined;
+  const pending = !breakdown && !breakdownErr;
+
+  const anomalies = cycleTime?.anomalies ?? [];
+  const roster = breakdown?.bySupplier ?? [];
+  const stageAnomalies = breakdown?.stageAnomalies ?? [];
+
+  // Full derivation when the breakdown is present; otherwise degrade to
+  // outlier-only (has_outlier needs no breakdown — it's in cycle_time.anomalies).
+  const degraded = !breakdown && !!breakdownErr;
+  let flagsBySupplier: Map<string, SupplierFlagState>;
+  if (breakdown) {
+    flagsBySupplier = deriveCycleFlags({ roster, anomalies, stageAnomalies }).flagsBySupplier;
+  } else {
+    flagsBySupplier = new Map();
+    for (const a of anomalies) {
+      if (!flagsBySupplier.has(a.supplier_id))
+        flagsBySupplier.set(a.supplier_id, {
+          has_outlier: true,
+          inconsistent: false,
+          has_stage_dom: false,
+        });
+    }
+  }
+
+  const xref = buildAnomalyCrossref({
+    flagsBySupplier,
+    perfSuppliers: perf?.suppliers ?? [],
+    roster,
+  });
+  const { rows, flaggedCount, importantCount, importantSpend, flagMix } = xref;
+
+  // Header (always shown once we have a span).
+  const header = (
+    <div
+      className="flex items-center gap-2 rounded-md px-3 py-1.5"
+      style={{ backgroundColor: `color-mix(in srgb, ${ANOMALY_ACCENT} 12%, transparent)` }}
+    >
+      <TriangleAlert className="h-4 w-4 shrink-0" style={{ color: ANOMALY_ACCENT }} aria-hidden />
+      <span className="text-sm font-semibold" style={{ color: ANOMALY_ACCENT }}>
+        Anomaly exposure
+      </span>
+      <span className="hidden text-xs text-muted-foreground sm:inline">
+        — process anomalies, weighted by who they hit
+      </span>
+      {!pending && (
+        <span className="ml-auto font-mono text-xs text-muted-foreground">
+          {flaggedCount} flagged
+        </span>
+      )}
+    </div>
+  );
+
+  if (pending) {
+    return (
+      <section className="flex flex-col gap-2">
+        {header}
+        <p className="px-3 text-xs text-muted-foreground">Cross-referencing process anomalies…</p>
+      </section>
+    );
+  }
+
+  // Zero flagged → neutral state (still show the section so its absence reads as a signal).
+  if (flaggedCount === 0) {
+    return (
+      <section className="flex flex-col gap-2">
+        {header}
+        <p className="px-3 text-xs text-muted-foreground">
+          No cycle-time anomalies flagged this period.
+        </p>
+      </section>
+    );
+  }
+
+  const synthesis =
+    importantCount > 0
+      ? `${importantCount} of ${flaggedCount} suppliers with cycle-time anomalies ${importantCount === 1 ? "is" : "are"} A-tier or Strategic — ${usd(importantSpend)} of spend. A process problem concentrated on your most important relationships.`
+      : `None of the ${flaggedCount} suppliers with cycle-time anomalies are A-tier or Strategic — the anomalies sit on lower-spend, more replaceable suppliers. Lower urgency.`;
+
+  const INITIAL = 4;
+  const shown = expanded ? rows : rows.slice(0, INITIAL);
+  const extra = rows.length - INITIAL;
+  const flagMixLine = `Outlier ${flagMix.has_outlier} · Inconsistent ${flagMix.inconsistent} · Stage-dom ${flagMix.has_stage_dom}`;
+
+  return (
+    <section className="flex flex-col gap-2">
+      {header}
+      <p className="px-3 text-xs text-muted-foreground">{synthesis}</p>
+      {degraded && (
+        <p className="px-3 text-xs text-muted-foreground/80">
+          Full breakdown unavailable — showing outlier flags only.
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Stat tile: $ exposure + coverage + flag mix. */}
+        <StatTile
+          label="Exposure"
+          color={ANOMALY_ACCENT}
+          value={usd(importantSpend)}
+          caption={
+            <>
+              {importantCount} of {flaggedCount} flagged suppliers are A-tier or Strategic
+              <br />
+              {flagMixLine}
+            </>
+          }
+        />
+
+        {/* Wide list tile: flagged suppliers, important first. */}
+        <Tile label="Flagged suppliers" color={ANOMALY_ACCENT} count={flaggedCount} wide>
+          <ul className="flex flex-col">
+            {shown.map((row) => (
+              <AnomalyRow key={row.supplier_id} row={row} onSupplier={onSupplier} />
+            ))}
+          </ul>
+          {extra > 0 && (
+            <button
+              onClick={() => setExpanded((e) => !e)}
+              className="mt-1 flex items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+              {expanded ? "Show less" : `+${extra} more`}
+            </button>
+          )}
+        </Tile>
+      </div>
+    </section>
+  );
+}
+
 type ActionGroupId = (typeof ACTION_GROUPS)[number]["id"];
 
 export function ActionDashboardView({
@@ -446,16 +745,24 @@ export function ActionDashboardView({
   const of = (t: RecommendationCategory) => recommendations.filter((r) => r.type === t);
 
   // In-place supplier detail (replaces the old ?supplier= redirect). Only wired
-  // when the period's perf + dates are available.
+  // when the period's perf + dates are available. `detailTab` lets a click choose
+  // which of the modal's three tabs opens first — band rows land on Classification,
+  // the Anomaly-exposure rows land on Process (where the cycle detail lives).
   const canDrill = !!(perf && startDate && endDate);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("classification");
   const spanKey = `${startDate ?? ""}_${endDate ?? ""}`;
   const [prevSpan, setPrevSpan] = useState(spanKey);
   if (prevSpan !== spanKey) {
     setPrevSpan(spanKey);
     if (selectedSupplierId !== null) setSelectedSupplierId(null);
   }
-  const onSupplier = canDrill ? setSelectedSupplierId : undefined;
+  const openSupplier = (id: string, tab: DetailTab) => {
+    setDetailTab(tab);
+    setSelectedSupplierId(id);
+  };
+  const onSupplier = canDrill ? (id: string) => openSupplier(id, "classification") : undefined;
+  const onAnomalySupplier = canDrill ? (id: string) => openSupplier(id, "process") : undefined;
 
   const insights: Record<ActionGroupId, string | null> = {
     spend: narrative ? spendInsight(narrative) : null,
@@ -539,6 +846,17 @@ export function ActionDashboardView({
         );
       })}
 
+      {/* Cross-cutting 4th section: process anomalies × classification position.
+          The first "hub" piece — it spans analyses, so it sits outside the three
+          per-analysis bands. Self-fetches the breakdown roster (span-scoped). */}
+      <AnomalyExposureSection
+        cycleTime={cycleTime}
+        perf={perf}
+        startDate={startDate}
+        endDate={endDate}
+        onSupplier={onAnomalySupplier}
+      />
+
       {/* Nothing flagged at all */}
       {recommendations.length === 0 && (
         <Card>
@@ -552,13 +870,14 @@ export function ActionDashboardView({
       {canDrill && perf && startDate && endDate && (
         <UnifiedSupplierDetailModal
           supplierId={selectedSupplierId}
+          initialTab={detailTab}
           startDate={startDate}
           endDate={endDate}
           kraljic={kraljic ?? null}
           perf={perf}
           cycleTime={cycleTime ?? null}
           onClose={() => setSelectedSupplierId(null)}
-          onSupplierClick={setSelectedSupplierId}
+          onSupplierClick={(id) => openSupplier(id, "classification")}
         />
       )}
     </div>
