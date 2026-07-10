@@ -443,7 +443,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       }.`,
     ],
     recommendedPriorities: (c) =>
-      `The actions below are ranked by impact on value at stake. Read top-down: the highest-ranked items concern the suppliers and processes where exposure — in spend, risk, or working capital — is greatest. We recommend owning the top ${Math.min(
+      `The actions below are organised by the three diagnostic analyses — Spend, Suppliers, and Process — with the highest-exposure items first in each. They concentrate on the suppliers and processes where exposure — in spend, risk, or working capital — is greatest. We recommend owning the top ${Math.min(
         5,
         Math.max(3, c.recTotal),
       )} at the executive level and delegating the remainder to category leads.`,
@@ -525,13 +525,13 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         : []),
     ],
     recommendedPriorities: (c) =>
-      `The actions below are ranked by impact score and ready to assign. Work the list top-down: each item names the supplier (or process stage), the recommended move, and the evidence behind it.${
+      `The actions below are organised by analysis — Spend, Suppliers, and Process — and ready to assign; within each, the highest-priority items come first. Each item names the supplier (or process stage), its category, the recommended move, and the evidence behind it.${
         c.criticalNames.length
           ? ` Start with ${c.criticalNames[0]} and the other Critical Issues — the highest-spend underperformers.`
           : ""
       }`,
     methodology: () =>
-      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned performance score against spend. Cycle time is monitored on total procure-to-pay days, with Z-score outlier detection and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendation impact scores are normalized to 0–100 per category. Use the named actions directly; each maps to a specific supplier or process stage.`,
+      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned performance score against spend. Cycle time is monitored on total procure-to-pay days, with Z-score outlier detection and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendations are grouped by source analysis (Spend / Suppliers / Process); use the named actions directly, each mapping to a specific supplier or process stage.`,
   },
 
   // ---- ANALYTICAL: analyst. Data-heavy, statistical framing, caveats, methodology.
@@ -637,15 +637,8 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           ]),
       `Caveat: filter/threshold boundaries are sample-relative; recompute on a filtered population for population-specific inference.`,
     ],
-    recommendedPriorities: (c) =>
-      `Recommendations are ranked by an impact score normalised to 0–100 within each category, so cross-category ordering is by construction comparable but not strictly commensurable. ${
-        c.topRec
-          ? `The highest-scoring item (${c.topRec.type.replace(
-              /_/g,
-              " ",
-            )}, score ${c.topRec.impact_score.toFixed(0)}) leads the list.`
-          : ""
-      } Treat the ranking as a triage aid; the underlying reasoning strings carry the supporting evidence.`,
+    recommendedPriorities: () =>
+      `Recommendations are grouped by source analysis (Spend / Suppliers / Process) and, within each category, ordered by a per-category priority rank — so ordering is comparable within a category but not strictly commensurable across them. Treat the ranking as a triage aid; the underlying reasoning strings carry the supporting evidence.`,
     methodology: (c) =>
       `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (supply concentration, cost premium, import friction); performance-vs-spend via a median × median cross of spend against the performance score; cycle-time process-health monitoring on total procure-to-pay days (median/IQR distribution, trailing 3-month rolling trend, Z-score outliers at > 2σ) with an optional two-sided Mann-Whitney U comparison (α = 0.05) and rank-biserial effect size between two date windows (current comparison n_a = ${intl.format(
         c.cmpNA,

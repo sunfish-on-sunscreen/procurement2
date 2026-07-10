@@ -19,6 +19,12 @@ import {
   categoryFilterActive,
 } from "@/lib/report-config";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
+import {
+  ACTION_GROUPS,
+  CATEGORY_LABEL,
+  CATEGORY_COLOR_VAR,
+} from "@/lib/action-priorities";
+import { buildClassificationAnomalies } from "@/lib/anomaly-crossref";
 import { usePin } from "@/components/Reports/PinContext";
 import { ReportTOC } from "@/components/Reports/ReportTOC";
 import { buttonVariants } from "@/components/ui/button";
@@ -56,13 +62,6 @@ const ZONE_ORDER = [
   "Hidden Gems",
   "Long Tail",
 ] as const;
-const ACTION_COLORS: Record<string, string> = {
-  engage: "#ef4444",
-  mitigate: "#f97316",
-  promote: "#10b981",
-  improve: "#3b82f6",
-};
-
 const usd = (n: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -702,41 +701,145 @@ export function ReportDocument({
                     No recommendations match the selected filters.
                   </p>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    {recsToShow.map((p, i) => {
-                      const pinned =
-                        p.supplier_id != null &&
-                        p.supplier_id === pinnedSupplierId;
+                  <div className="flex flex-col gap-4">
+                    {/* Grouped by the three diagnostic analyses (Spend / Suppliers /
+                        Process), mirroring the live Action Priorities structure. Each
+                        item is tagged with its category (one of the current eight);
+                        priority is conveyed by order, not a raw "Impact" number. */}
+                    {ACTION_GROUPS.map((group) => {
+                      const groupRecs = recsToShow.filter((r) =>
+                        group.categories.includes(r.type),
+                      );
+                      if (groupRecs.length === 0) return null;
                       return (
-                      <div
-                        key={i}
-                        onClick={() => p.supplier_id && pin(p.supplier_id)}
-                        className={`rounded-md border p-3 ${
-                          p.supplier_id ? "cursor-pointer" : ""
-                        } ${pinned ? "ring-1 ring-inset ring-foreground/30" : ""}`}
-                        style={{
-                          borderLeft: `4px solid ${ACTION_COLORS[p.action] ?? "#64748b"}`,
-                        }}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide">
-                            {p.action}
-                          </span>
-                          <span className="font-medium">
-                            {p.supplier_name ?? p.scope}
-                          </span>
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            Impact {p.impact_score.toFixed(0)}
-                          </span>
+                        <div key={group.id} className="flex flex-col gap-2">
+                          <div
+                            className="flex flex-wrap items-baseline gap-x-2 border-l-2 pl-2"
+                            style={{ borderColor: group.colorVar }}
+                          >
+                            <span
+                              className="text-sm font-semibold"
+                              style={{ color: group.colorVar }}
+                            >
+                              {group.title}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              — {group.tagline}
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            {groupRecs.map((p, i) => {
+                              const pinned =
+                                p.supplier_id != null &&
+                                p.supplier_id === pinnedSupplierId;
+                              return (
+                                <div
+                                  key={i}
+                                  onClick={() => p.supplier_id && pin(p.supplier_id)}
+                                  className={`rounded-md border p-3 ${
+                                    p.supplier_id ? "cursor-pointer" : ""
+                                  } ${pinned ? "ring-1 ring-inset ring-foreground/30" : ""}`}
+                                  style={{
+                                    borderLeft: `4px solid ${CATEGORY_COLOR_VAR[p.type]}`,
+                                  }}
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide">
+                                      {p.action}
+                                    </span>
+                                    <span className="font-medium">
+                                      {p.supplier_name ?? p.scope}
+                                    </span>
+                                    <span
+                                      className="ml-auto rounded px-1.5 py-0.5 text-xs font-medium"
+                                      style={{
+                                        color: CATEGORY_COLOR_VAR[p.type],
+                                        backgroundColor: `color-mix(in srgb, ${CATEGORY_COLOR_VAR[p.type]} 12%, transparent)`,
+                                      }}
+                                    >
+                                      {CATEGORY_LABEL[p.type]}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-sm text-muted-foreground">
+                                    {p.reasoning}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {p.reasoning}
-                        </p>
-                      </div>
                       );
                     })}
                   </div>
                 )}
+
+                {/* Cross-analysis anomalies (classification lens-disagreement).
+                    Computed from analyses already in this report (perf + kraljic +
+                    abc) via the shared buildClassificationAnomalies — no new fetch.
+                    The process-cycle anomaly family is deferred: it needs the per-PO
+                    breakdown roster this report doesn't carry (see note below). */}
+                {!brief &&
+                  (() => {
+                    const perf = analyses.performance_spend;
+                    const kr = analyses.kraljic;
+                    const abcRes = analyses.abc;
+                    if (!perf || !kr || !abcRes) return null;
+                    const supplyRiskById = new Map(
+                      kr.quadrant_assignments.map((q) => [
+                        q.supplier_id,
+                        q.supply_risk_score,
+                      ]),
+                    );
+                    const abcById = new Map(
+                      abcRes.classifications.map((c) => [c.supplier_id, c.abc_class]),
+                    );
+                    const cls = buildClassificationAnomalies({
+                      perfSuppliers: perf.suppliers,
+                      supplyRiskById,
+                      abcById,
+                    });
+                    if (cls.flaggedCount === 0) return null;
+                    const shown = detailed ? cls.rows : cls.rows.slice(0, 6);
+                    return (
+                      <div className="mt-3 flex flex-col gap-2 border-t pt-3">
+                        <h4 className="text-sm font-semibold text-foreground">
+                          Cross-analysis anomalies — lens disagreement
+                        </h4>
+                        <p className="text-sm text-muted-foreground">
+                          {cls.flaggedCount} of {cls.rosterSize} supplier(s) rank ≥ 80
+                          percentile-points apart across Spend, Performance, and
+                          Supply-risk — the analyses disagree about where they sit.
+                          Ranked by the size of the gap.
+                        </p>
+                        <ul className="flex flex-col gap-1">
+                          {shown.map((r, i) => (
+                            <li
+                              key={r.supplier_id}
+                              className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+                            >
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {i + 1}
+                              </span>
+                              <span className="font-medium">{r.supplier_name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {r.verdict.toLowerCase()}
+                              </span>
+                              <span className="ml-auto font-mono text-xs text-muted-foreground">
+                                S {r.spend_pct} · P {r.performance_pct} · R{" "}
+                                {r.risk_pct} · gap {r.disagreement}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-muted-foreground">
+                          Process-cycle anomalies (outlier / inconsistent /
+                          stage-dominated POs) appear on the live Action Priorities
+                          hub; they draw on per-PO cycle detail not carried in this
+                          report.
+                        </p>
+                      </div>
+                    );
+                  })()}
               </ReportSection>
             )}
 

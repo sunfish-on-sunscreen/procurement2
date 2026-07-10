@@ -32,7 +32,46 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
-### DOC FIX (2026-07-10, latest) — METHODOLOGY PAGE ALIGNED TO CURRENT MODEL
+### REPORTS ALIGNED (2026-07-10, latest) — ACTION PRIORITIES STRUCTURE + CLASSIFICATION ANOMALY SUMMARY
+
+**The Reports feature was brought in line with the current app.** Presentation/copy
+only — NO `scores.py`/compute change, export path untouched, both render paths
+(persisted `/reports/[id]` + ephemeral `/reports/preview`) work.
+
+- **⚠️ "Impact N" REMOVED; recs regrouped by the 3 diagnostic analyses.**
+  `ReportDocument` no longer renders the flat impact-ranked list with an "Impact N"
+  badge. Recs are now grouped by `ACTION_GROUPS` (From your Spend / Supplier /
+  Process analysis — imported from `lib/action-priorities`), each item tagged with
+  its **category chip** (one of the current 8) + a `CATEGORY_COLOR_VAR` token
+  border; priority is conveyed by ORDER, not a number. The stale local
+  `ACTION_COLORS` hex map (only the old 4 actions) was DELETED.
+- **Classification anomaly summary ADDED (contained, no new fetch).** A
+  "Cross-analysis anomalies — lens disagreement" sub-block in the Recommended
+  Priorities section, computed via the shared `buildClassificationAnomalies`
+  (Batch 2) from data the report ALREADY has (`performance_spend` + `kraljic` +
+  `abc` — all in `ReportAnalyses`). Gated on `!brief`. Verified byte-consistent with
+  the live hub (Range 11/55, gaps 96/94/93). Same cutoff (80).
+- **⚠️ DEFERRED (noted follow-up): the process-cycle anomaly half** (outlier /
+  inconsistent / stage-dominated) is NOT in reports — it needs the per-PO
+  `/api/cycle-time/breakdown` roster (per-supplier IQR + stage anomalies), which
+  `ReportAnalyses` doesn't carry. Plumbing a live fetch into the shared
+  server/client/PDF-export component was deliberately deferred (risky
+  unsupervised). The report renders an **inline note** pointing to the live Action
+  Priorities hub for that family. **To finish later:** plumb the breakdown roster
+  into the report data path (or precompute the 3 process flags server-side into an
+  analysis the report reads), then reuse `deriveCycleFlags` + `buildAnomalyCrossref`
+  for the process block.
+- **Prose reframed in all 3 tones** (`lib/report-templates.ts`):
+  `recommendedPriorities` (executive/operational/analytical) + the operational
+  `methodology` line dropped "ranked by impact score" / "score N leads the list" →
+  "organised by analysis (Spend / Suppliers / Process)". ⚠️ **Reports never encoded
+  the old scoring weights** (templates say "CIPS-aligned performance score"
+  generically), so NO scoring-model copy change was needed in reports — the
+  methodology-page fix covered that surface.
+- Dark-mode safe (category chips + group titles are theme tokens, no hex).
+  tsc/ESLint clean.
+
+### DOC FIX (2026-07-10) — METHODOLOGY PAGE ALIGNED TO CURRENT MODEL
 
 **The in-app Methodology page (`app/(dashboard)/methodology/page.tsx`) was the LAST
 stale scoring surface — now corrected.** It described the pre-`aca864c` model
