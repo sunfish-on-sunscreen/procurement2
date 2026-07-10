@@ -30,7 +30,14 @@ import {
   CLASSIFICATION_DISAGREEMENT_CUTOFF,
   type CrossAnomalyRow,
   type ClassificationAnomalyRow,
+  type AnomalyFamily,
 } from "@/lib/anomaly-crossref";
+import {
+  buildTemporalAnomalies,
+  type TemporalMatrix,
+  type TemporalAnomalies,
+  type TemporalAnomalyRow,
+} from "@/lib/temporal-anomalies";
 import { UnifiedSupplierDetailModal } from "@/components/UnifiedSupplierDetailModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -494,14 +501,34 @@ function PositionChip({ label, important }: { label: string; important?: boolean
 }
 
 const CLASS_ACCENT = "var(--zone-hidden-gems)"; // violet — the classification family
+const TEMPORAL_ACCENT = "var(--temporal)"; // cyan — the changed-over-time family
 
-/** A subtle badge marking a supplier flagged in BOTH anomaly families. */
+const FAMILY_LABEL: Record<AnomalyFamily, string> = {
+  process: "process",
+  classification: "classification",
+  temporal: "temporal",
+};
+
+/** The "also X + Y" text for a supplier — the OTHER families it's flagged in, or
+ *  null when it's only in the current one. */
+function compoundLabel(
+  familiesBySupplier: Map<string, Set<AnomalyFamily>>,
+  supplierId: string,
+  current: AnomalyFamily,
+): string | null {
+  const fams = familiesBySupplier.get(supplierId);
+  if (!fams) return null;
+  const others = [...fams].filter((f) => f !== current);
+  return others.length ? `also ${others.map((f) => FAMILY_LABEL[f]).join(" + ")}` : null;
+}
+
+/** A subtle badge marking a supplier flagged in more than one anomaly family. */
 function CompoundBadge({ label }: { label: string }) {
   return (
     <span
       className="inline-flex items-center gap-0.5 rounded border border-dashed px-1 py-0.5 text-[10px] text-muted-foreground"
       style={{ borderColor: "color-mix(in srgb, var(--foreground) 30%, transparent)" }}
-      title="Flagged in both anomaly families"
+      title="Flagged in more than one anomaly family"
     >
       ⧉ {label}
     </span>
@@ -512,12 +539,12 @@ function CompoundBadge({ label }: { label: string }) {
 function AnomalyRow({
   row,
   onSupplier,
-  compound,
+  compoundText,
 }: {
   row: CrossAnomalyRow;
   onSupplier?: (id: string) => void;
-  /** Also flagged in the classification family → show the compound badge. */
-  compound?: boolean;
+  /** "also X" badge text when flagged in other families; null/undefined = none. */
+  compoundText?: string | null;
 }) {
   const clickable = !!onSupplier;
   const body = (
@@ -548,7 +575,7 @@ function AnomalyRow({
           />
         )}
         {row.zone && <PositionChip label={row.zone} />}
-        {compound && <CompoundBadge label="also classification" />}
+        {compoundText && <CompoundBadge label={compoundText} />}
       </div>
     </>
   );
@@ -602,12 +629,12 @@ function LensBars({ s, p, r }: { s: number; p: number; r: number }) {
 function ClassificationRow({
   row,
   rank,
-  compound,
+  compoundText,
   onSupplier,
 }: {
   row: ClassificationAnomalyRow;
   rank: number;
-  compound?: boolean;
+  compoundText?: string | null;
   onSupplier?: (id: string) => void;
 }) {
   const clickable = !!onSupplier;
@@ -647,7 +674,7 @@ function ClassificationRow({
               />
             )}
             {row.zone && <PositionChip label={row.zone} />}
-            {compound && <CompoundBadge label="also process" />}
+            {compoundText && <CompoundBadge label={compoundText} />}
           </div>
         </div>
       </div>
@@ -698,12 +725,12 @@ function SubBlockHeader({
 function ProcessBlock({
   xref,
   degraded,
-  compoundIds,
+  familiesBySupplier,
   onSupplier,
 }: {
   xref: ReturnType<typeof buildAnomalyHub>["process"];
   degraded: boolean;
-  compoundIds: Set<string>;
+  familiesBySupplier: Map<string, Set<AnomalyFamily>>;
   onSupplier?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -766,7 +793,7 @@ function ProcessBlock({
                 key={row.supplier_id}
                 row={row}
                 onSupplier={onSupplier}
-                compound={compoundIds.has(row.supplier_id)}
+                compoundText={compoundLabel(familiesBySupplier, row.supplier_id, "process")}
               />
             ))}
           </ul>
@@ -788,11 +815,11 @@ function ProcessBlock({
 // ---- Classification block (Batch 2: cross-lens disagreement ranking) ---------- //
 function ClassificationBlock({
   cls,
-  compoundIds,
+  familiesBySupplier,
   onSupplier,
 }: {
   cls: ReturnType<typeof buildAnomalyHub>["classification"];
-  compoundIds: Set<string>;
+  familiesBySupplier: Map<string, Set<AnomalyFamily>>;
   onSupplier?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -852,7 +879,210 @@ function ClassificationBlock({
                 key={row.supplier_id}
                 row={row}
                 rank={i + 1}
-                compound={compoundIds.has(row.supplier_id)}
+                compoundText={compoundLabel(familiesBySupplier, row.supplier_id, "classification")}
+                onSupplier={onSupplier}
+              />
+            ))}
+          </ul>
+          {extra > 0 && (
+            <button
+              onClick={() => setExpanded((e) => !e)}
+              className="mt-1 flex items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+              {expanded ? "Show less" : `+${extra} more`}
+            </button>
+          )}
+        </Tile>
+      </div>
+    </div>
+  );
+}
+
+// ---- Temporal block (Batch 3: changed-over-time, latest vs prior year) --------- //
+/** A cyan change chip (quadrant move / spend Δ% / score Δpts). */
+function TemporalChip({ label, title }: { label: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium"
+      style={{
+        color: TEMPORAL_ACCENT,
+        backgroundColor: `color-mix(in srgb, ${TEMPORAL_ACCENT} 14%, transparent)`,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** One changed-over-time row: name + latest spend, the change chips, position chips.
+ *  Rows open the unified modal on the Classification tab (where evolution lives). */
+function TemporalRow({
+  row,
+  rank,
+  compoundText,
+  onSupplier,
+}: {
+  row: TemporalAnomalyRow;
+  rank: number;
+  compoundText?: string | null;
+  onSupplier?: (id: string) => void;
+}) {
+  const clickable = !!onSupplier;
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="font-mono text-xs text-muted-foreground">{rank}</span>
+          <span className="truncate text-sm font-medium">{row.supplier_name}</span>
+          {clickable && (
+            <ArrowRight className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          )}
+        </span>
+        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+          {row.total_spend_usd != null ? usd(row.total_spend_usd) : "—"}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {row.quadrant && (
+          <TemporalChip
+            label={`${row.quadrant.from} → ${row.quadrant.to}`}
+            title={row.quadrant.axes_flipped === 2 ? "Diagonal quadrant move" : "Adjacent quadrant move"}
+          />
+        )}
+        {row.spend && (
+          <TemporalChip
+            label={`Spend ${row.spend.pct > 0 ? "+" : ""}${row.spend.pct}%`}
+            title={`${usd(row.spend.from)} → ${usd(row.spend.to)}`}
+          />
+        )}
+        {row.score && (
+          <TemporalChip
+            label={`Score ${row.score.delta > 0 ? "+" : ""}${row.score.delta}`}
+            title={`${row.score.from.toFixed(1)} → ${row.score.to.toFixed(1)}`}
+          />
+        )}
+        <span className="mx-0.5 text-muted-foreground/40">·</span>
+        {row.abc_class && (
+          <PositionChip label={`Class ${row.abc_class}`} important={row.abc_class === "A"} />
+        )}
+        {row.kraljic_quadrant && (
+          <PositionChip label={row.kraljic_quadrant} important={row.kraljic_quadrant === "Strategic"} />
+        )}
+        {row.zone && <PositionChip label={row.zone} />}
+        {compoundText && <CompoundBadge label={compoundText} />}
+      </div>
+    </>
+  );
+  const cls = "block w-full rounded px-1.5 py-1.5 text-left";
+  return clickable ? (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSupplier!(row.supplier_id)}
+        className={cn("group hover:bg-muted/60", cls)}
+      >
+        {body}
+      </button>
+    </li>
+  ) : (
+    <li className={cls}>{body}</li>
+  );
+}
+
+function TemporalBlock({
+  anomalies,
+  isRangeMode,
+  hasMatrix,
+  familiesBySupplier,
+  onSupplier,
+}: {
+  anomalies: TemporalAnomalies | null;
+  isRangeMode: boolean;
+  hasMatrix: boolean;
+  familiesBySupplier: Map<string, Set<AnomalyFamily>>;
+  onSupplier?: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const head = (count: number) => (
+    <SubBlockHeader
+      accent={TEMPORAL_ACCENT}
+      title="Changed over time"
+      tagline="year-over-year spend, quadrant, and score moves"
+      count={count}
+    />
+  );
+
+  // Single-year mode → nothing to compare.
+  if (!isRangeMode) {
+    return (
+      <div className="flex flex-col gap-2">
+        {head(0)}
+        <p className="px-3 text-xs text-muted-foreground">
+          Select <span className="font-medium text-foreground">Range</span> to see
+          year-over-year changes.
+        </p>
+      </div>
+    );
+  }
+  // Range but <2 periods available.
+  if (!hasMatrix || !anomalies) {
+    return (
+      <div className="flex flex-col gap-2">
+        {head(0)}
+        <p className="px-3 text-xs text-muted-foreground">
+          Needs at least two reporting periods to compare.
+        </p>
+      </div>
+    );
+  }
+
+  const { rows, flaggedCount, rosterSize, latestLabel, priorLabel, skippedLabel, byDetector } = anomalies;
+  if (flaggedCount === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        {head(0)}
+        <p className="px-3 text-xs text-muted-foreground">
+          No sharp year-over-year changes between {priorLabel} and {latestLabel}.
+        </p>
+      </div>
+    );
+  }
+
+  const INITIAL = 4;
+  const shown = expanded ? rows : rows.slice(0, INITIAL);
+  const extra = rows.length - INITIAL;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {head(flaggedCount)}
+      <p className="px-3 text-xs text-muted-foreground">
+        {flaggedCount} of {rosterSize} suppliers moved sharply from {priorLabel} to {latestLabel} —
+        a spend swing (≥2.5×), a Kraljic quadrant jump, or a ≥18-point score change.
+        {skippedLabel ? ` (${skippedLabel} excluded — partial year.)` : ""} Ranked by significance.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StatTile
+          label="By signal"
+          color={TEMPORAL_ACCENT}
+          value={String(flaggedCount)}
+          caption={
+            <>
+              Spend {byDetector.spend} · Quadrant {byDetector.quadrant} · Score {byDetector.score}
+              <br />
+              moved sharply, {priorLabel} → {latestLabel}
+            </>
+          }
+        />
+        <Tile label={`${priorLabel} → ${latestLabel}`} color={TEMPORAL_ACCENT} count={flaggedCount} wide>
+          <ul className="flex flex-col gap-1">
+            {shown.map((row, i) => (
+              <TemporalRow
+                key={row.supplier_id}
+                row={row}
+                rank={i + 1}
+                compoundText={compoundLabel(familiesBySupplier, row.supplier_id, "temporal")}
                 onSupplier={onSupplier}
               />
             ))}
@@ -873,12 +1103,13 @@ function ClassificationBlock({
 }
 
 /**
- * The unified Cross-Analysis Anomaly Hub (Batch 2). One amber section holding two
- * families: PROCESS anomalies (Batch 1's cycle flags × position) and CLASSIFICATION
- * anomalies (the cross-lens disagreement ranking). Self-fetches the breakdown
- * roster (span-scoped); the process side degrades to outlier-only if it fails, the
- * classification side reads perf + kraljic (no breakdown needed). A compound badge
- * marks suppliers flagged in both families.
+ * The unified Cross-Analysis Anomaly Hub. One amber section holding THREE families:
+ * PROCESS anomalies (Batch 1's cycle flags × position), CLASSIFICATION anomalies
+ * (Batch 2's cross-lens disagreement ranking), and CHANGED-OVER-TIME (Batch 3's
+ * latest-vs-prior temporal moves). Self-fetches the breakdown roster (span-scoped);
+ * the process side degrades to outlier-only if it fails; classification reads perf +
+ * kraljic; the temporal family reads a per-period matrix passed in (range mode
+ * only). A compound badge marks suppliers flagged in more than one family.
  */
 function CrossAnalysisAnomalyHub({
   cycleTime,
@@ -886,16 +1117,22 @@ function CrossAnalysisAnomalyHub({
   kraljic,
   startDate,
   endDate,
+  temporal,
+  isRangeMode,
   onProcessSupplier,
   onClassificationSupplier,
+  onTemporalSupplier,
 }: {
   cycleTime?: CycleTimeResult | null;
   perf?: PerformanceSpendResult | null;
   kraljic?: KraljicResult | null;
   startDate?: string;
   endDate?: string;
+  temporal?: TemporalMatrix | null;
+  isRangeMode?: boolean;
   onProcessSupplier?: (id: string) => void;
   onClassificationSupplier?: (id: string) => void;
+  onTemporalSupplier?: (id: string) => void;
 }) {
   const [bd, setBd] = useState<{ key: string; data?: CycleBreakdown; err?: string } | null>(null);
   const key = `${startDate ?? ""}_${endDate ?? ""}`;
@@ -954,11 +1191,15 @@ function CrossAnalysisAnomalyHub({
     supplyRiskById.set(q.supplier_id, q.supply_risk_score);
   }
 
+  // Temporal family (Batch 3): active only in range mode with a per-period matrix.
+  const temporalAnomalies = isRangeMode && temporal ? buildTemporalAnomalies(temporal) : null;
+
   const hub = buildAnomalyHub({
     flagsBySupplier,
     perfSuppliers: perf?.suppliers ?? [],
     roster,
     supplyRiskById,
+    temporal: temporalAnomalies,
   });
 
   const header = (
@@ -971,7 +1212,7 @@ function CrossAnalysisAnomalyHub({
         Cross-Analysis Anomaly Hub
       </span>
       <span className="hidden text-xs text-muted-foreground sm:inline">
-        — process + classification anomalies across your analyses
+        — process, classification, and changed-over-time anomalies across your analyses
       </span>
       {!pending && (
         <span className="ml-auto font-mono text-xs text-muted-foreground">
@@ -1002,11 +1243,14 @@ function CrossAnalysisAnomalyHub({
     );
   }
 
-  const { process, classification, distinctFlagged, compoundCount, compoundIds, importantUnionCount } = hub;
+  const { process, classification, temporal: temporalOut, distinctFlagged, compoundCount, familiesBySupplier, importantUnionCount } = hub;
+  const temporalClause = temporalOut
+    ? `, ${temporalOut.flaggedCount} on changed-over-time (year-over-year moves)`
+    : "";
   const hubSynthesis =
     `${distinctFlagged} supplier${distinctFlagged === 1 ? "" : "s"} show a cross-analysis anomaly — ` +
-    `${process.flaggedCount} on process (cycle execution), ${classification.flaggedCount} on classification (lens disagreement), ` +
-    `${compoundCount} on both. ${importantUnionCount} sit on important relationships (A-tier or Strategic).`;
+    `${process.flaggedCount} on process (cycle execution), ${classification.flaggedCount} on classification (lens disagreement)${temporalClause}; ` +
+    `${compoundCount} in more than one. ${importantUnionCount} sit on important relationships (A-tier or Strategic).`;
 
   return (
     <section className="flex flex-col gap-3">
@@ -1019,13 +1263,20 @@ function CrossAnalysisAnomalyHub({
       <ProcessBlock
         xref={process}
         degraded={degraded}
-        compoundIds={compoundIds}
+        familiesBySupplier={familiesBySupplier}
         onSupplier={onProcessSupplier}
       />
       <ClassificationBlock
         cls={classification}
-        compoundIds={compoundIds}
+        familiesBySupplier={familiesBySupplier}
         onSupplier={onClassificationSupplier}
+      />
+      <TemporalBlock
+        anomalies={temporalOut}
+        isRangeMode={!!isRangeMode}
+        hasMatrix={!!temporal}
+        familiesBySupplier={familiesBySupplier}
+        onSupplier={onTemporalSupplier}
       />
     </section>
   );
@@ -1040,6 +1291,8 @@ export function ActionDashboardView({
   kraljic,
   startDate,
   endDate,
+  temporal,
+  isRangeMode,
 }: {
   data: RecommendationsResult;
   cycleTime?: CycleTimeResult | null;
@@ -1049,6 +1302,10 @@ export function ActionDashboardView({
   kraljic?: KraljicResult | null;
   startDate?: string;
   endDate?: string;
+  /** Per-period latest-vs-prior matrix for the hub's temporal family (server-loaded,
+   *  mode-independent). The temporal block only renders when isRangeMode. */
+  temporal?: TemporalMatrix | null;
+  isRangeMode?: boolean;
 }) {
   const { recommendations, summary_stats } = data;
   const narrative = summary_stats.narrative;
@@ -1077,6 +1334,8 @@ export function ActionDashboardView({
   // classification → Classification.
   const onProcessSupplier = canDrill ? (id: string) => openSupplier(id, "process") : undefined;
   const onClassificationSupplier = canDrill ? (id: string) => openSupplier(id, "classification") : undefined;
+  // Temporal rows open on Classification (where the evolution sparklines live).
+  const onTemporalSupplier = canDrill ? (id: string) => openSupplier(id, "classification") : undefined;
 
   const insights: Record<ActionGroupId, string | null> = {
     spend: narrative ? spendInsight(narrative) : null,
@@ -1169,8 +1428,11 @@ export function ActionDashboardView({
         kraljic={kraljic}
         startDate={startDate}
         endDate={endDate}
+        temporal={temporal}
+        isRangeMode={isRangeMode}
         onProcessSupplier={onProcessSupplier}
         onClassificationSupplier={onClassificationSupplier}
+        onTemporalSupplier={onTemporalSupplier}
       />
 
       {/* Nothing flagged at all */}

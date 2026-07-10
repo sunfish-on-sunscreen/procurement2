@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { RangeAnalyses } from "@/lib/analysis-types";
+import type { TemporalMatrix } from "@/lib/temporal-anomalies";
 import { OverviewCharts } from "./OverviewCharts";
 import { AbcView } from "./AbcView";
 import { ActionDashboardView } from "@/components/ActionDashboardView";
@@ -32,10 +33,13 @@ export function RangeCompute({
   kind,
   startDate,
   endDate,
+  temporal,
 }: {
   kind: View;
   startDate: string;
   endDate: string;
+  /** Forwarded to the Action Priorities hub's temporal family (range mode). */
+  temporal?: TemporalMatrix | null;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
 
@@ -104,6 +108,8 @@ export function RangeCompute({
         kraljic={state.data.kraljic}
         startDate={startDate}
         endDate={endDate}
+        temporal={temporal}
+        isRangeMode
       />
     ) : (
       <EmptyState />

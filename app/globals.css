@@ -99,6 +99,9 @@
   /* StatBlock accent helpers (theme has --destructive already). */
   --warning: #f59e0b;
   --success: #84cc16;
+  /* Cross-Analysis Anomaly Hub — the "Changed over time" (temporal) family accent
+     (cyan), distinct from the amber hub + violet classification. Light ≈ cyan-600. */
+  --temporal: #0891b2;
   /* Action Priorities category colours (one per bucket). concentrate is a violet
      distinct from the zone/quadrant families. Light values ≈ *-500. */
   --priority-engage: #ef4444;
@@ -175,6 +178,7 @@
   --zone-long-tail: #cbd5e1;
   --warning: #fbbf24;
   --success: #a3e635;
+  --temporal: #22d3ee; /* dark ≈ cyan-400 (brighter) */
   /* Action Priorities — dark values ≈ *-400 (brighter). */
   --priority-engage: #f87171;
   --priority-mitigate: #fbbf24;

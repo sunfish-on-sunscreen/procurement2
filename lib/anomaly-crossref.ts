@@ -30,6 +30,7 @@ import type {
   CycleSupplierRow,
   SupplierFlagState,
 } from "@/lib/cycle-time-types";
+import type { TemporalAnomalies } from "@/lib/temporal-anomalies";
 
 /** One flagged supplier joined with its classification position. */
 export type CrossAnomalyRow = {
@@ -295,33 +296,43 @@ export function buildClassificationAnomalies(input: {
   return { rows, flaggedCount: rows.length, rosterSize: elig.length };
 }
 
+/** The three anomaly families the hub can flag a supplier in. */
+export type AnomalyFamily = "process" | "classification" | "temporal";
+
 export type AnomalyHub = {
   process: AnomalyCrossref;
   classification: ClassificationAnomalies;
-  /** Distinct suppliers flagged in EITHER family (process ∪ classification). */
+  /** Temporal (changed-over-time) family — null when inactive (single-year mode or
+   *  fewer than two periods). */
+  temporal: TemporalAnomalies | null;
+  /** Distinct suppliers flagged in ANY active family. */
   distinctFlagged: number;
-  /** Suppliers flagged in BOTH families (the compound cross-page cases). */
+  /** Suppliers flagged in ≥2 families (the compound cross-page cases). */
   compoundCount: number;
-  /** Their ids — so each family's rows can show a "⧉ also …" badge. */
-  compoundIds: Set<string>;
+  /** supplier_id → the set of families it's flagged in, so each family's rows can
+   *  show a "⧉ also …" badge naming the OTHER families. */
+  familiesBySupplier: Map<string, Set<AnomalyFamily>>;
   /** Union suppliers that are A-tier or Strategic (the hub-level importance stat). */
   importantUnionCount: number;
 };
 
 /**
- * Merge both anomaly families into one hub. Reuses buildAnomalyCrossref (Batch 1,
+ * Merge the anomaly families into one hub. Reuses buildAnomalyCrossref (Batch 1,
  * untouched) for the process side and buildClassificationAnomalies (Batch 2) for
- * the classification side, then computes the union/overlap. ABC for the
- * classification side is derived from the same breakdown `roster` the process side
- * uses (so both families read one ABC source).
+ * the classification side; the temporal family (Batch 3) is computed separately
+ * and passed in (null when inactive). Then computes the union/overlap across all
+ * active families. ABC for the classification side is derived from the same
+ * breakdown `roster` the process side uses (so both read one ABC source).
  */
 export function buildAnomalyHub(input: {
   flagsBySupplier: Map<string, SupplierFlagState>;
   perfSuppliers: PerformanceSpendSupplier[];
   roster: CycleSupplierRow[];
   supplyRiskById: Map<string, number>;
+  temporal?: TemporalAnomalies | null;
 }): AnomalyHub {
   const { flagsBySupplier, perfSuppliers, roster, supplyRiskById } = input;
+  const temporal = input.temporal ?? null;
 
   const process = buildAnomalyCrossref({ flagsBySupplier, perfSuppliers, roster });
 
@@ -329,14 +340,26 @@ export function buildAnomalyHub(input: {
   for (const r of roster) if (r.abc_class) abcById.set(r.supplier_id, r.abc_class);
   const classification = buildClassificationAnomalies({ perfSuppliers, supplyRiskById, abcById });
 
-  const procIds = new Set(process.rows.map((r) => r.supplier_id));
-  const classIds = new Set(classification.rows.map((r) => r.supplier_id));
-  const compoundIds = new Set([...procIds].filter((id) => classIds.has(id)));
-  const union = new Set([...procIds, ...classIds]);
+  // supplier_id → set of families it's flagged in.
+  const familiesBySupplier = new Map<string, Set<AnomalyFamily>>();
+  const mark = (id: string, fam: AnomalyFamily) => {
+    let s = familiesBySupplier.get(id);
+    if (!s) {
+      s = new Set();
+      familiesBySupplier.set(id, s);
+    }
+    s.add(fam);
+  };
+  for (const r of process.rows) mark(r.supplier_id, "process");
+  for (const r of classification.rows) mark(r.supplier_id, "classification");
+  if (temporal) for (const r of temporal.rows) mark(r.supplier_id, "temporal");
+
+  let compoundCount = 0;
+  for (const fams of familiesBySupplier.values()) if (fams.size >= 2) compoundCount++;
 
   const perfById = new Map(perfSuppliers.map((s) => [s.supplier_id, s]));
   let importantUnionCount = 0;
-  for (const id of union) {
+  for (const id of familiesBySupplier.keys()) {
     const abc = abcById.get(id) ?? null;
     const kq = perfById.get(id)?.kraljic_quadrant ?? null;
     if (isImportant(abc, kq)) importantUnionCount++;
@@ -345,9 +368,10 @@ export function buildAnomalyHub(input: {
   return {
     process,
     classification,
-    distinctFlagged: union.size,
-    compoundCount: compoundIds.size,
-    compoundIds,
+    temporal,
+    distinctFlagged: familiesBySupplier.size,
+    compoundCount,
+    familiesBySupplier,
     importantUnionCount,
   };
 }

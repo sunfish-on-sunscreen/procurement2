@@ -14,11 +14,17 @@ import {
 import { EmptyState } from "@/components/EmptyState";
 import { ActionDashboardView } from "@/components/ActionDashboardView";
 import { RangeCompute } from "@/components/analysis/RangeCompute";
+import { loadTemporalMatrix } from "@/lib/temporal-load";
 
 export default async function ActionDashboardPage() {
   await requireAuth();
   const selection = await getCurrentPeriodSelection();
   const source = await resolveAnalysisSource(selection);
+
+  // Per-period latest-vs-prior matrix for the hub's temporal family. Server-loaded
+  // from the trustworthy per-period AnalysisResults (Purchase-derived; no lag), and
+  // mode-independent — the temporal block itself only renders in range mode.
+  const temporal = await loadTemporalMatrix();
 
   let label = "";
   let body: React.ReactNode;
@@ -47,6 +53,8 @@ export default async function ActionDashboardPage() {
         kraljic={kraljic}
         startDate={start}
         endDate={end}
+        temporal={temporal}
+        isRangeMode={false}
       />
     ) : (
       <EmptyState />
@@ -59,6 +67,7 @@ export default async function ActionDashboardPage() {
         kind="recommendations"
         startDate={source.startDate}
         endDate={source.endDate}
+        temporal={temporal}
       />
     );
   }

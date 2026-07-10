@@ -32,7 +32,56 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
-### REPORTS ALIGNED (2026-07-10, latest) — ACTION PRIORITIES STRUCTURE + CLASSIFICATION ANOMALY SUMMARY
+### CROSS-PAGE ANOMALIES, BATCH 3 (2026-07-10, latest) — TEMPORAL FAMILY → 3-FAMILY HUB COMPLETE
+
+**The Cross-Analysis Anomaly Hub is now COMPLETE with 3 families: process (Batch 1)
+· classification (Batch 2) · changed-over-time (Batch 3, NEW).** The temporal
+family compares each supplier's LATEST vs PRIOR period. NO Python change, NO new
+endpoint, NO migration/recompute — reads the trustworthy per-period AnalysisResults
+(Purchase-derived; the stored-SupplierMetric lag does NOT touch this — see the prior
+investigation). Both AP modes; dark-mode/token-safe.
+
+- **New pure lib `lib/temporal-anomalies.ts`** (`buildTemporalMatrix` +
+  `buildTemporalAnomalies`) + server loader **`lib/temporal-load.ts`**
+  (`loadTemporalMatrix`, cached `getAnalysisResult` reads). Three detectors, latest
+  vs prior: **spend FOLD ≥ 2.5×** (`SPEND_FOLD_CUTOFF`; ratio, NOT raw % — drops cap
+  at −100% while spikes reach +1600%) with a **$100K small-base guard**
+  (`SPEND_SMALL_BASE_MIN`); **Kraljic quadrant jump** (any change, ranked diagonal >
+  adjacent via axes-flipped); **score swing ≥ 18 pts** (`SCORE_SWING_CUTOFF`). All
+  NAMED CONSTANTS.
+- **⚠️ PARTIAL-YEAR GUARD (`PARTIAL_YEAR_SPEND_FRACTION = 0.5`).** The naive latest
+  pair = 2026 vs 2025 is DEGENERATE — **2026 is a partial year (~$30M vs 2025's
+  ~$284M)** so ~85% of suppliers show a volume-artifact drop. The guard skips a
+  latest year whose total spend < 50% of the prior's → compares **2025 vs 2024**
+  (two comparable years); the block live-labels "(2026 excluded — partial year)".
+- **⚠️ CALIBRATED against live data.** On 2024→2025: each detector selective (spend
+  ~21%, quadrant 15%, score ~6% at ≥18); FAMILY union **18/48 (38%)** — higher than
+  classification's 20% because it's 3 DISTINCT sharp signals on a dynamic year-pair,
+  every one a real move (verified: +801%, −68%, Leverage→Bottleneck diagonal). Was
+  46% at score≥15; tightened to **≥18** to trim the least-dramatic swings → 38%.
+  Ranked by significance (quadrant distance dominates, then spend magnitude, then
+  score).
+- **`buildAnomalyHub` now folds in the temporal family** and generalizes the compound
+  system: `compoundIds: Set` → **`familiesBySupplier: Map<id, Set<family>>`** so the
+  "⧉ also X" badge spans all 3 families. Batch 1 (`cycle-flags`) + Batch 2
+  (`buildClassificationAnomalies`) logic UNTOUCHED.
+- **Cyan `TemporalBlock`** (`--temporal` token, light+dark) below the violet
+  Classification block: synthesis + a significance-ranked list with change chips
+  (quadrant `→`, spend Δ%, score Δpts) + position chips. Rows → unified modal
+  **Classification tab** (where the evolution sparklines live). Plumbing: `page.tsx`
+  server-loads the matrix (mode-independent) + passes `temporal` + `isRangeMode`;
+  `RangeCompute` forwards them (range mode → `isRangeMode`).
+- **⚠️ Single-year mode: the temporal block is INERT** — shows "Select Range to see
+  year-over-year changes"; the hub synthesis omits the temporal clause; process +
+  classification render normally. **Graceful:** <2 periods → "needs ≥2 periods";
+  zero temporal → "no sharp changes".
+- **⚠️ VERIFIED numbers.** RANGE hub: **46 distinct = 36 process + 11 classification +
+  18 temporal, 20 compound**; temporal **18/48 (38%)**, 2024→2025, by-signal
+  Spend/Quadrant/Score. Process Health UNCHANGED (11/2/35). $100K guard confirmed
+  (Total Energies 4.2× fold / $68.5K → NOT flagged). Dark cyan `#22d3ee`. tsc/ESLint
+  clean; Python untouched.
+
+### REPORTS ALIGNED (2026-07-10) — ACTION PRIORITIES STRUCTURE + CLASSIFICATION ANOMALY SUMMARY
 
 **The Reports feature was brought in line with the current app.** Presentation/copy
 only — NO `scores.py`/compute change, export path untouched, both render paths
