@@ -8,8 +8,8 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **HEAD as of last doc update:
-> the Action Priorities dashboard-rebuild commit (2026-07-09) — run `git log` for
-> the hash.**
+> `c04eb0b` (2026-07-10) — reports render the full 3-family anomaly hub. Run
+> `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -24,13 +24,32 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > "Performance positioning"** (PillTabs code keys `kraljic`/`performance`
 > unchanged).
 
-4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
+5 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
 Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
-Classification, Process Health Monitoring, Action Priorities
+Classification, Process Health Monitoring, Action Priorities, Supplier Selection
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects). The Action Priorities page (`/action-dashboard`
-URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
-session block.
+URL unchanged) is a 3-group instrument-panel dashboard grid whose **Cross-Analysis
+Anomaly Hub** holds all 3 anomaly families; **Supplier Selection**
+(`/supplier-selection`) is the best-supplier-per-category engine — see the top
+session blocks.
+
+### How I work (default approach — the operator can override per task)
+
+1. **Orient read-only first** — read the code/docs and confirm the current state
+   before proposing anything.
+2. **Propose + HOLD** — for anything non-trivial, lay out the plan/approach and HOLD
+   for operator approval before building.
+3. **Build staged** — smallest safe increments; do the regression-sensitive part first.
+4. **Verify against LIVE data** — independently recompute the expected numbers +
+   screenshot; treat any shared-code extraction as a REGRESSION SURFACE and re-verify
+   the source page (e.g. Process Health flags must stay 11/2/35 on the Range).
+5. **HOLD before committing** — present the diff + verification and let the operator
+   review; commit (and update this file) only on their go.
+6. **Standard gotchas** — the browser preview intermittently redirects to
+   `/spend-overview` (just re-navigate); stale HMR after new files/routes → cold-restart
+   ONE fresh dev server (kill any zombie squatting on `:3000`); write commit messages via
+   a Bash heredoc (`git commit -F - <<'EOF' … EOF`), NOT PowerShell here-strings.
 
 ### REPORTS: FULL 3-FAMILY ANOMALY HUB (2026-07-10, latest) — PROCESS + TEMPORAL ADDED
 
@@ -197,16 +216,16 @@ only — NO `scores.py`/compute change, export path untouched, both render paths
   (Batch 2) from data the report ALREADY has (`performance_spend` + `kraljic` +
   `abc` — all in `ReportAnalyses`). Gated on `!brief`. Verified byte-consistent with
   the live hub (Range 11/55, gaps 96/94/93). Same cutoff (80).
-- **⚠️ DEFERRED (noted follow-up): the process-cycle anomaly half** (outlier /
-  inconsistent / stage-dominated) is NOT in reports — it needs the per-PO
+- **✅ SUPERSEDED by `c04eb0b` — reports now render ALL 3 families** (process +
+  classification + temporal), server-assembled into `ReportAnalyses` (PDF-safe) — see
+  the "REPORTS: FULL 3-FAMILY ANOMALY HUB" block at the top. The note below is HISTORY.
+  **(Originally deferred:) the process-cycle anomaly half** (outlier / inconsistent /
+  stage-dominated) was NOT in reports — it needed the per-PO
   `/api/cycle-time/breakdown` roster (per-supplier IQR + stage anomalies), which
-  `ReportAnalyses` doesn't carry. Plumbing a live fetch into the shared
-  server/client/PDF-export component was deliberately deferred (risky
-  unsupervised). The report renders an **inline note** pointing to the live Action
-  Priorities hub for that family. **To finish later:** plumb the breakdown roster
-  into the report data path (or precompute the 3 process flags server-side into an
-  analysis the report reads), then reuse `deriveCycleFlags` + `buildAnomalyCrossref`
-  for the process block.
+  `ReportAnalyses` didn't carry. Plumbing was deliberately deferred (risky
+  unsupervised); the report then rendered an inline note pointing to the live hub. The
+  finish (done in `c04eb0b`): extract `computeCycleBreakdown` + assemble breakdown +
+  temporal server-side, then reuse `deriveCycleFlags` + `buildAnomalyCrossref`.
 - **Prose reframed in all 3 tones** (`lib/report-templates.ts`):
   `recommendedPriorities` (executive/operational/analytical) + the operational
   `methodology` line dropped "ranked by impact score" / "score N leads the list" →
@@ -241,7 +260,7 @@ Improvement · Slowest Stage); §6 impact-formula detail left for a future pass.
 as-is (already current). tsc/ESLint clean; renders correctly (formula blocks +
 dark-mode verified).
 
-### MOST RECENT SESSION (2026-07-10, later) — CROSS-PAGE ANOMALIES, BATCH 2: "CROSS-ANALYSIS ANOMALY HUB" — read this FIRST
+### SESSION (2026-07-10) — CROSS-PAGE ANOMALIES, BATCH 2: "CROSS-ANALYSIS ANOMALY HUB"
 
 **Batch 2 shipped: Batch 1's standalone process-anomaly section was RESTRUCTURED
 into a unified "Cross-Analysis Anomaly Hub" holding TWO anomaly families, and a
@@ -477,7 +496,7 @@ Presentation/interaction only; compute + the 3 source pages unchanged.
   Concentration-category donut keeps `/spend-overview`; other tiles non-clickable.
   Both AP modes; dark-mode safe; no compute change.
 
-### MOST RECENT SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE
+### SESSION (2026-07-06, later) — FILTER-LIVE COMPOSITE
 
 **The performance composite is now FILTER-LIVE** — recomputed from the POs in the
 current time filter (single-year = that year's POs; range = all POs in the span)
@@ -531,7 +550,7 @@ string; no longer feeds any composite — D9 uses roster concentration). Sample 
 now **Suppliers 4 / Purchases 21 / SupplierMetrics 9**; imports byte-identically
 for the staying columns.
 
-### MOST RECENT SESSION (2026-07-06) — read this FIRST
+### SESSION (2026-07-06) — BACKEND-SCORING REBUILD (Stages 1–3)
 
 **BACKEND-SCORING REBUILD, Stages 1–3 — LIVE. Import now takes RAW data only; the
 backend computes all 6 scores server-side.** Commits: `b34c40a` (Stage 1),
@@ -585,9 +604,9 @@ moved (they read the composite); everything spend/risk-based is unchanged.
   boundary suppliers gain a 2026 composite); Kraljic 5/5/5/5, ABC 4/3/13, control
   $7.45M — unchanged.
 - Whole-portfolio SupplierMetric means: composite **77.40**, risk **68.42**.
-- ⚠️ **`defense.md` zone numbers need a light update** (2025 zone swaps + 2026
-  now 6/4/4/6). **Kraljic 10/15/15/10 is still current** (A1/B5, purchase/roster-
-  based, unaffected by the rebucket).
+- ✅ **RESOLVED — `defense.md` was aligned to the current model in `e451f93`** (this
+  older "zone numbers need update" flag is done). **Kraljic 10/15/15/10 is still
+  current** (A1/B5, purchase/roster-based, unaffected by the rebucket).
 
 **⚠️ PENDING — NEXT TASK: sample-data reconcile + update.** The sample file
 (`data/raw/procurement_data_raw.xlsx`, served by `app/api/sample-data/route.ts`)
@@ -675,8 +694,10 @@ A1/B5; risk split **25/25**; risk_median 24.71. Performance zones **Stars 19 / C
 / Hidden Gems 6 / Long Tail 19** (distribution UNCHANGED by D9 — 4 symmetric membership
 swaps: S008 Critical→Stars, S031 LongTail→HiddenGems, S061 Stars→Critical, S070
 HiddenGems→LongTail; perf_median 80.27→79.70). UNCHANGED: ABC 10/9/31, 313 POs,
-$283,596,813.69, control exposure $42.47M. **Any doc still citing 8/17/16/9 (e.g.
-`defense.md`) is KNOWN-STALE and needs updating.**
+$283,596,813.69, control exposure $42.47M. **Any doc citing 8/17/16/9 WAS
+KNOWN-STALE; `defense.md` was aligned to the current model in `e451f93`. The only
+remaining defense-doc work is filling the `[NEEDS URL]` source citations + verifying
+the data claims — operator homework, NOT a staleness bug.**
 
 ⚠️ **COMMIT-MESSAGE TOOLING NOTE.** In the Git Bash tool, write commit messages with a
 **heredoc** (`git commit -F - <<'EOF' … EOF`) or a message file — **NOT** PowerShell
@@ -976,8 +997,12 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   panel fetches the same `spend-detail` + `evolution`), so it is a pure
   presentation port — no API/data change.
 - **Action Dashboard period-awareness** — separate batch; do not retrofit ad-hoc.
+  ⚠️ PARTIALLY ADDRESSED: the Cross-Analysis Anomaly Hub's temporal family (Batch 3,
+  `a2a2bd0`) brought latest-vs-prior period-awareness to the hub; full Action
+  Priorities period-awareness is still open.
 - **Phase 10 polish → v1.0**: loading states, error boundaries, mobile responsive,
-  README, smoke test.
+  README, smoke test. Includes VISUAL UNIFICATION — a consistent visual language
+  across the anomaly hub, Supplier Selection, and the analytical pages.
 
 ### Spend Overview redesign + polish + Supplier Evolution + ABC merge
 - **`/` and `/abc-analysis` both redirect to `/spend-overview`** (renamed from
