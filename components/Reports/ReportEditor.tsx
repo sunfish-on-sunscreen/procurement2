@@ -10,7 +10,6 @@ import {
   type ReportConfig,
 } from "@/lib/report-config";
 import type { PeriodSelection } from "@/lib/period-constants";
-import type { RangeAnalyses } from "@/lib/analysis-types";
 import {
   buildSupplierDetail,
   type SupplierDirectory,
@@ -147,12 +146,14 @@ export function ReportEditor({
   }, [pinnedSupplierId]);
 
   // Fetch analyses on PERIOD CHANGE only — startDate/endDate are the deps, so
-  // tone/detail/section/filter edits re-render without refetching.
+  // tone/detail/section/filter edits re-render without refetching. Uses the
+  // report-specific endpoint (not the dashboard compute-range) so the assembled
+  // data carries the anomaly-hub extras (breakdown + temporal) for all 3 families.
   useEffect(() => {
     if (!startDate || !endDate) return;
     const key = `${startDate}_${endDate}`;
     let cancelled = false;
-    fetch("/api/analyses/compute-range", {
+    fetch("/api/reports/analyses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ startDate, endDate }),
@@ -162,11 +163,10 @@ export function ReportEditor({
           const e = (await res.json().catch(() => ({}))) as { error?: string };
           throw new Error(e.error || "Compute failed");
         }
-        return res.json() as Promise<RangeAnalyses>;
+        return res.json() as Promise<ReportAnalyses>;
       })
       .then((data) => {
-        if (!cancelled)
-          setLoaded({ key, analyses: data as unknown as ReportAnalyses });
+        if (!cancelled) setLoaded({ key, analyses: data });
       })
       .catch((err: unknown) => {
         if (!cancelled)

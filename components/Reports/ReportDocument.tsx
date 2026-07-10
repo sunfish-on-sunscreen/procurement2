@@ -18,13 +18,17 @@ import {
   type SectionKey,
   categoryFilterActive,
 } from "@/lib/report-config";
+import type { CycleBreakdown } from "@/lib/cycle-time-types";
+import type { TemporalMatrix } from "@/lib/temporal-anomalies";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import {
   ACTION_GROUPS,
   CATEGORY_LABEL,
   CATEGORY_COLOR_VAR,
 } from "@/lib/action-priorities";
-import { buildClassificationAnomalies } from "@/lib/anomaly-crossref";
+import { buildClassificationAnomalies, buildAnomalyCrossref } from "@/lib/anomaly-crossref";
+import { deriveCycleFlags } from "@/lib/cycle-flags";
+import { buildTemporalAnomalies } from "@/lib/temporal-anomalies";
 import { usePin } from "@/components/Reports/PinContext";
 import { ReportTOC } from "@/components/Reports/ReportTOC";
 import { buttonVariants } from "@/components/ui/button";
@@ -39,6 +43,12 @@ export type ReportAnalyses = {
   cycle_time: CycleTimeResult | null;
   performance_spend: PerformanceSpendResult | null;
   recommendations: RecommendationsResult | null;
+  // Anomaly-hub extras, assembled server-side at report-build so they're present
+  // in ALL render paths (incl. static PDF export) — no client fetch. breakdown
+  // powers the PROCESS family; temporal (range reports only) the CHANGED-OVER-TIME
+  // family. Optional so pre-existing callers / older shapes stay valid.
+  breakdown?: CycleBreakdown | null;
+  temporal?: TemporalMatrix | null;
 };
 
 export type ReportMeta = {
@@ -69,6 +79,15 @@ const usd = (n: number) =>
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(n);
+
+// Fixed locale + timeZone so the "Generated …" timestamp is identical on the server
+// and the client — a bare toLocaleString() renders in each side's locale/zone and
+// caused a hydration mismatch on the persisted (SSR) report page.
+const generatedFmt = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Jakarta",
+});
 
 /**
  * A report section (Batch 6c). In the editor (`embedded`) the header is sticky,
@@ -211,6 +230,163 @@ export function ReportDocument({
   const recCap = brief ? 3 : detailed ? recsScoped.length : config.recommendationFilters.topN;
   const recsToShow = recsScoped.slice(0, recCap);
 
+  // ---- Cross-Analysis Anomaly Hub summary (all 3 families) ------------------
+  // Computed synchronously from data assembled into `analyses` server-side, so it
+  // renders in every path incl. static PDF (no client fetch). Mirrors the live hub
+  // via the same pure libs. Shown at `standard`/`detailed` detail (not `brief`).
+  const anomalyBlock = (() => {
+    const perf = analyses.performance_spend;
+    const kr = analyses.kraljic;
+    const abcRes = analyses.abc;
+    if (!perf || !kr || !abcRes) return null;
+
+    // Classification (Batch 2) — lens disagreement.
+    const supplyRiskById = new Map(
+      kr.quadrant_assignments.map((q) => [q.supplier_id, q.supply_risk_score]),
+    );
+    const abcById = new Map(abcRes.classifications.map((c) => [c.supplier_id, c.abc_class]));
+    const cls = buildClassificationAnomalies({ perfSuppliers: perf.suppliers, supplyRiskById, abcById });
+
+    // Process (Batch 1) — cycle flags × position, from the assembled breakdown.
+    const bd = analyses.breakdown ?? null;
+    const proc = bd
+      ? buildAnomalyCrossref({
+          flagsBySupplier: deriveCycleFlags({
+            roster: bd.bySupplier,
+            anomalies: analyses.cycle_time?.anomalies ?? [],
+            stageAnomalies: bd.stageAnomalies ?? [],
+          }).flagsBySupplier,
+          perfSuppliers: perf.suppliers,
+          roster: bd.bySupplier,
+        })
+      : null;
+
+    // Temporal (Batch 3) — range reports only (matches the live hub's range-only rule).
+    const isRange = config.period.mode === "range";
+    const temporal = isRange && analyses.temporal ? buildTemporalAnomalies(analyses.temporal) : null;
+
+    const hasAny =
+      cls.flaggedCount > 0 ||
+      (proc?.flaggedCount ?? 0) > 0 ||
+      (temporal?.flaggedCount ?? 0) > 0;
+    if (!hasAny) return null;
+
+    const cap = <T,>(rows: T[]) => (detailed ? rows : rows.slice(0, 6));
+    const posText = (r: {
+      abc_class: string | null;
+      kraljic_quadrant: string | null;
+      zone: string | null;
+    }) =>
+      [r.abc_class ? `Class ${r.abc_class}` : null, r.kraljic_quadrant, r.zone]
+        .filter(Boolean)
+        .join(" · ");
+    const PROC_FLAG_LABEL = {
+      has_outlier: "Outlier",
+      inconsistent: "Inconsistent",
+      has_stage_dom: "Stage-dom",
+    } as const;
+
+    return (
+      <div className="mt-3 flex flex-col gap-3 border-t pt-3">
+        <h4 className="text-sm font-semibold text-foreground">Cross-analysis anomalies</h4>
+
+        {/* Process */}
+        {proc && proc.flaggedCount > 0 && (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-foreground">Process — cycle execution</p>
+            <p className="text-sm text-muted-foreground">
+              {proc.flaggedCount} supplier(s) with cycle-time anomalies — {proc.importantCount}{" "}
+              A-tier or Strategic ({usd(proc.importantSpend)}). Outlier {proc.flagMix.has_outlier} ·
+              Inconsistent {proc.flagMix.inconsistent} · Stage-dom {proc.flagMix.has_stage_dom}.
+            </p>
+            <ul className="flex flex-col gap-1">
+              {cap(proc.rows).map((r, i) => (
+                <li
+                  key={r.supplier_id}
+                  className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+                >
+                  <span className="font-mono text-xs text-muted-foreground">{i + 1}</span>
+                  <span className="font-medium">{r.supplier_name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {(["has_outlier", "inconsistent", "has_stage_dom"] as const)
+                      .filter((k) => r.flags[k])
+                      .map((k) => PROC_FLAG_LABEL[k])
+                      .join(" · ")}
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">{posText(r)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Classification */}
+        {cls.flaggedCount > 0 && (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-foreground">
+              Classification — lens disagreement
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {cls.flaggedCount} of {cls.rosterSize} supplier(s) rank ≥ 80 percentile-points apart
+              across Spend, Performance, and Supply-risk. Ranked by the size of the gap.
+            </p>
+            <ul className="flex flex-col gap-1">
+              {cap(cls.rows).map((r, i) => (
+                <li
+                  key={r.supplier_id}
+                  className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+                >
+                  <span className="font-mono text-xs text-muted-foreground">{i + 1}</span>
+                  <span className="font-medium">{r.supplier_name}</span>
+                  <span className="text-xs text-muted-foreground">{r.verdict.toLowerCase()}</span>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">
+                    S {r.spend_pct} · P {r.performance_pct} · R {r.risk_pct} · gap {r.disagreement}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Changed over time (range reports only) */}
+        {temporal && temporal.flaggedCount > 0 && (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-foreground">
+              Changed over time — {temporal.priorLabel} → {temporal.latestLabel}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {temporal.flaggedCount} of {temporal.rosterSize} supplier(s) moved sharply — Spend{" "}
+              {temporal.byDetector.spend} · Quadrant {temporal.byDetector.quadrant} · Score{" "}
+              {temporal.byDetector.score}.
+              {temporal.skippedLabel ? ` (${temporal.skippedLabel} excluded — partial year.)` : ""}
+            </p>
+            <ul className="flex flex-col gap-1">
+              {cap(temporal.rows).map((r, i) => (
+                <li
+                  key={r.supplier_id}
+                  className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+                >
+                  <span className="font-mono text-xs text-muted-foreground">{i + 1}</span>
+                  <span className="font-medium">{r.supplier_name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {[
+                      r.quadrant ? `${r.quadrant.from}→${r.quadrant.to}` : null,
+                      r.spend ? `Spend ${r.spend.pct > 0 ? "+" : ""}${r.spend.pct}%` : null,
+                      r.score ? `Score ${r.score.delta > 0 ? "+" : ""}${r.score.delta}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">{posText(r)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  })();
+
   // ---- Section chrome (Batch 6c, editor only) -------------------------------
   // Collapse + scroll-spy are per-session local state. ReportEditor remounts
   // this component on period change (key={spanKey}), so they reset there — no
@@ -322,7 +498,7 @@ export function ReportDocument({
           <h1 className="text-3xl font-bold">{meta.title}</h1>
           <p className="text-sm text-muted-foreground">
             Period: {meta.periodLabel} &middot; {detailLevel} detail &middot;
-            Generated {new Date(meta.generatedAt).toLocaleString()} by{" "}
+            Generated {generatedFmt.format(new Date(meta.generatedAt))} by{" "}
             {meta.generatedBy}
             {meta.ephemeral ? " · not saved (range report)" : ""}
           </p>
@@ -773,73 +949,13 @@ export function ReportDocument({
                   </div>
                 )}
 
-                {/* Cross-analysis anomalies (classification lens-disagreement).
-                    Computed from analyses already in this report (perf + kraljic +
-                    abc) via the shared buildClassificationAnomalies — no new fetch.
-                    The process-cycle anomaly family is deferred: it needs the per-PO
-                    breakdown roster this report doesn't carry (see note below). */}
-                {!brief &&
-                  (() => {
-                    const perf = analyses.performance_spend;
-                    const kr = analyses.kraljic;
-                    const abcRes = analyses.abc;
-                    if (!perf || !kr || !abcRes) return null;
-                    const supplyRiskById = new Map(
-                      kr.quadrant_assignments.map((q) => [
-                        q.supplier_id,
-                        q.supply_risk_score,
-                      ]),
-                    );
-                    const abcById = new Map(
-                      abcRes.classifications.map((c) => [c.supplier_id, c.abc_class]),
-                    );
-                    const cls = buildClassificationAnomalies({
-                      perfSuppliers: perf.suppliers,
-                      supplyRiskById,
-                      abcById,
-                    });
-                    if (cls.flaggedCount === 0) return null;
-                    const shown = detailed ? cls.rows : cls.rows.slice(0, 6);
-                    return (
-                      <div className="mt-3 flex flex-col gap-2 border-t pt-3">
-                        <h4 className="text-sm font-semibold text-foreground">
-                          Cross-analysis anomalies — lens disagreement
-                        </h4>
-                        <p className="text-sm text-muted-foreground">
-                          {cls.flaggedCount} of {cls.rosterSize} supplier(s) rank ≥ 80
-                          percentile-points apart across Spend, Performance, and
-                          Supply-risk — the analyses disagree about where they sit.
-                          Ranked by the size of the gap.
-                        </p>
-                        <ul className="flex flex-col gap-1">
-                          {shown.map((r, i) => (
-                            <li
-                              key={r.supplier_id}
-                              className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
-                            >
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {i + 1}
-                              </span>
-                              <span className="font-medium">{r.supplier_name}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {r.verdict.toLowerCase()}
-                              </span>
-                              <span className="ml-auto font-mono text-xs text-muted-foreground">
-                                S {r.spend_pct} · P {r.performance_pct} · R{" "}
-                                {r.risk_pct} · gap {r.disagreement}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="text-xs text-muted-foreground">
-                          Process-cycle anomalies (outlier / inconsistent /
-                          stage-dominated POs) appear on the live Action Priorities
-                          hub; they draw on per-PO cycle detail not carried in this
-                          report.
-                        </p>
-                      </div>
-                    );
-                  })()}
+                {/* Cross-Analysis Anomaly Hub — all THREE families, computed from
+                    data assembled into this report server-side (perf + kraljic + abc
+                    for classification; the cycle-time `breakdown` for process; the
+                    latest-vs-prior `temporal` matrix for changed-over-time). No client
+                    fetch — present at render time, so it survives static PDF export.
+                    Reuses the same pure libs as the live hub, so the numbers match. */}
+                {!brief && anomalyBlock}
               </ReportSection>
             )}
 

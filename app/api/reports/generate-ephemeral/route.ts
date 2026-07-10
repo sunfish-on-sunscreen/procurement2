@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { resolveAnalysisSource } from "@/lib/period";
-import { getRangeAnalyses } from "@/lib/range-analyses";
+import { assembleReportRangeAnalyses } from "@/lib/report-analyses";
 import { getSupplierCategoryMap } from "@/lib/suppliers";
 import { generateExecutiveSummary } from "@/lib/report-templates";
 import type { ReportConfig } from "@/lib/report-config";
@@ -39,7 +39,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const analyses = await getRangeAnalyses(source.startDate, source.endDate);
+  // Full report analyses = the six range analyses + the anomaly-hub extras
+  // (breakdown + temporal), so /reports/preview renders all three anomaly families.
+  const analyses = await assembleReportRangeAnalyses(source.startDate, source.endDate);
   if (!analyses) {
     return NextResponse.json(
       { error: "Range computation failed" },

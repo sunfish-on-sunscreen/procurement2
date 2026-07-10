@@ -13,6 +13,7 @@ import {
 import type { ReportMetrics } from "@/lib/report-templates";
 import { defaultReportConfig, type ReportConfig } from "@/lib/report-config";
 import { getSupplierCategoryMap } from "@/lib/suppliers";
+import { computeCycleBreakdown } from "@/lib/cycle-breakdown";
 import {
   ReportDocument,
   type ReportAnalyses,
@@ -64,6 +65,18 @@ export default async function ReportDetailPage({
       [...new Set(Object.values(supplierCategory))],
     );
 
+  // Process family needs the cycle-time breakdown (per-supplier IQR + stage
+  // anomalies). Compute it server-side for this period's span, reusing the
+  // already-loaded (Mode A) abc + performance for the roster join — so it's in the
+  // report data at render time (incl. PDF), no client fetch. Temporal is omitted:
+  // persisted reports are single-year and the temporal family is range-only.
+  const pStart = summary.period.startDate.toISOString().slice(0, 10);
+  const pEnd = summary.period.endDate.toISOString().slice(0, 10);
+  const breakdown = await computeCycleBreakdown(pStart, pEnd, {
+    abc,
+    performance_spend: performance,
+  });
+
   const analyses: ReportAnalyses = {
     spend_overview: spend,
     abc,
@@ -71,6 +84,8 @@ export default async function ReportDetailPage({
     cycle_time: cycleTime,
     performance_spend: performance,
     recommendations,
+    breakdown,
+    temporal: null,
   };
 
   return (

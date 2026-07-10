@@ -32,7 +32,53 @@ Classification, Process Health Monitoring, Action Priorities
 URL unchanged) is now a 3-group instrument-panel dashboard grid — see the top
 session block.
 
-### SUPPLIER SELECTION VIEW (2026-07-10, latest) — BEST-SUPPLIER-PER-CATEGORY ENGINE
+### REPORTS: FULL 3-FAMILY ANOMALY HUB (2026-07-10, latest) — PROCESS + TEMPORAL ADDED
+
+**Reports now render ALL THREE anomaly families** (process + classification +
+temporal), finishing the deferred follow-up from the reports-alignment batch
+(`d74d831`, which shipped classification-only). The process + temporal data is
+**assembled SERVER-SIDE into `ReportAnalyses`** so every render path — editor,
+persisted `/reports/[id]`, ephemeral `/reports/preview`, AND **static PDF export** —
+has it at render time. NO client fetch (that was the deferral reason: PDF =
+`html2canvas` on the rendered DOM, so async-fetched data wouldn't be captured).
+
+- **⚠️ `computeCycleBreakdown` EXTRACTED to `lib/cycle-breakdown.ts`** (verbatim from
+  the `/api/cycle-time/breakdown` route → the route is now a thin auth+validate
+  wrapper). One source of truth for the breakdown. **Regression-sensitive** — Process
+  Health, the live hub, AND the modal's Process tab all consume that route;
+  **verified UNCHANGED** (Process Health 11/2/35 + filter sync; hub 46 flagged/3
+  families; modal Process tab). Optional `preloaded` ABC/perf param lets report
+  paths skip a redundant `getRangeAnalyses`.
+- **`lib/report-analyses.ts` `assembleReportRangeAnalyses`** = `getRangeAnalyses` +
+  `computeCycleBreakdown` + `loadTemporalMatrix`. Returns `RangeAnalyses & {breakdown,
+  temporal}` (non-null fields preserved for `generateExecutiveSummary`; structurally
+  assignable to the nullable `ReportAnalyses`).
+- **New endpoint `/api/reports/analyses`** → the assembler. **The editor's fetch was
+  repointed** from `/api/analyses/compute-range` to it (same `{startDate,endDate}`
+  body). ⚠️ **The dashboard's `compute-range` is UNTOUCHED** — non-report pages don't
+  over-compute the breakdown/temporal. Ephemeral route uses the assembler; the
+  persisted page adds the breakdown INLINE (reusing its Mode-A abc/perf via
+  `preloaded`, keeping its fast per-period reads) and OMITS temporal.
+- **⚠️ TEMPORAL IS RANGE-ONLY in reports** (gated on `config.period.mode === "range"`)
+  — mirrors the live hub (single-year → inert). So persisted single-year reports show
+  process + classification; ephemeral RANGE reports show all three.
+- **`ReportAnalyses` extended** with `breakdown?` + `temporal?`. **`ReportDocument`
+  computes all 3 families SYNCHRONOUSLY from props** (reuses `deriveCycleFlags` +
+  `buildAnomalyCrossref`, `buildClassificationAnomalies`, `buildTemporalAnomalies` —
+  NO reimplementation) and renders three summary sub-blocks; the old "deferred" inline
+  note is GONE.
+- **Header-date hydration fix** (pre-existing, folded in): the persisted (SSR) report
+  header used `new Date(meta.generatedAt).toLocaleString()` → locale/zone mismatch
+  server vs client. Now a module-level fixed `Intl.DateTimeFormat("en-US", {dateStyle,
+  timeStyle, timeZone:"Asia/Jakarta"})` → deterministic; hydration warning gone.
+- **⚠️ VERIFIED numbers MATCH the live hub** (range report): process **36 / 16 important
+  / $491.8M** (Outlier 11 · Inconsistent 2 · Stage-dom 35); classification **11/55**
+  (gaps 96/94); temporal **18/48** (Spend 10 · Quadrant 7 · Score 3, 2026 excluded).
+  Persisted 2024 report: process 27 + classification, temporal omitted. **PDF: all 3
+  families inside captured `.pdf-page-break` sections.** tsc/ESLint clean; no Python
+  change, no migration; export structure intact.
+
+### SUPPLIER SELECTION VIEW (2026-07-10) — BEST-SUPPLIER-PER-CATEGORY ENGINE
 
 **New page `/supplier-selection` (nav: after Action Priorities) — the
 decision-support half of the cross-page vision (the anomaly hub was the diagnostic
