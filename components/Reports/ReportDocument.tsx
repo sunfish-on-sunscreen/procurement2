@@ -143,7 +143,14 @@ function ReportSection({
         <h2 className="text-xl font-semibold">{title}</h2>
         {embedded && headerExtra}
       </div>
-      <div className="export-reveal flex flex-col gap-4" hidden={embedded && collapsed}>
+      {/* Collapsed body: hidden on screen (embedded editor), always printed
+          (`print:flex`) so the PDF is the complete document. `.hidden` class, not
+          the `hidden` attribute (which an author print rule can't override). */}
+      <div
+        className={`export-reveal flex flex-col gap-4 print:flex ${
+          embedded && collapsed ? "hidden" : ""
+        }`}
+      >
         {children}
       </div>
     </section>

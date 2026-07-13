@@ -218,11 +218,85 @@
   }
 }
 
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
 @media print {
-  .no-print {
+  /* The app has no reachable dark mode; pin light for print regardless. */
+  :root {
+    color-scheme: light;
+  }
+
+  /* Keep chart fills, chip tints, ABC/quadrant colours + card backgrounds —
+     browsers drop backgrounds/colour in print by default. */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* App + editor chrome and interactive affordances never print. `aside` covers
+     BOTH the dashboard sidebar and the report-editor settings panel; `header`
+     covers the dashboard top bar. The report document uses only section/div/table,
+     so nothing in the document is hit. */
+  aside,
+  header,
+  .no-print,
+  [data-sonner-toaster],
+  [data-slot="select-trigger"] {
     display: none !important;
   }
+
+  /* Sticky section headers / TOC must sit in normal flow — otherwise they render
+     at the bottom of their section and overlap the content (the old export bug). */
+  .sticky {
+    position: static !important;
+  }
+
+  /* (Collapsed section bodies + inactive Spend-Overview tab panels reveal in print
+     via the `print:flex` / `print:block` utilities on the elements themselves — the
+     native `hidden` attribute can't be overridden by an author rule, so those
+     elements use the `.hidden` class + a print: variant instead. This replaces the
+     old "strip [hidden] then html2canvas" DOM-mutation hack.) */
+
+  /* Let the report own the page: drop the app layout's centering + padding. */
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  #report-root {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  /* Cards define their edge with a faint box-shadow ring (ring-1 ring-foreground/10)
+     that does NOT reliably print → KPI/chart/table cards would render as naked
+     floating text. Give them a crisp border instead. Plain hex (≈ light --border),
+     not the oklch token, to be bulletproof in print. */
+  [data-slot="card"] {
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Pagination: keep cards/tables/charts whole and don't strand a heading. Drops
+     the old `page-break-after: always` (which left a near-blank page per section). */
   .pdf-page-break {
-    page-break-after: always;
+    break-after: auto;
+    page-break-after: auto;
+  }
+  [data-slot="card"],
+  table,
+  .recharts-wrapper,
+  .recharts-responsive-container {
+    break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
   }
 }

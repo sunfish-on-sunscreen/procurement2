@@ -453,7 +453,7 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="mt-2"
+                className="mt-2 no-print"
                 onClick={() => setShowAll((s) => !s)}
               >
                 {showAll ? "Show top 10" : `View all ${data.length}`}

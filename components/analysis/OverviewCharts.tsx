@@ -157,18 +157,12 @@ const MonthlyTrendCard = ({ spend }: { spend: SpendOverviewResult }) => (
   </Card>
 );
 
-const OVERVIEW_TABS = [
-  { key: "trend", label: "Monthly trend" },
-  { key: "category", label: "By category" },
-  { key: "suppliers", label: "Top suppliers" },
-] as const;
-type OverviewTab = (typeof OVERVIEW_TABS)[number]["key"];
-
 /**
- * Spend Overview charts. `embedded` (report editor) adds KPI sparklines and a
- * tab switcher that shows one sub-view at a time to save vertical space; the
- * other panels stay in the DOM (`export-reveal`) so PDF export reveals all
- * three. On the standalone Overview page (`embedded` false) every view stacks.
+ * Spend Overview charts. `embedded` (report editor) adds KPI sparklines and stacks
+ * the three chart cards (Monthly trend / By category / Top suppliers) so the report —
+ * and its printed PDF — contains all three. (An earlier tabbed layout was dropped: a
+ * chart inside a display:none tab is never sized by Recharts, so it printed blank.)
+ * On the standalone Overview page (`embedded` false) the same three charts stack.
  */
 export function OverviewCharts({
   spend,
@@ -177,7 +171,6 @@ export function OverviewCharts({
   spend: SpendOverviewResult;
   embedded?: boolean;
 }) {
-  const [tab, setTab] = useState<OverviewTab>("trend");
   const spendSpark = embedded
     ? spend.monthly_trend.map((m) => m.total)
     : undefined;
@@ -204,32 +197,12 @@ export function OverviewCharts({
       </div>
 
       {embedded ? (
+        // Stacked so every chart is mounted + sized → all three render on screen
+        // AND in the printed PDF (no display:none tabs that Recharts can't rasterise).
         <>
-          <div className="no-print flex gap-1 border-b">
-            {OVERVIEW_TABS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${
-                  tab === t.key
-                    ? "border-primary font-medium"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div className="export-reveal" hidden={tab !== "trend"}>
-            <MonthlyTrendCard spend={spend} />
-          </div>
-          <div className="export-reveal" hidden={tab !== "category"}>
-            <SpendByCategoryCard spend={spend} />
-          </div>
-          <div className="export-reveal" hidden={tab !== "suppliers"}>
-            <TopSuppliersCard spend={spend} />
-          </div>
+          <MonthlyTrendCard spend={spend} />
+          <SpendByCategoryCard spend={spend} />
+          <TopSuppliersCard spend={spend} />
         </>
       ) : (
         <>

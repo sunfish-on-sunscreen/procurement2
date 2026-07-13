@@ -40,12 +40,16 @@ export function SortArrow({
   active: boolean;
   dir: "asc" | "desc";
 }) {
-  if (!active) {
-    return <ChevronsUpDown className="h-3 w-3 opacity-30" />;
-  }
-  return dir === "asc" ? (
-    <ArrowUp className="h-3 w-3" />
-  ) : (
-    <ArrowDown className="h-3 w-3" />
+  // Wrapped in `.no-print` so sort affordances don't leak into the report PDF.
+  return (
+    <span className="no-print inline-flex">
+      {!active ? (
+        <ChevronsUpDown className="h-3 w-3 opacity-30" />
+      ) : dir === "asc" ? (
+        <ArrowUp className="h-3 w-3" />
+      ) : (
+        <ArrowDown className="h-3 w-3" />
+      )}
+    </span>
   );
 }

@@ -252,7 +252,9 @@ export function ReportEditor({
           <span className="truncate text-sm font-medium">{meta.title}</span>
         </div>
 
-        <FilterStatusStrip config={config} totalCategories={allCategories.length} />
+        <div className="no-print">
+          <FilterStatusStrip config={config} totalCategories={allCategories.length} />
+        </div>
 
         <PinProvider value={pinValue}>
           <div className="px-3 py-4">
@@ -277,7 +279,9 @@ export function ReportEditor({
             ) : null}
           </div>
 
-          <SupplierDetailPanel detail={pinnedDetail} onClose={clearPin} />
+          <div className="no-print">
+            <SupplierDetailPanel detail={pinnedDetail} onClose={clearPin} />
+          </div>
         </PinProvider>
       </div>
     </div>
