@@ -339,7 +339,8 @@ investigation). Both AP modes; dark-mode/token-safe.
   **Graceful:** <2 periods → `insufficient` ("needs ≥2 periods"); zero temporal →
   "no sharp changes". *(The original INERT bullet below is HISTORY.)*
 - **⚠️ VERIFIED numbers.** RANGE hub: **46 distinct = 36 process + 11 classification +
-  18 temporal, 20 compound**; temporal **18/48 (38%)**, 2024→2025, by-signal
+  18 temporal, 19 compound** (runtime value — the redesign section re-verified 19, which
+  is what 46 = 36∪11∪18 implies; check live if in doubt); temporal **18/48 (38%)**, 2024→2025, by-signal
   Spend/Quadrant/Score. Process Health UNCHANGED (11/2/35). $100K guard confirmed
   (Total Energies 4.2× fold / $68.5K → NOT flagged). Dark cyan `#22d3ee`. tsc/ESLint
   clean; Python untouched.
@@ -683,10 +684,14 @@ the TS duplicate is deleted. Staged in 4 stages, **held for commit** (not yet in
   Supplier frame — SupplierMetric has none); the three `perf_of` fns
   (performance_spend zones, kraljic avg_performance, recommendations) read it
   instead of stored `SupplierMetric.compositeScore` (stored kept as fallback).
-- **⚠️ ONLY 0.45 of the composite is filter-dependent:** delivery (0.25) + process
-  (0.20) re-aggregate over the filtered POs; quality/service/risk (0.55) are
-  per-supplier soft-survey constants. The composite responds to the filter, but
-  ~55% is pinned.
+- **⚠️ 0.82 of the composite is filter-dependent; only Risk (0.18) is pinned.**
+  Weights are **0.30·Q + 0.30·D + 0.22·P + 0.18·R** (`scores.py` — Service was REMOVED,
+  not 0.25/0.20). Quality (0.30, **now per-PO defect/complaint aggregation — filter-live**,
+  not a soft-survey constant), Delivery (0.30), and Process (0.22) ALL re-aggregate over
+  the filtered POs → **Q+D+P = 0.82** responds to the window; only the structural Risk
+  sub-score (0.18 — `100 − (0.6·country_distance + 0.4·roster_concentration)`) is
+  window-independent. *(This corrects the earlier stale "0.45 dependent / 0.55 pinned"
+  note, which pre-dated the Service-removal + per-PO-Quality changes.)*
 - **VERIFIED numbers.** SINGLE-YEAR is **byte-identical to the prior stored**
   composite: 2024 **17/9/9/18** (med 74.18), 2025 **19/6/6/19** (79.24), 2026
   **6/4/4/6** (82.96) — 0 composite diffs. RANGE moved from the latest-snapshot
@@ -1571,7 +1576,7 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 
 ### Kraljic decisions (from Phase 11)
 - **Supply Risk Score** (reworked `57097d7`) = `supply_concentration(≤50) + cost_premium(≤25) + import_friction(≤25)`, caps sum to 100 (clip is a no-op). Replaced the old `single_source(30)+category_competition(30)+country_distance(20)+switching_cost(20)`.
-  - **supply_concentration** (≤50): roster-derived step on the # of OTHER suppliers in the same period-scoped category — `0→50, 1→35, 2→22, 3→12, 4→5, ≥5→0`. MERGES the former single_source flag + category_competition (the stored single-source flag contradicted the roster for ~91% of flagged suppliers AND double-counted with competition).
+  - **supply_concentration** (≤50): roster-derived step on the # of OTHER suppliers in the same category, counted against the **FULL roster** (all known suppliers, active or not — A1; falls back to period-scoped size only if the roster map is unset) — `0→50, 1→35, 2→22, 3→12, 4→5, ≥5→0`. MERGES the former single_source flag + category_competition (the stored single-source flag contradicted the roster for ~91% of flagged suppliers AND double-counted with competition).
   - **cost_premium** (≤25): period-scoped item-price premium. Per item, benchmark = spend-weighted avg unit price across ALL its suppliers; supplier premium = its spend-weighted avg unit price / item_avg − 1, counted ONLY when supplier×item ≥2 POs AND the item has ≥2 suppliers (single-source items → neutral); `clip(premium × 62.5, 0, 25)`; at/below market → 0.
   - **import_friction** (≤25): Indonesia trade-agreement coverage (NOT geographic distance) — `ID→0 / AFTA→8 / RCEP-non-ASEAN (JP,KR,CN,AU,NZ)→16 / else→25` (explicit safe default).
   - ⚠️ Emitted as `risk_components` per `quadrant_assignment` (each 2dp; total == `supply_risk_score`, reconciles with the detail-panel breakdown bars). ⚠️ DISTINCT from the **performance composite's `risk_score` sub-score** (`scores.py`, now `100 − (0.6·country_distance + 0.4·roster_concentration)` — structural only, NO complaints, NO single_source; changed in `aca864c`) — same word "risk", different metric; don't conflate. Both share the roster-concentration signal.
@@ -1595,9 +1600,12 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - `lib/range-analyses.ts` — `getRangeAnalyses()` cache-or-compute helper.
 - `lib/suppliers.ts` — `getSupplierCategoryMap()` / `getCategories()`.
 - `components/Reports/ReportDocument.tsx` — shared config + tone-driven report renderer.
-- `components/Reports/CustomizeReportModal.tsx` — 5-layer + tone customization modal.
-- `components/Reports/ReportGenerator.tsx` — modal launcher (single→persist, range→preview).
-- `app/api/reports/generate-ephemeral/route.ts` — in-memory range report endpoint.
+- ⚠️ `CustomizeReportModal.tsx` + `ReportGenerator.tsx` **NO LONGER EXIST** — the report
+  UI is now the always-on `components/Reports/ReportEditor.tsx` + `ReportEditorSidebar.tsx`
+  (the sidebar carries the 5-layer + tone customization inline; there is no launcher modal).
+- `app/api/reports/generate-ephemeral/route.ts` — in-memory range report endpoint. ⚠️ **Dead
+  code — no caller** (the editor's range preview uses `/api/reports/analyses`; a separate
+  batch will remove this route). Kept in this list only to flag it.
 - `app/(dashboard)/reports/preview/page.tsx` — in-memory range report viewer.
 - `prisma/migrations/.../add_range_cache_columns/` — nullable periodId + range columns.
 
@@ -1686,9 +1694,6 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - **Prisma 7 `migrate dev` is interactive** (fails in non-interactive shells).
   Use `prisma migrate diff --from-config-datasource --to-schema ... --script` to
   author the SQL, then `prisma migrate deploy`.
-- **The customization modal's focus-trap blocks browser automation** (eval/
-  screenshot hang while open) — not a user-facing bug. Verify report flows via
-  direct API fetch + `sessionStorage` + the preview page.
 - **Old reports (pre-3c) without `config` in `metricsJson`** default to
   `standard` detail + all sections + `operational` tone (backward compat).
 - **Old reports (pre-Batch-5) lack `cycle_framing: "monitoring"` in
@@ -1762,22 +1767,32 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - Use cuid() for IDs (not uuid)
 
 ## Data flow for imports
-1. User uploads ONE Excel file (.xlsx) via /import page
-2. The Excel file must contain 3 sheets: "Suppliers", "Purchases", "SupplierMetrics"
-3. Next.js API parses the file with the `xlsx` library, validates sheet structure with zod
-4. Saves each sheet's rows to the corresponding Postgres table
-5. After successful insert, API spawns Python script via child_process
-6. Python reads data from Postgres, computes analyses
-7. Python writes AnalysisResult rows back to Postgres (6 types: spend_overview, abc, performance_spend, kraljic, recommendations, cycle_time)
+1. Admin uploads **TWO separate `.xlsx` files** via /import page: a **Suppliers file**
+   and a **Purchases file** (each a SINGLE sheet — "Suppliers" / "Purchases"). ⚠️ There
+   is **NO SupplierMetrics sheet** — per-supplier metrics + the composite/sub-scores are
+   computed server-side from the raw rows, not uploaded.
+2. Next.js API (`app/api/imports/upload/route.ts`) parses BOTH workbooks with the `xlsx`
+   library and validates each sheet with zod **before any DB write** (fail-fast)
+3. Compute derived scores server-side FIRST via `python/import_compute.py` (raw rows in →
+   per-period `SupplierMetric` rows out); a Python failure aborts with **NO partial state**
+4. Atomic `$transaction`: per affected period, delete-then-insert Supplier / Purchase /
+   SupplierMetric (periods auto-created from the purchase **payment year**, PR-year fallback)
+5. After the write, spawn `compute_analyses.py` per period (Mode A) to compute the analyses
+6. Python writes AnalysisResult rows back to Postgres (6 types: spend_overview, abc, performance_spend, kraljic, recommendations, cycle_time)
+7. Clear the range cache (`AnalysisResult` rows with `periodId IS NULL`)
 8. Frontend pages read AnalysisResult and display via Recharts
 
 ## Excel file schema
-Single .xlsx with 3 sheets:
-- Sheet "Suppliers": supplier_id, supplier_name, country, category, product_description  *(`tier` removed in `158849b`)*
-- Sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
-- Sheet "SupplierMetrics" (ENRICHED output): supplier_id, supplier_name, category, total_spend_usd, num_pos, avg_po_value_usd, avg_lead_time_days, avg_cycle_time_days, on_time_delivery_pct, three_way_match_pct, defect_rate_pct, complaint_count_annual, rfx_response_rate_pct, avg_response_time_days, single_source_risk, quality_score, delivery_score, service_score, process_score, risk_score, composite_score  *(`calculated_tier` + `tier_mismatch` removed; the raw input file drops the 6 score columns too)*
+**TWO separate `.xlsx` files, each a single sheet.** ⚠️ There is NO SupplierMetrics
+sheet — the per-supplier metrics + composite/sub-scores (quality/delivery/process/risk/
+composite; **no `service_score`** — Service was removed from the model) are computed
+server-side by `python/import_compute.py` from the raw rows, then written to the
+`SupplierMetric` table.
+- **Suppliers file**, sheet "Suppliers": supplier_id, supplier_name, country, category, product_description  *(`tier` removed in `158849b`)*
+- **Purchases file**, sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
 
-Sample data file: `data/raw/procurement_data.xlsx` (use for testing)
+Sample data files: `data/raw/procurement_suppliers.xlsx` + `data/raw/procurement_purchases.xlsx`
+(served by `app/api/sample-data/route.ts?file=suppliers|purchases`)
 
 See `dataset_type_explainer.md` for type definitions and provenance.
 

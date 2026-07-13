@@ -117,9 +117,10 @@ export function parseBodyDate(s: string): Date {
 }
 
 /**
- * Parse + validate the 5 purchase dates (shared by create + edit): they must be
- * valid AND non-decreasing (PR ≤ PO ≤ Delivery ≤ Invoice ≤ Payment) so a manual
- * write can never produce a negative cycle-day.
+ * Parse + validate the 5 purchase dates (used by the create path — POST
+ * /api/purchases; there is no edit path since the 2026-07-13 CRUD rework): they
+ * must be valid AND non-decreasing (PR ≤ PO ≤ Delivery ≤ Invoice ≤ Payment) so a
+ * manual write can never produce a negative cycle-day.
  */
 export function parsePurchaseDates(b: {
   pr_date: string;

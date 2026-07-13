@@ -174,7 +174,7 @@ model AnalysisResult {
   rangeStartDate DateTime?
   rangeEndDate   DateTime?
 
-  analysisType String // 'spend_overview' | 'abc' | 'hypothesis' | 'performance_spend' | 'kraljic' | 'recommendations'
+  analysisType String // 'spend_overview' | 'abc' | 'cycle_time' | 'performance_spend' | 'kraljic' | 'recommendations'
   resultJson   Json
   computedAt   DateTime @default(now())
 

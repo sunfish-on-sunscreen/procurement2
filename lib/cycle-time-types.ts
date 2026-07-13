@@ -133,7 +133,7 @@ export type CycleCategoryRow = {
 export type CycleBreakdown = {
   bySupplier: CycleSupplierRow[];
   byCategory: CycleCategoryRow[];
-  // POs where one stage's share of total cycle exceeds 50% (stage-dominated
+  // POs where one stage's share of total cycle exceeds 60% (stage-dominated
   // outliers); z_score is over the in-span cycle population. Optional so any
   // older cached/consumer shape stays valid.
   stageAnomalies?: CycleAnomaly[];

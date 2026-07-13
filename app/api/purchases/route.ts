@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Parse + validate the 5 dates (shared with edit — validity + ordering).
+  // Parse + validate the 5 dates (validity + ordering; create-only — the edit path was removed).
   const parsedDates = parsePurchaseDates(data);
   if (!parsedDates.ok) {
     return NextResponse.json({ error: parsedDates.error }, { status: 400 });

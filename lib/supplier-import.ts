@@ -22,9 +22,10 @@ export const SuppliersRow = z.object({
 export type SupplierRowData = z.infer<typeof SuppliersRow>;
 
 /**
- * Body schema for a single-record supplier WRITE (create or edit) — the shared
- * validation both POST /api/suppliers and PATCH /api/suppliers/[id] use. The id
- * is never in the body (server-assigned on create, locked on edit).
+ * Body schema for a single-record supplier CREATE — used by POST /api/suppliers.
+ * (There is no edit path: the PATCH handler was removed in the 2026-07-13 CRUD
+ * rework — records are add-only + remove-only.) The id is never in the body; it
+ * is server-assigned on create.
  */
 export const SupplierWriteBody = z.object({
   supplier_name: z.string().trim().min(1, "Supplier name is required"),
