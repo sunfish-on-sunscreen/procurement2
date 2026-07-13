@@ -10,7 +10,14 @@ const dateField = z
   .refine((s) => /^\d{4}-\d{2}-\d{2}/.test(s), "Expected YYYY-MM-DD")
   .transform((s) => s.slice(0, 10));
 
-const bodySchema = z.object({ startDate: dateField, endDate: dateField });
+const bodySchema = z.object({
+  startDate: dateField,
+  endDate: dateField,
+  // Optional: the editor sends the selected period id for a SINGLE-YEAR report so the
+  // temporal family compares that year vs its prior (period-aware). Omitted for a
+  // range preview → latest-vs-prior.
+  selectedPeriodId: z.string().optional(),
+});
 
 /**
  * Report-specific analyses for a span: the six range analyses PLUS the anomaly-hub
@@ -36,9 +43,13 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
-  const { startDate, endDate } = parsed.data;
+  const { startDate, endDate, selectedPeriodId } = parsed.data;
 
-  const data = await assembleReportRangeAnalyses(startDate, endDate);
+  const data = await assembleReportRangeAnalyses(
+    startDate,
+    endDate,
+    selectedPeriodId ? { selectedPeriodId } : undefined,
+  );
   if (!data) {
     return NextResponse.json(
       { error: "Range computation failed" },

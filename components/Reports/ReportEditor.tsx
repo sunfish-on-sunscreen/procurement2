@@ -96,6 +96,10 @@ export function ReportEditor({
   const endDate = span?.endDate ?? "";
   const label = span?.label ?? "";
   const spanKey = `${startDate}_${endDate}`;
+  // Single-year reports send their period id so the report's temporal family is
+  // period-aware (that year vs its prior), mirroring the Action Priorities page.
+  const selectedPeriodId =
+    config.period.mode === "single" ? config.period.singleId : null;
 
   const analyses = loaded?.key === spanKey ? loaded.analyses : null;
   const error = errored?.key === spanKey ? errored.msg : null;
@@ -156,7 +160,11 @@ export function ReportEditor({
     fetch("/api/reports/analyses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startDate, endDate }),
+      body: JSON.stringify(
+        selectedPeriodId
+          ? { startDate, endDate, selectedPeriodId }
+          : { startDate, endDate },
+      ),
     })
       .then(async (res) => {
         if (!res.ok) {
@@ -178,7 +186,7 @@ export function ReportEditor({
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedPeriodId]);
 
   const canSave = config.period.mode === "single";
 

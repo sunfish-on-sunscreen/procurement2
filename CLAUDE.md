@@ -165,11 +165,15 @@ logic + the block's state rendering.
   `TemporalBlock` renders the no-prior / partial-year / insufficient states as notes.
 - **Block label is now explicit + mode-aware:** **"2025 vs 2024"** (single-year) /
   **"2024 → 2025" + "(2026 excluded — partial year.)"** in the synthesis line (range).
-- **⚠️ Reports UNCHANGED (still RANGE-only temporal).** `assembleReportRangeAnalyses`
-  (`lib/report-analyses.ts`) calls the **no-arg** load and unwraps
-  `temporalLoad.kind === "ok" ? .matrix : null` → the report's temporal matrix is
-  byte-identical (verified via `/api/reports/analyses`: latest 2025 / prior 2024 /
-  skipped 2026, 55 rows).
+- **⚠️ Reports are now PERIOD-AWARE too (updated 2026-07-13 — supersedes the old
+  "reports temporal is RANGE-only").** `assembleReportRangeAnalyses`
+  (`lib/report-analyses.ts`) takes an optional `selectedPeriodId` and passes the WHOLE
+  discriminated `TemporalLoad` through (no unwrap): a SINGLE-YEAR report (editor sends
+  `selectedPeriodId`; persisted `/reports/[id]` uses its own `periodId`) compares Y vs
+  Y-1 with the no-prior / partial-year note states; a RANGE report stays latest-vs-prior
+  (partial-year skip). So a single-year report now shows all 3 anomaly families, matching
+  the Action Priorities page. `ReportDocument` dropped the `config.period.mode === "range"`
+  gate and renders the note states.
 - **⚠️ VERIFIED (2026-07-13).** Range still **18/48** (Spend 10·Quadrant 7·Score 3,
   2024→2025); **single-year 2025 now FIRES the same 18/48** (2025 vs 2024, no skipped
   clause — direct pair); **2026 → partial-year note**; **2024 → no-prior note**; hub
@@ -204,9 +208,11 @@ has it at render time. NO client fetch (that was the deferral reason: PDF =
   over-compute the breakdown/temporal. Ephemeral route uses the assembler; the
   persisted page adds the breakdown INLINE (reusing its Mode-A abc/perf via
   `preloaded`, keeping its fast per-period reads) and OMITS temporal.
-- **⚠️ TEMPORAL IS RANGE-ONLY in reports** (gated on `config.period.mode === "range"`)
-  — mirrors the live hub (single-year → inert). So persisted single-year reports show
-  process + classification; ephemeral RANGE reports show all three.
+- **⚠️ SUPERSEDED (2026-07-13) — temporal in reports is now PERIOD-AWARE in BOTH modes**
+  (the old `config.period.mode === "range"` gate in `ReportDocument` is GONE). Single-year
+  reports (persisted + editor preview) show all three families (Y vs Y-1, with the
+  no-prior / partial-year note states); range reports are unchanged. See the "Reports are
+  now PERIOD-AWARE" note in the TEMPORAL PERIOD-AWARENESS block above.
 - **`ReportAnalyses` extended** with `breakdown?` + `temporal?`. **`ReportDocument`
   computes all 3 families SYNCHRONOUSLY from props** (reuses `deriveCycleFlags` +
   `buildAnomalyCrossref`, `buildClassificationAnomalies`, `buildTemporalAnomalies` —
@@ -1567,8 +1573,9 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   full-population with a caveat (no recompute). **Tone variants are applied at
   RENDER time** (`ReportDocument` picks `TEMPLATES[tone][section]`), not baked.
 - **Single-year reports persist** (`ExecutiveSummary` + `/api/reports/generate`);
-  **range reports are in-memory** (`/api/reports/generate-ephemeral` →
-  `/reports/preview`, never saved).
+  **range reports are never saved** — they render live in the editor at `/reports/preview`
+  (`ReportEditor` fetching `/api/reports/analyses`). *(The old `generate-ephemeral` route +
+  the `EPHEMERAL_KEY`/`sessionStorage` hand-off were dead code and were DELETED 2026-07-13.)*
 - **`generate_dataset.py` does NOT exist in this repo.** The synthetic dataset
   was generated externally; **`scripts/transform_dataset.py`** is the
   deterministic transformer (seed 42) that produced the current
@@ -1603,9 +1610,9 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - ⚠️ `CustomizeReportModal.tsx` + `ReportGenerator.tsx` **NO LONGER EXIST** — the report
   UI is now the always-on `components/Reports/ReportEditor.tsx` + `ReportEditorSidebar.tsx`
   (the sidebar carries the 5-layer + tone customization inline; there is no launcher modal).
-- `app/api/reports/generate-ephemeral/route.ts` — in-memory range report endpoint. ⚠️ **Dead
-  code — no caller** (the editor's range preview uses `/api/reports/analyses`; a separate
-  batch will remove this route). Kept in this list only to flag it.
+- ⚠️ `app/api/reports/generate-ephemeral/route.ts` — **DELETED 2026-07-13** (was dead code;
+  the editor's range preview uses `/api/reports/analyses`). The `EPHEMERAL_KEY` /
+  `sessionStorage` hand-off it implied is gone too.
 - `app/(dashboard)/reports/preview/page.tsx` — in-memory range report viewer.
 - `prisma/migrations/.../add_range_cache_columns/` — nullable periodId + range columns.
 

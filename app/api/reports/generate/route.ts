@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   }
   if (config.period.mode !== "single") {
     return NextResponse.json(
-      { error: "Range reports are generated via generate-ephemeral." },
+      { error: "Range reports are not persisted — preview them in the report editor." },
       { status: 400 },
     );
   }

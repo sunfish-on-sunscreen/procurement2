@@ -19,7 +19,7 @@ import {
   categoryFilterActive,
 } from "@/lib/report-config";
 import type { CycleBreakdown } from "@/lib/cycle-time-types";
-import type { TemporalMatrix } from "@/lib/temporal-anomalies";
+import type { TemporalLoad } from "@/lib/temporal-anomalies";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
 import {
   ACTION_GROUPS,
@@ -45,10 +45,11 @@ export type ReportAnalyses = {
   recommendations: RecommendationsResult | null;
   // Anomaly-hub extras, assembled server-side at report-build so they're present
   // in ALL render paths (incl. static PDF export) — no client fetch. breakdown
-  // powers the PROCESS family; temporal (range reports only) the CHANGED-OVER-TIME
-  // family. Optional so pre-existing callers / older shapes stay valid.
+  // powers the PROCESS family; temporal (period-aware, BOTH modes — a discriminated
+  // TemporalLoad carrying the note states) the CHANGED-OVER-TIME family. Optional so
+  // pre-existing callers / older shapes stay valid.
   breakdown?: CycleBreakdown | null;
-  temporal?: TemporalMatrix | null;
+  temporal?: TemporalLoad | null;
 };
 
 export type ReportMeta = {
@@ -261,14 +262,27 @@ export function ReportDocument({
         })
       : null;
 
-    // Temporal (Batch 3) — range reports only (matches the live hub's range-only rule).
-    const isRange = config.period.mode === "range";
-    const temporal = isRange && analyses.temporal ? buildTemporalAnomalies(analyses.temporal) : null;
+    // Temporal (Batch 3) — period-aware in BOTH modes (mirrors the live Action
+    // Priorities hub): single-year compares Y vs Y-1, range compares latest vs prior
+    // (partial-year skip). The discriminated TemporalLoad carries the note states, so
+    // an inert year (no-prior / partial-year) renders a note, not an empty section.
+    const tLoad = analyses.temporal ?? null;
+    const temporal =
+      tLoad?.kind === "ok" ? buildTemporalAnomalies(tLoad.matrix) : null;
+    const temporalNote =
+      tLoad?.kind === "no-prior"
+        ? `${tLoad.label} is the earliest period — no prior year to compare against.`
+        : tLoad?.kind === "partial-year"
+          ? `${tLoad.label} is a partial year — a year-over-year comparison vs ${tLoad.priorLabel} isn't meaningful.`
+          : temporal && temporal.flaggedCount === 0
+            ? `No sharp year-over-year changes (${temporal.priorLabel} → ${temporal.latestLabel}).`
+            : null;
 
     const hasAny =
       cls.flaggedCount > 0 ||
       (proc?.flaggedCount ?? 0) > 0 ||
-      (temporal?.flaggedCount ?? 0) > 0;
+      (temporal?.flaggedCount ?? 0) > 0 ||
+      temporalNote != null;
     if (!hasAny) return null;
 
     const cap = <T,>(rows: T[]) => (detailed ? rows : rows.slice(0, 6));
@@ -348,8 +362,8 @@ export function ReportDocument({
           </div>
         )}
 
-        {/* Changed over time (range reports only) */}
-        {temporal && temporal.flaggedCount > 0 && (
+        {/* Changed over time — period-aware (BOTH modes): flagged list, else a note. */}
+        {temporal && temporal.flaggedCount > 0 ? (
           <div className="flex flex-col gap-1">
             <p className="text-sm font-medium text-foreground">
               Changed over time — {temporal.priorLabel} → {temporal.latestLabel}
@@ -382,7 +396,12 @@ export function ReportDocument({
               ))}
             </ul>
           </div>
-        )}
+        ) : temporalNote ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-foreground">Changed over time</p>
+            <p className="text-sm text-muted-foreground">{temporalNote}</p>
+          </div>
+        ) : null}
       </div>
     );
   })();

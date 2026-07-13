@@ -5,9 +5,6 @@
 import type { PeriodSelection } from "@/lib/period-constants";
 import type { RecommendationCategory } from "@/lib/analysis-types";
 
-// sessionStorage key for an in-memory (range) report handed to /reports/preview.
-export const EPHEMERAL_KEY = "ephemeralReport";
-
 export type SectionKey =
   | "spendOverview"
   | "abc"
