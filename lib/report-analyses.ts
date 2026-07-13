@@ -34,13 +34,17 @@ export async function assembleReportRangeAnalyses(
   const analyses = await getRangeAnalyses(startDate, endDate);
   if (!analyses) return null;
 
-  const [breakdown, temporal] = await Promise.all([
+  const [breakdown, temporalLoad] = await Promise.all([
     computeCycleBreakdown(startDate, endDate, {
       abc: analyses.abc,
       performance_spend: analyses.performance_spend,
     }),
+    // Reports' temporal family is RANGE-only — the no-arg load keeps the existing
+    // latest-vs-prior (partial-year-guarded) behavior. Unwrap to the raw matrix
+    // (the report renders it directly; the single-year note states don't apply).
     loadTemporalMatrix(),
   ]);
+  const temporal = temporalLoad.kind === "ok" ? temporalLoad.matrix : null;
 
   return { ...analyses, breakdown, temporal };
 }

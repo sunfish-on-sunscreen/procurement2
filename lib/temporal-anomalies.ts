@@ -58,6 +58,22 @@ export type TemporalMatrix = {
   rows: TemporalSupplierRow[];
 };
 
+/**
+ * Result of resolving which two periods to compare — period-aware, so the temporal
+ * family renders in BOTH modes:
+ *  - RANGE: latest vs prior, skipping a partial newest year (the `skippedLabel` note
+ *    rides inside the matrix); non-`ok` only when < 2 periods exist.
+ *  - SINGLE-YEAR (year Y): Y vs Y-1. `no-prior` when Y is the earliest period;
+ *    `partial-year` when Y itself is sparse vs its prior (a YoY compare would be a
+ *    pure volume artifact — surface a note instead of firing garbage flags).
+ * This is a plain data type (no server-only import) so the client hub can switch on it.
+ */
+export type TemporalLoad =
+  | { kind: "ok"; matrix: TemporalMatrix }
+  | { kind: "no-prior"; label: string }
+  | { kind: "partial-year"; label: string; priorLabel: string }
+  | { kind: "insufficient" };
+
 export type TemporalChange = {
   spend: { pct: number; from: number; to: number } | null;
   quadrant: { from: KraljicQuadrant; to: KraljicQuadrant; axes_flipped: number } | null;

@@ -34,7 +34,7 @@ import {
 } from "@/lib/anomaly-crossref";
 import {
   buildTemporalAnomalies,
-  type TemporalMatrix,
+  type TemporalLoad,
   type TemporalAnomalies,
   type TemporalAnomalyRow,
 } from "@/lib/temporal-anomalies";
@@ -993,14 +993,14 @@ function TemporalRow({
 
 function TemporalBlock({
   anomalies,
+  load,
   isRangeMode,
-  hasMatrix,
   familiesBySupplier,
   onSupplier,
 }: {
   anomalies: TemporalAnomalies | null;
+  load: TemporalLoad | null;
   isRangeMode: boolean;
-  hasMatrix: boolean;
   familiesBySupplier: Map<string, Set<AnomalyFamily>>;
   onSupplier?: (id: string) => void;
 }) {
@@ -1013,41 +1013,46 @@ function TemporalBlock({
       count={count}
     />
   );
+  const note = (text: React.ReactNode) => (
+    <div className="flex flex-col gap-2">
+      {head(0)}
+      <p className="px-3 text-xs text-muted-foreground">{text}</p>
+    </div>
+  );
 
-  // Single-year mode → nothing to compare.
-  if (!isRangeMode) {
-    return (
-      <div className="flex flex-col gap-2">
-        {head(0)}
-        <p className="px-3 text-xs text-muted-foreground">
-          Select <span className="font-medium text-foreground">Range</span> to see
-          year-over-year changes.
-        </p>
-      </div>
+  // States that carry no comparable pair → an explanatory note, no flags.
+  if (!load || load.kind === "insufficient") {
+    return note("Needs at least two reporting periods to compare.");
+  }
+  if (load.kind === "no-prior") {
+    return note(
+      <>
+        <span className="font-medium text-foreground">{load.label}</span> is the earliest
+        period — no prior year to compare.
+      </>,
     );
   }
-  // Range but <2 periods available.
-  if (!hasMatrix || !anomalies) {
-    return (
-      <div className="flex flex-col gap-2">
-        {head(0)}
-        <p className="px-3 text-xs text-muted-foreground">
-          Needs at least two reporting periods to compare.
-        </p>
-      </div>
+  if (load.kind === "partial-year") {
+    return note(
+      <>
+        <span className="font-medium text-foreground">{load.label}</span> is a partial year —
+        year-over-year comparison isn&apos;t meaningful (its volume is a fraction of{" "}
+        {load.priorLabel}). Select a full year or Range.
+      </>,
     );
   }
+  // load.kind === "ok" → we have a matrix; anomalies is non-null (built in the hub).
+  if (!anomalies) return note("Needs at least two reporting periods to compare.");
 
   const { rows, flaggedCount, rosterSize, latestLabel, priorLabel, skippedLabel, byDetector } = anomalies;
+
+  // Explicit, mode-aware comparison label: "2025 vs 2024" (single-year) or
+  // "2024 → 2025" (range, chronological). The range partial-year exclusion rides in
+  // the synthesis line below via skippedLabel.
+  const compareLabel = isRangeMode ? `${priorLabel} → ${latestLabel}` : `${latestLabel} vs ${priorLabel}`;
+
   if (flaggedCount === 0) {
-    return (
-      <div className="flex flex-col gap-2">
-        {head(0)}
-        <p className="px-3 text-xs text-muted-foreground">
-          No sharp year-over-year changes between {priorLabel} and {latestLabel}.
-        </p>
-      </div>
-    );
+    return note(`No sharp year-over-year changes (${compareLabel}).`);
   }
 
   const INITIAL = 4;
@@ -1058,7 +1063,7 @@ function TemporalBlock({
     <div className="flex flex-col gap-2">
       {head(flaggedCount)}
       <p className="px-3 text-xs text-muted-foreground">
-        {flaggedCount} of {rosterSize} suppliers moved sharply from {priorLabel} to {latestLabel} —
+        {flaggedCount} of {rosterSize} suppliers moved sharply — {compareLabel} —
         a spend swing (≥2.5×), a Kraljic quadrant jump, or a ≥18-point score change.
         {skippedLabel ? ` (${skippedLabel} excluded — partial year.)` : ""} Ranked by significance.
       </p>
@@ -1071,11 +1076,11 @@ function TemporalBlock({
             <>
               Spend {byDetector.spend} · Quadrant {byDetector.quadrant} · Score {byDetector.score}
               <br />
-              moved sharply, {priorLabel} → {latestLabel}
+              moved sharply, {compareLabel}
             </>
           }
         />
-        <Tile label={`${priorLabel} → ${latestLabel}`} color={TEMPORAL_ACCENT} count={flaggedCount} wide>
+        <Tile label={compareLabel} color={TEMPORAL_ACCENT} count={flaggedCount} wide>
           <ul className="flex flex-col gap-1">
             {shown.map((row, i) => (
               <TemporalRow
@@ -1106,10 +1111,11 @@ function TemporalBlock({
  * The unified Cross-Analysis Anomaly Hub. One amber section holding THREE families:
  * PROCESS anomalies (Batch 1's cycle flags × position), CLASSIFICATION anomalies
  * (Batch 2's cross-lens disagreement ranking), and CHANGED-OVER-TIME (Batch 3's
- * latest-vs-prior temporal moves). Self-fetches the breakdown roster (span-scoped);
+ * year-over-year temporal moves). Self-fetches the breakdown roster (span-scoped);
  * the process side degrades to outlier-only if it fails; classification reads perf +
- * kraljic; the temporal family reads a per-period matrix passed in (range mode
- * only). A compound badge marks suppliers flagged in more than one family.
+ * kraljic; the temporal family reads a period-aware TemporalLoad passed in (range →
+ * latest-vs-prior; single-year → selected vs prior). A compound badge marks suppliers
+ * flagged in more than one family.
  */
 function CrossAnalysisAnomalyHub({
   cycleTime,
@@ -1128,7 +1134,7 @@ function CrossAnalysisAnomalyHub({
   kraljic?: KraljicResult | null;
   startDate?: string;
   endDate?: string;
-  temporal?: TemporalMatrix | null;
+  temporal?: TemporalLoad | null;
   isRangeMode?: boolean;
   onProcessSupplier?: (id: string) => void;
   onClassificationSupplier?: (id: string) => void;
@@ -1191,8 +1197,12 @@ function CrossAnalysisAnomalyHub({
     supplyRiskById.set(q.supplier_id, q.supply_risk_score);
   }
 
-  // Temporal family (Batch 3): active only in range mode with a per-period matrix.
-  const temporalAnomalies = isRangeMode && temporal ? buildTemporalAnomalies(temporal) : null;
+  // Temporal family (Batch 3): period-aware — fires in BOTH modes whenever the load
+  // resolved a comparable pair (range: latest-vs-prior; single-year: Y vs Y-1). The
+  // no-prior / partial-year / insufficient states carry no matrix → the block renders
+  // an explanatory note instead (see TemporalBlock).
+  const temporalAnomalies =
+    temporal?.kind === "ok" ? buildTemporalAnomalies(temporal.matrix) : null;
 
   const hub = buildAnomalyHub({
     flagsBySupplier,
@@ -1273,8 +1283,8 @@ function CrossAnalysisAnomalyHub({
       />
       <TemporalBlock
         anomalies={temporalOut}
+        load={temporal ?? null}
         isRangeMode={!!isRangeMode}
-        hasMatrix={!!temporal}
         familiesBySupplier={familiesBySupplier}
         onSupplier={onTemporalSupplier}
       />
@@ -1302,9 +1312,10 @@ export function ActionDashboardView({
   kraljic?: KraljicResult | null;
   startDate?: string;
   endDate?: string;
-  /** Per-period latest-vs-prior matrix for the hub's temporal family (server-loaded,
-   *  mode-independent). The temporal block only renders when isRangeMode. */
-  temporal?: TemporalMatrix | null;
+  /** Period-aware year-over-year comparison for the hub's temporal family
+   *  (server-resolved): range → latest-vs-prior; single-year → selected vs prior,
+   *  with no-prior / partial-year note states. Renders in BOTH modes. */
+  temporal?: TemporalLoad | null;
   isRangeMode?: boolean;
 }) {
   const { recommendations, summary_stats } = data;

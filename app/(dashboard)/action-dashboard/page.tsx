@@ -21,11 +21,6 @@ export default async function ActionDashboardPage() {
   const selection = await getCurrentPeriodSelection();
   const source = await resolveAnalysisSource(selection);
 
-  // Per-period latest-vs-prior matrix for the hub's temporal family. Server-loaded
-  // from the trustworthy per-period AnalysisResults (Purchase-derived; no lag), and
-  // mode-independent — the temporal block itself only renders in range mode.
-  const temporal = await loadTemporalMatrix();
-
   let label = "";
   let body: React.ReactNode;
 
@@ -36,12 +31,15 @@ export default async function ActionDashboardPage() {
     // cycle_time feeds the P2P bar tile (recommendations only carries flagged
     // stages); performance_spend + kraljic + the period span power the in-place
     // supplier detail drawer (same inputs the Classification panel needs).
-    const [data, cycle, perf, kraljic, span] = await Promise.all([
+    // temporal: the hub's changed-over-time family compares the SELECTED year vs the
+    // prior period (Y vs Y-1) — period-aware, so it renders in single-year mode too.
+    const [data, cycle, perf, kraljic, span, temporal] = await Promise.all([
       getAnalysisResult<RecommendationsResult>(source.periodId, "recommendations"),
       getAnalysisResult<CycleTimeResult>(source.periodId, "cycle_time"),
       getAnalysisResult<PerformanceSpendResult>(source.periodId, "performance_spend"),
       getAnalysisResult<KraljicResult>(source.periodId, "kraljic"),
       getDateRangeFromSelection(selection),
+      loadTemporalMatrix({ selectedPeriodId: source.periodId }),
     ]);
     const start = span ? span.startDate.toISOString().slice(0, 10) : "";
     const end = span ? span.endDate.toISOString().slice(0, 10) : "";
@@ -61,6 +59,8 @@ export default async function ActionDashboardPage() {
     );
   } else {
     label = source.periodLabel;
+    // Range mode: latest-vs-prior across the roster (partial newest year skipped).
+    const temporal = await loadTemporalMatrix();
     body = (
       <RangeCompute
         key={`${source.startDate}_${source.endDate}`}

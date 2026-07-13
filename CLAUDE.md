@@ -8,9 +8,10 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **Last doc update: 2026-07-13 —
-> Supplier Selection REMOVED (see the removal note below); 4 analytical pages. Prior
-> code HEAD `c04eb0b` (2026-07-10) — reports render the full 3-family anomaly hub.
-> Run `git log` for the latest.**
+> (1) hub temporal family now PERIOD-AWARE in both modes (see "TEMPORAL
+> PERIOD-AWARENESS" below); (2) Supplier Selection REMOVED (see the removal note
+> below); 4 analytical pages. Prior code HEAD `c04eb0b` (2026-07-10) — reports
+> render the full 3-family anomaly hub. Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -66,7 +67,53 @@ Anomaly Hub** holds all 3 anomaly families.
    ONE fresh dev server (kill any zombie squatting on `:3000`); write commit messages via
    a Bash heredoc (`git commit -F - <<'EOF' … EOF`), NOT PowerShell here-strings.
 
-### REPORTS: FULL 3-FAMILY ANOMALY HUB (2026-07-10, latest) — PROCESS + TEMPORAL ADDED
+### TEMPORAL PERIOD-AWARENESS (2026-07-13, latest) — "CHANGED OVER TIME" NOW FIRES IN BOTH MODES
+
+**The hub's temporal ("Changed over time") family is now PERIOD-AWARE in BOTH
+modes** — previously it only worked in Range and went inert in single-year. NO
+threshold/constant change (SPEND_FOLD_CUTOFF 2.5, SCORE_SWING_CUTOFF 18,
+SPEND_SMALL_BASE_MIN 100K, PARTIAL_YEAR_SPEND_FRACTION 0.5, quadrant any-jump all
+unchanged), NO Python/compute/endpoint/migration change — only the period-SELECTION
+logic + the block's state rendering.
+
+- **`lib/temporal-load.ts` `loadTemporalMatrix(opts?: {selectedPeriodId?})` is now
+  PERIOD-AWARE** and returns a discriminated **`TemporalLoad`** (new type in
+  `lib/temporal-anomalies.ts`, a plain non-`server-only` type so the client hub can
+  switch on it):
+  `{kind:"ok"; matrix}` · `{kind:"no-prior"; label}` · `{kind:"partial-year"; label;
+  priorLabel}` · `{kind:"insufficient"}`.
+  - **RANGE (no `selectedPeriodId`) — UNCHANGED, byte-identical:** latest-vs-prior,
+    stepping back past a partial newest year (2024→2025, 2026 excluded via
+    `skippedLabel`). Still **18/48**.
+  - **SINGLE-YEAR (`selectedPeriodId` = year Y):** compares **Y vs Y-1**. Earliest
+    year (idx 0) → `no-prior`. **⚠️ Partial-year trap:** if the SELECTED year is sparse
+    (`totals[Y] < 0.5 × totals[Y-1]`, e.g. 2026 ~$29.7M vs 2025 ~$283.6M) → `partial-year`
+    note, NOT a wall of ~85%-of-roster fake −90% drops. **Range can step FORWARD to a
+    comparable pair; single-year can't (the user explicitly chose Y), so the guard
+    becomes a NOTE instead of a re-pick** — this asymmetry is deliberate.
+- **`app/(dashboard)/action-dashboard/page.tsx`** loads per-branch now: cached branch
+  calls `loadTemporalMatrix({selectedPeriodId: source.periodId})` (in the `Promise.all`);
+  range branch calls `loadTemporalMatrix()`. (Was one mode-blind top-level call.)
+- **`ActionDashboardView` / `RangeCompute` prop `temporal` is now `TemporalLoad | null`**
+  (was `TemporalMatrix | null`). The hub gate became
+  `temporal?.kind === "ok" ? buildTemporalAnomalies(temporal.matrix) : null` (fires in
+  BOTH modes); the `!isRangeMode` inert branch + `hasMatrix` prop are GONE.
+  `TemporalBlock` renders the no-prior / partial-year / insufficient states as notes.
+- **Block label is now explicit + mode-aware:** **"2025 vs 2024"** (single-year) /
+  **"2024 → 2025" + "(2026 excluded — partial year.)"** in the synthesis line (range).
+- **⚠️ Reports UNCHANGED (still RANGE-only temporal).** `assembleReportRangeAnalyses`
+  (`lib/report-analyses.ts`) calls the **no-arg** load and unwraps
+  `temporalLoad.kind === "ok" ? .matrix : null` → the report's temporal matrix is
+  byte-identical (verified via `/api/reports/analyses`: latest 2025 / prior 2024 /
+  skipped 2026, 55 rows).
+- **⚠️ VERIFIED (2026-07-13).** Range still **18/48** (Spend 10·Quadrant 7·Score 3,
+  2024→2025); **single-year 2025 now FIRES the same 18/48** (2025 vs 2024, no skipped
+  clause — direct pair); **2026 → partial-year note**; **2024 → no-prior note**; hub
+  synthesis reconciles in single-year (2025: 41 = 33 process ∪ 10 classification ∪ 18
+  temporal); Process Health **11/2/35** unchanged. tsc/ESLint clean; dark-mode safe
+  (`--temporal` token only); no console/server errors.
+
+### REPORTS: FULL 3-FAMILY ANOMALY HUB (2026-07-10) — PROCESS + TEMPORAL ADDED
 
 **Reports now render ALL THREE anomaly families** (process + classification +
 temporal), finishing the deferred follow-up from the reports-alignment batch
@@ -208,10 +255,17 @@ investigation). Both AP modes; dark-mode/token-safe.
   **Classification tab** (where the evolution sparklines live). Plumbing: `page.tsx`
   server-loads the matrix (mode-independent) + passes `temporal` + `isRangeMode`;
   `RangeCompute` forwards them (range mode → `isRangeMode`).
-- **⚠️ Single-year mode: the temporal block is INERT** — shows "Select Range to see
-  year-over-year changes"; the hub synthesis omits the temporal clause; process +
-  classification render normally. **Graceful:** <2 periods → "needs ≥2 periods";
-  zero temporal → "no sharp changes".
+- **⚠️ SUPERSEDED (2026-07-13) — single-year is NO LONGER inert; the temporal family
+  is now PERIOD-AWARE in BOTH modes.** (Was: single-year showed "Select Range to see
+  year-over-year changes" and contributed 0.) Now `loadTemporalMatrix` resolves the
+  pair from the selected mode and returns a discriminated **`TemporalLoad`** (see the
+  "TEMPORAL PERIOD-AWARENESS" block at the top): single-year **Y compares Y vs Y-1**
+  (fires normally — e.g. 2025 vs 2024, 18/48, same pair as range); **earliest year →
+  `no-prior` note**; a **partial selected year → `partial-year` note** (the guard
+  becomes a note, since we can't step back from a user-chosen year). Range is
+  unchanged. Hub synthesis now includes the temporal clause in single-year too.
+  **Graceful:** <2 periods → `insufficient` ("needs ≥2 periods"); zero temporal →
+  "no sharp changes". *(The original INERT bullet below is HISTORY.)*
 - **⚠️ VERIFIED numbers.** RANGE hub: **46 distinct = 36 process + 11 classification +
   18 temporal, 20 compound**; temporal **18/48 (38%)**, 2024→2025, by-signal
   Spend/Quadrant/Score. Process Health UNCHANGED (11/2/35). $100K guard confirmed
@@ -1018,9 +1072,16 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   panel fetches the same `spend-detail` + `evolution`), so it is a pure
   presentation port — no API/data change.
 - **Action Dashboard period-awareness** — separate batch; do not retrofit ad-hoc.
-  ⚠️ PARTIALLY ADDRESSED: the Cross-Analysis Anomaly Hub's temporal family (Batch 3,
-  `a2a2bd0`) brought latest-vs-prior period-awareness to the hub; full Action
-  Priorities period-awareness is still open.
+  ✅ **LARGELY CLOSED FOR THE HUB (2026-07-13):** the Cross-Analysis Anomaly Hub is now
+  fully period-aware across all 3 families — process + classification were always
+  span-scoped (they read the per-period/range `perf`/`kraljic` + the span breakdown),
+  and the **temporal family is now period-aware in BOTH modes** (single-year Y vs Y-1;
+  see the "TEMPORAL PERIOD-AWARENESS" block at the top). **What remains:** the
+  NON-hub parts of Action Priorities are already period-scoped too (the 3 ACTION_GROUPS
+  bands read the selected period's `recommendations`/`cycle_time`), so there is no
+  latest-snapshot staleness left on this page — the only open item is a possible
+  future period-COMPARISON view for the recommendation bands themselves (e.g. "this
+  rec is new vs last year"), which is a NEW feature, not a staleness fix.
 - **Phase 10 polish → v1.0**: loading states, error boundaries, mobile responsive,
   README, smoke test. Includes VISUAL UNIFICATION — a consistent visual language
   across the anomaly hub and the analytical pages.
