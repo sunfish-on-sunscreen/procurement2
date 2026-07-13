@@ -455,7 +455,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
   // (Reproduces the long-standing report voice.)
   operational: {
     cover: (c) =>
-      `This executive summary covers procurement activity for ${c.period} at Adaro. Total spend of ${usdM(
+      `This report covers procurement activity for ${c.period}. Total spend of ${usdM(
         c.totalSpend,
       )} was distributed across ${intl.format(c.totalPos)} purchase orders from ${intl.format(
         c.activeSuppliers,

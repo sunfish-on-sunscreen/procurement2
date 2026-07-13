@@ -367,7 +367,7 @@ function PrioritiesGlancePanel({
       </CardHeader>
       <CardContent className="space-y-4 text-sm leading-relaxed">
         <p>
-          Adaro&apos;s procurement covers{" "}
+          Your procurement covers{" "}
           <strong>{intFmt.format(narrative.n_suppliers)} active suppliers</strong> and{" "}
           <strong>{usd(narrative.total_spend)}</strong> {phrase}.
           {narrative.top_category_name && (

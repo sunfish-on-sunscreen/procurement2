@@ -621,7 +621,7 @@ export default async function MethodologyPage() {
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-2 pl-5">
             <li>
-              The data is synthetic and does not represent actual Adaro
+              The data is synthetic and does not represent actual procurement
               operations — it is calibrated to benchmarks, but not real.
             </li>
             <li>

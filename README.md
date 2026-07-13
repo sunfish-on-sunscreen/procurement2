@@ -67,8 +67,8 @@ npm run dev
 ```
 
 ### Seeded test users
-- Admin: `admin@adaro.com` / `admin123`
-- Viewer: `viewer@adaro.com` / `viewer123`
+- Admin: `admin@mail.com` / `admin123`
+- Viewer: `viewer@mail.com` / `viewer123`
 
 ## Project structure
 - `app/` — Next.js pages and API routes (App Router)

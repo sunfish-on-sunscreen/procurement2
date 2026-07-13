@@ -512,7 +512,7 @@ export function ReportDocument({
           className="pdf-page-break flex scroll-mt-24 flex-col gap-3 rounded-lg border bg-card p-8"
         >
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Adaro &middot; Procurement Analytics
+            Procurement Analytics
           </p>
           <h1 className="text-3xl font-bold">{meta.title}</h1>
           <p className="text-sm text-muted-foreground">

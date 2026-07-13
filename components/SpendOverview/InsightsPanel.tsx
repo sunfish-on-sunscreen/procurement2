@@ -129,14 +129,14 @@ export function InsightsPanel({
       </CardHeader>
       <CardContent className="space-y-4 text-sm leading-relaxed">
         <p>
-          Adaro spent <strong>{formatCompactCurrency(total)}</strong> across{" "}
+          You spent <strong>{formatCompactCurrency(total)}</strong> across{" "}
           {num0.format(spendOverview.total_pos)} invoices with{" "}
           {num0.format(spendOverview.active_suppliers)} suppliers {phrase}. Spend is{" "}
           {concentrationWord}: the top {aN} suppliers (Class A) account for{" "}
           <strong>{pct1(aPct)}</strong> of total expenditure, while the bottom {cN}{" "}
           suppliers (Class C) contribute just {pct1(cPct)}.
           {isConcentrated &&
-            " This Pareto distribution is typical of capital-intensive mining procurement."}
+            " This Pareto distribution is typical of capital-intensive procurement."}
         </p>
 
         {topCategory && (
@@ -146,7 +146,7 @@ export function InsightsPanel({
               <strong>{topCategory.category}</strong>{" "}
               {topCatDominates ? "dominates at" : "is the largest at"}{" "}
               {formatCompactCurrency(topCategory.total)} ({pct1(topCatPct)})
-              of total spend, reflecting Adaro&apos;s mining operations. The top{" "}
+              of total spend. The top{" "}
               {top3.length} categories — {top3.map((c) => c.category).join(", ")} — together
               account for {pct1(top3Pct)} of all spend.
               {topSupplier && (

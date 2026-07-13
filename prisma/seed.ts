@@ -10,13 +10,13 @@ const prisma = new PrismaClient({ adapter });
 // detected in uploaded data (see app/api/imports/upload/route.ts).
 const users = [
   {
-    email: "admin@adaro.com",
+    email: "admin@mail.com",
     password: "admin123",
     name: "Admin User",
     role: "ADMIN" as const,
   },
   {
-    email: "viewer@adaro.com",
+    email: "viewer@mail.com",
     password: "viewer123",
     name: "Viewer User",
     role: "VIEWER" as const,

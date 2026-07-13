@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Procurement Analytics — Adaro",
-  description: "Internal procurement analytics dashboard for mining operations",
+  title: "Procurement Analytics",
+  description: "Internal procurement analytics dashboard",
 };
 
 export default function RootLayout({

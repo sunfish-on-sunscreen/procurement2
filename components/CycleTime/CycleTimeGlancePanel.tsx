@@ -185,7 +185,7 @@ export function CycleTimeGlancePanel({
         </CardHeader>
         <CardContent className="space-y-4 text-sm leading-relaxed">
           <p>
-            Adaro&apos;s procure-to-pay cycle runs a median of{" "}
+            Your procure-to-pay cycle runs a median of{" "}
             <strong>{d2(median)} days</strong> across {num0.format(n)} POs {phrase}.
             {trend && (
               <>
@@ -211,7 +211,7 @@ export function CycleTimeGlancePanel({
                 (Mann-Whitney p = {formatP(stability.p)}).
               </>
             )}{" "}
-            This cadence is typical of capital-intensive mining procurement.
+            This cadence is typical of capital-intensive procurement.
           </p>
 
           {slowest.mean > 0 && (

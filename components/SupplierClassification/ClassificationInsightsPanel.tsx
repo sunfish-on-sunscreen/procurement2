@@ -171,7 +171,7 @@ export function ClassificationInsightsPanel({
       </CardHeader>
       <CardContent className="space-y-4 text-sm leading-relaxed">
         <p>
-          Adaro&apos;s active supplier portfolio holds{" "}
+          Your active supplier portfolio holds{" "}
           <strong className="tabular-nums">{num0.format(portfolioSize)}</strong> supplier
           {portfolioSize === 1 ? "" : "s"} {prose}
           {kraljic ? ", positioned across the four Kraljic-matrix quadrants by spend and supply risk" : ""}.
