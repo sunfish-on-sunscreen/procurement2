@@ -10,7 +10,6 @@ import {
   type PerformanceSpendResult,
   type RecommendationsResult,
 } from "@/lib/analysis-types";
-import { generateExecutiveSummary } from "@/lib/report-templates";
 import type { ReportConfig } from "@/lib/report-config";
 import { Prisma } from "@/lib/generated/prisma/client";
 
@@ -75,29 +74,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const { narrative, metrics } = generateExecutiveSummary({
-    period: {
-      name: period.name,
-      startDate: period.startDate.toISOString(),
-      endDate: period.endDate.toISOString(),
-    },
-    spendOverview,
-    abc,
-    kraljic,
-    performanceSpend,
-    cycleTime,
-    recommendations,
-  });
-
   const today = new Date().toISOString().slice(0, 10);
   const summary = await prisma.executiveSummary.create({
     data: {
       periodId,
       title: `Executive Summary — ${period.name} — ${today}`,
-      narrative,
-      // Persist the customization config alongside the metrics so the detail
-      // page can render exactly the chosen sections / detail level / filters.
-      metricsJson: { ...metrics, config } as unknown as Prisma.InputJsonValue,
+      // The report renders LIVE from the analyses (ReportDocument + the argument
+      // model in lib/report-narrative); the `narrative` column is legacy and never
+      // displayed, so it holds only a stub. The detail page reads metricsJson for
+      // the customization `config` and the `cycle_framing` marker — nothing else.
+      narrative: `Procurement report for ${period.name} — rendered live from the analyses.`,
+      metricsJson: { config, cycle_framing: "monitoring" } as unknown as Prisma.InputJsonValue,
       generatedBy: session.userId,
     },
     select: { id: true },

@@ -8,83 +8,21 @@ import type {
   PerformanceSpendResult,
   RecommendationsResult,
   Recommendation,
-  RecommendationAction,
 } from "@/lib/analysis-types";
 import type { ReportTone } from "@/lib/report-config";
 
-export type ReportNarratives = {
-  cover_intro: string;
-  spend: string;
-  abc: string;
-  kraljic: string;
-  performance: string;
-  cycle_time: string;
-};
-
-export type ReportMetrics = {
-  headline_numbers: {
-    total_spend: number;
-    total_pos: number;
-    active_suppliers: number;
-    avg_cycle_time: number;
-  };
-  key_findings: string[];
-  recommendations: string[]; // legacy free-text recommendation lines
-  action_items: string[]; // NEW: action-oriented one-liners (top recs)
-  priorities: Recommendation[]; // NEW: structured top recommendations
-  narratives: ReportNarratives;
-  // Marks reports generated with the Batch 5 process-health-monitoring cycle
-  // framing. Reports persisted before Batch 5 lack it; the report detail page
-  // uses its absence to render the legacy pre/post cycle narrative + a note.
-  cycle_framing?: "monitoring";
-};
-
-export type ReportInput = {
-  period: { name: string; startDate: string; endDate: string };
-  spendOverview: SpendOverviewResult;
-  abc: AbcResult;
-  kraljic: KraljicResult;
-  performanceSpend: PerformanceSpendResult;
-  cycleTime: CycleTimeResult;
-  recommendations: RecommendationsResult;
-};
-
-const ACTION_VERB: Record<RecommendationAction, string> = {
-  promote: "Promote",
-  engage: "Engage",
-  mitigate: "Mitigate risk for",
-  improve: "Improve",
-  diversify: "Diversify",
-  steward: "Steward",
-  consolidate: "Consolidate",
-  streamline: "Streamline",
-};
-
-/** First sentence of a reasoning string, for compact bullets. */
-function firstSentence(s: string): string {
-  const i = s.indexOf(". ");
-  return i === -1 ? s : s.slice(0, i + 1);
-}
-
-function actionLine(r: Recommendation): string {
-  const who = r.supplier_name ?? r.scope ?? "Process";
-  return `${ACTION_VERB[r.action]} ${who} — ${firstSentence(r.reasoning)}`;
-}
-
 /**
- * Turns the recommendations engine output into the report's action sections:
- * a short "key actions" bullet list and the top-N structured priorities.
+ * Shape of a persisted report's `metricsJson`. The report renders LIVE from the
+ * analyses (ReportDocument + lib/report-narrative), so the only fields the detail
+ * page reads are `config` (customization, added at store time) and `cycle_framing`
+ * (the Batch-5 marker). `narratives.cycle_time` survives only to render LEGACY
+ * pre-Batch-5 reports' stored cycle prose. (The old generateExecutiveSummary that
+ * built a full stored narrative was dropped — the markdown was never displayed.)
  */
-export function generateActionOrientedNarratives(recs: RecommendationsResult): {
-  actionItems: string[];
-  priorities: Recommendation[];
-} {
-  const ranked = recs.recommendations; // already sorted by impact desc
-  return {
-    actionItems: ranked.slice(0, 8).map(actionLine),
-    priorities: ranked.slice(0, 10),
-  };
-}
+export type ReportMetrics = {
+  cycle_framing?: "monitoring";
+  narratives?: { cycle_time?: string };
+};
 
 const intl = new Intl.NumberFormat("en-US");
 const usdM = (n: number) => `$${(n / 1_000_000).toFixed(1)}M`;
@@ -647,122 +585,3 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )}). Limitations: thresholds and zone boundaries are sample-relative; aggregates reported under a supplier filter still reflect full-population medians; data are synthetic, calibrated to APQC/Hackett/CIPS benchmarks.`,
   },
 };
-
-export function generateExecutiveSummary(input: ReportInput): {
-  narrative: string;
-  metrics: ReportMetrics;
-} {
-  const {
-    period,
-    spendOverview: s,
-    abc,
-    kraljic,
-    performanceSpend: ps,
-    cycleTime: ct,
-    recommendations: recs,
-  } = input;
-
-  // Narratives come from the OPERATIONAL templates (single source of truth, so
-  // the stored markdown matches what ReportDocument renders for tone=operational).
-  const ctx = deriveReportContext(
-    {
-      spendOverview: s,
-      abc,
-      kraljic,
-      performanceSpend: ps,
-      cycleTime: ct,
-      recommendations: recs,
-    },
-    period.name,
-  );
-  const T = TEMPLATES.operational;
-  const cover_intro = T.cover(ctx);
-  const spend = T.spendOverview(ctx);
-  const abcNarr = T.abc(ctx);
-  const kraljicNarr = T.kraljic(ctx);
-  const performance = T.performanceSpend(ctx);
-  const cycle_time = T.cycleTime(ctx);
-  const key_findings = T.keyFindings(ctx);
-
-  const recommendations: string[] = [];
-  for (const nm of ctx.strategicNames) {
-    recommendations.push(
-      `Establish senior-level relationship management for ${nm} (Strategic quadrant — high spend and high supply risk).`,
-    );
-  }
-  if (ctx.cmpSignificant) {
-    recommendations.push(
-      ctx.cmpDelta > 0
-        ? `Cycle time improved significantly across the period (median ${ctx.cmpMedianA.toFixed(
-            0,
-          )}→${ctx.cmpMedianB.toFixed(
-            0,
-          )} days); document and sustain the contributing process changes.`
-        : `Cycle time deteriorated significantly across the period (median ${ctx.cmpMedianA.toFixed(
-            0,
-          )}→${ctx.cmpMedianB.toFixed(
-            0,
-          )} days); trace the regression to the ${ctx.slowestStage} stage.`,
-    );
-  } else if (ctx.slowestStageMean > 8) {
-    recommendations.push(
-      `Target the ${ctx.slowestStage} stage (averaging ${ctx.slowestStageMean.toFixed(
-        1,
-      )} days) to reduce overall procure-to-pay cycle time.`,
-    );
-  }
-  recommendations.push(
-    `Schedule a quarterly review of Class A supplier performance to protect the ${pct(
-      ctx.aPct,
-    )} of spend they represent.`,
-  );
-
-  // --- Action-oriented sections (NEW) -------------------------------------
-  const { actionItems, priorities } = generateActionOrientedNarratives(recs);
-
-  const narratives: ReportNarratives = {
-    cover_intro,
-    spend,
-    abc: abcNarr,
-    kraljic: kraljicNarr,
-    performance,
-    cycle_time,
-  };
-
-  const metrics: ReportMetrics = {
-    headline_numbers: {
-      total_spend: s.total_spend,
-      total_pos: s.total_pos,
-      active_suppliers: s.active_suppliers,
-      avg_cycle_time: s.avg_cycle_time,
-    },
-    key_findings,
-    recommendations,
-    action_items: actionItems,
-    priorities,
-    narratives,
-    cycle_framing: "monitoring",
-  };
-
-  const narrative = [
-    `# Executive Summary — ${period.name}`,
-    `## Overview`,
-    cover_intro,
-    `## Key Findings & Actions`,
-    ...actionItems.map((a) => `- ${a}`),
-    `## Spend`,
-    spend,
-    `## ABC Analysis & Supplier Quadrant`,
-    `${abcNarr} ${kraljicNarr}`,
-    `## Performance vs Spend`,
-    performance,
-    `## Cycle Time`,
-    cycle_time,
-    `## Recommended Priorities`,
-    ...priorities.map(
-      (p) => `- ${ACTION_VERB[p.action]} ${p.supplier_name ?? p.scope}: ${p.reasoning}`,
-    ),
-  ].join("\n\n");
-
-  return { narrative, metrics };
-}
