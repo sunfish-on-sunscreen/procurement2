@@ -187,9 +187,10 @@ logic + the block's state rendering.
 temporal), finishing the deferred follow-up from the reports-alignment batch
 (`d74d831`, which shipped classification-only). The process + temporal data is
 **assembled SERVER-SIDE into `ReportAnalyses`** so every render path — editor,
-persisted `/reports/[id]`, ephemeral `/reports/preview`, AND **static PDF export** —
-has it at render time. NO client fetch (that was the deferral reason: PDF =
-`html2canvas` on the rendered DOM, so async-fetched data wouldn't be captured).
+persisted `/reports/[id]`, ephemeral `/reports/preview`, AND **PDF export** —
+has it at render time. NO client fetch (that was the deferral reason: PDF export
+captures the RENDERED DOM — now native `window.print()`, formerly html2canvas — so
+async-fetched data wouldn't be present).
 
 - **⚠️ `computeCycleBreakdown` EXTRACTED to `lib/cycle-breakdown.ts`** (verbatim from
   the `/api/cycle-time/breakdown` route → the route is now a thin auth+validate
@@ -1284,10 +1285,6 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   *(Deferred: when the report editor is synced, reconcile report-chart tooltips —
   the intended report convention is FULL numbers. There is no
   `dashboard_report_propagation.md` file in the repo yet; this note records it.)*
-- ⚠️ **html2canvas + `var()` caveat (untested here):** report PDF export
-  rasterizes Recharts SVG; html2canvas's CSS-var support is historically partial.
-  PDF export was NOT modified or re-verified in this batch — confirm chart colours
-  survive PDF export when the report-sync batch runs.
 - **`InsightsPanel` (`components/SpendOverview/InsightsPanel.tsx`)** — consolidated
   analytical summary at the TOP of the page (below title, above KPIs), in a `Card`
   titled "Spend at a glance". Three sections (scale+concentration paragraph,
@@ -1529,20 +1526,30 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   `cycle_time.monthly_trend` (both **optional** types for pre-6c cached rows).
   ⚠️ Adding these required the full Python-first workflow (recompute Mode A for
   every period THEN clear the range cache — see [[batch6b-supplier-id-emitters]]).
-- **PDF tab/collapse reveal is JS, NOT CSS.** A `.report-exporting` CSS-class
-  approach was tried and **abandoned** — under Tailwind v4's cascade the rule
-  never won over the `hidden` attribute's `display:none` (verified in-browser).
-  Instead `DownloadPdfButton` strips the `hidden` attribute from every
-  `.export-reveal` element, waits a double `requestAnimationFrame`, runs the
-  html2canvas capture, then restores `hidden`. This also preserves each
-  element's natural `flex`/`block` display (better than forcing `block`).
-- **`.export-reveal` marks hideable content** — inactive Spend-Overview tab
-  panels + collapsible section bodies. It is only a JS selector hook (no CSS).
+- ⚠️ **PDF export is NATIVE `window.print()` + `@media print` (updated 2026-07-13 —
+  `c605fd7`; html2canvas/html2canvas-pro/jspdf REMOVED).** `DownloadPdfButton` just
+  calls `window.print()`; the print layout lives in the `@media print` block in
+  `app/globals.css` (hide chrome via `.no-print`/`aside`/`header`/`[data-slot=select-trigger]`,
+  `sticky`→`static`, `print-color-adjust:exact`, real 1px card borders — cards define
+  via a non-printing `ring`, `break-inside:avoid` on cards/tables/charts, `@page` A4).
+  Real selectable text + vector charts — no bitmap rasterisation.
+- ⚠️ **Collapsed section bodies reveal in print via the `.hidden` CLASS + `print:flex`,
+  NOT the `hidden` ATTRIBUTE.** The native `hidden` attribute can't be overridden by an
+  author print rule (even a same-specificity `@media print { .export-reveal { … } }`
+  loses — only inline style wins; verified in-browser), so `ReportSection` renders
+  `export-reveal … print:flex` + `hidden` (class) when collapsed. (The old html2canvas-era
+  "strip the `hidden` attribute in JS then capture" hack is GONE.)
+- ⚠️ **The embedded (report) `OverviewCharts` STACKS its three charts — it no longer
+  TABS them.** Recharts never sizes a chart inside a `display:none` tab, so a tabbed
+  inactive chart (the by-category donut, top-suppliers) printed BLANK. Stacking mounts
+  all three → complete PDF + WYSIWYG editor preview. The dashboard Spend Overview page
+  (which doesn't use this branch) is unaffected.
 - **`ReportDocument` is keyed by `spanKey` in `ReportEditor`** so it remounts on
   period change, resetting all per-session local UI state (section collapse,
   active Spend-Overview tab, TOC active section). No reset effect needed.
 - **All 6c chrome is gated on the `embedded` prop** (TOC, sticky headers,
-  collapse chevrons, KPI sparklines, tab switcher). `/reports/[id]`
+  collapse chevrons, KPI sparklines). *(The Spend-Overview tab switcher was REMOVED
+  2026-07-13 — embedded charts now stack; see the PDF note above.)* `/reports/[id]`
   renders `ReportDocument` without `embedded` → static immutable view, unchanged.
 - **Sticky stack:** `ReportTOC` is `sticky top-0`; section headers are
   `sticky top-9` (below the TOC). TOC active section uses an IntersectionObserver
