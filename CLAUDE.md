@@ -181,6 +181,45 @@ logic + the block's state rendering.
   temporal); Process Health **11/2/35** unchanged. tsc/ESLint clean; dark-mode safe
   (`--temporal` token only); no console/server errors.
 
+### REPORTS REWRITE (2026-07-13, latest) — DECISION-FIRST NARRATIVE
+
+**The report was restructured from 8 pages of dashboard-order tables into an
+ARGUMENT.** New order (`ReportDocument`): **cover + HEADLINE → The situation → What
+we found (top-3 findings) → What to do (action table) → Worth watching → Appendix
+(all analysis tables/charts + the anomaly detail)**. All prose is COMPUTED from the
+data (no hardcoded findings); numbers are IDENTICAL (pure re-presentation, no recompute).
+- **`lib/report-narrative.ts` (NEW) is the argument model** — `renderReportArgument(analyses, tone)`
+  builds a tone-agnostic fact model (headline / situation / findings / actions /
+  watching) + tone-aware prose, reusing the existing pure anomaly builders
+  (`deriveCycleFlags` / `buildAnomalyCrossref` / `buildClassificationAnomalies` /
+  `buildTemporalAnomalies`).
+- **HEADLINE = the top FINDING, not a fact.** Findings ranked by insight × exposure:
+  the CROSS-ANALYSIS join (high-spend ∩ underperforming) leads by DEFAULT (base 1.0 +
+  $-exposure); a massive control failure or catastrophic temporal move can outlead
+  (×4 ⇒ needs ~>33% of spend); raw category **concentration is DEMOTED** to a
+  supporting clause; cycle/lens demoted too.
+- **SITUATION surfaces the cross-analysis the old report threw away** — Class-A ∩
+  Strategic and Class-A ∩ Critical-Issues, in prose.
+- **⚠️ The grouped `ACTION_GROUPS` rec cards are GONE** — replaced by ONE **action
+  table ranked by $-exposure** with real **P1/P2/P3** tiers, deduped per supplier
+  (no "Engage X / Steward X" wallpaper).
+- **Anomaly detail moved to the APPENDIX and is READABLE** — no raw `S/P/R` codes
+  ("bottom-decile spend, mid-range performance, top-decile supply risk — the widest
+  lens disagreement", via `lensVerdict`).
+- **3 tones are genuine registers** (executive terse/no-names · operational named ·
+  analytical +thresholds/method); `brief` = decision-only (NO appendix).
+- **⚠️ `generateExecutiveSummary` was DROPPED** (`f976ca2`) — the report renders LIVE
+  from the analyses, so the stored `ExecutiveSummary.narrative` markdown (never
+  displayed) was dead prose. `ReportMetrics` shrank to `{cycle_framing?, narratives?}`;
+  the generate route now stores `metricsJson: {config, cycle_framing}` + a stub
+  narrative. `deriveReportContext` + the TEMPLATES SECTION prose stay (they feed the
+  appendix); the 3 now-unused TEMPLATES methods (cover/keyFindings/recommendedPriorities)
+  are inert, pending a trivial prune.
+- **PDF is native `window.print()` + `@media print`** — the new sections carry
+  `.pdf-page-break`; findings are cards, the action table is a `<table>`, all covered
+  by the print CSS. Verified on both paths (persisted single-year + editor range),
+  numbers identical, tsc/ESLint clean.
+
 ### REPORTS: FULL 3-FAMILY ANOMALY HUB (2026-07-10) — PROCESS + TEMPORAL ADDED
 
 **Reports now render ALL THREE anomaly families** (process + classification +
@@ -353,6 +392,12 @@ investigation). Both AP modes; dark-mode/token-safe.
   clean; Python untouched.
 
 ### REPORTS ALIGNED (2026-07-10) — ACTION PRIORITIES STRUCTURE + CLASSIFICATION ANOMALY SUMMARY
+
+> ⚠️ **PRESENTATION SUPERSEDED (2026-07-13) — see "REPORTS REWRITE" above.** The grouped
+> `ACTION_GROUPS` rec cards + the "Impact N" framing described in this block are GONE
+> (replaced by the decision-first action table); the classification anomaly summary moved
+> to the readable appendix. The COMPUTE (anomaly families, categories) is unchanged.
+> History below.
 
 **The Reports feature was brought in line with the current app.** Presentation/copy
 only — NO `scores.py`/compute change, export path untouched, both render paths
