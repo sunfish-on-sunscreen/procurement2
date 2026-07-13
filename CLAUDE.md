@@ -12,8 +12,8 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > failures + timeout (see the "CRUD REWORK" banner in Critical gotchas); (2) Action
 > Priorities REDESIGNED into the analysis-page language (see "ACTION PRIORITIES
 > REDESIGN"); (3) hub temporal family now PERIOD-AWARE in both modes (see "TEMPORAL
-> PERIOD-AWARENESS"); (4) Supplier Selection REMOVED; 4 analytical pages. Prior code
-> HEAD `c04eb0b` (2026-07-10). Run `git log` for the latest.**
+> PERIOD-AWARENESS"); (4) Supplier Selection REMOVED; 4 analytical pages. Code HEAD
+> as of this doc update: `3f40f62` (2026-07-13, CRUD rework). Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -31,7 +31,7 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
 Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
 Classification, Process Health Monitoring, Action Priorities
-(+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
+(+ Reports, Methodology, and the admin-only Import page). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects). The Action Priorities page (`/action-dashboard`
 URL unchanged) was **REDESIGNED (2026-07-13) into the analysis-page language** — a
 prose "Priorities at a glance" narrative → a `StatBlock` grid → a compact "Where to
@@ -1659,11 +1659,15 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   `runComputeAnalyses` per period + clear the range cache — NOT the migrate-tags
   script). That refreshes the `AnalysisResult` cache and the pages' LIVE composite,
   so Spend/Classification/Process-Health/Action-Dashboard show correct new numbers.
-  ⚠️ It does NOT rewrite the stored per-period `SupplierMetric` rows (only a full
-  import does), so the two surfaces that read them — the evolution tab's sub-score
-  sparklines and the spend-detail single-year "performance snapshot" — lag a
-  country/category edit until a reimport. A name-only edit skips recompute
-  (labels only). Delete is blocked if the supplier has any purchases (no orphans).
+  ⚠️ **THE LAST OPEN DATA-INTEGRITY HOLE (re-anchored 2026-07-13 — edit is gone, so
+  the trigger is now CREATE/DELETE, not edit).** Recompute refreshes `AnalysisResult`
+  but does NOT rewrite the stored per-period `SupplierMetric` **sub-scores / composite**
+  — those refresh ONLY on a FULL IMPORT. So the two surfaces that read the stored
+  values — the evolution tab's sub-score sparklines and the spend-detail composite
+  "performance snapshot" — can lag after ANY add/delete until a reimport. ⚠️ **Worse
+  for a newly CREATED supplier:** a manual add inserts only a `Supplier` row (no
+  `SupplierMetric`), so those two surfaces show NOTHING for it until a full import.
+  Delete is blocked if the supplier has any purchases (no orphans).
 - **Purchase edit/delete recomputes globally — a supplier re-point moves BOTH
   suppliers automatically (Batch B).** `PATCH`/`DELETE /api/purchases/[id]` +
   `POST /api/purchases/batch-delete` mutate the `Purchase` row then call
