@@ -8,9 +8,10 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **Last doc update: 2026-07-13 —
-> (1) hub temporal family now PERIOD-AWARE in both modes (see "TEMPORAL
-> PERIOD-AWARENESS" below); (2) Supplier Selection REMOVED (see the removal note
-> below); 4 analytical pages. Prior code HEAD `c04eb0b` (2026-07-10) — reports
+> (1) Action Priorities REDESIGNED into the analysis-page language (see "ACTION
+> PRIORITIES REDESIGN" below); (2) hub temporal family now PERIOD-AWARE in both modes
+> (see "TEMPORAL PERIOD-AWARENESS" below); (3) Supplier Selection REMOVED (see the
+> removal note below); 4 analytical pages. Prior code HEAD `c04eb0b` (2026-07-10) — reports
 > render the full 3-family anomaly hub. Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
@@ -31,8 +32,12 @@ Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
 Classification, Process Health Monitoring, Action Priorities
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects). The Action Priorities page (`/action-dashboard`
-URL unchanged) is a 3-group instrument-panel dashboard grid whose **Cross-Analysis
-Anomaly Hub** holds all 3 anomaly families.
+URL unchanged) was **REDESIGNED (2026-07-13) into the analysis-page language** — a
+prose "Priorities at a glance" narrative → a `StatBlock` grid → a compact "Where to
+act" (3 group cards) → **cross-analysis anomalies as 3 family count cards + ONE
+filterable/sortable supplier table** (see the "ACTION PRIORITIES REDESIGN" block at
+the top). Still holds all 3 anomaly families + the 8 recommendation categories — same
+data/numbers, calmer layout.
 
 > ⚠️ **Supplier Selection was REMOVED ENTIRELY (2026-07-13, latest — reverts
 > `f72c9d3`).** The route (`app/(dashboard)/supplier-selection/`), the client
@@ -67,7 +72,65 @@ Anomaly Hub** holds all 3 anomaly families.
    ONE fresh dev server (kill any zombie squatting on `:3000`); write commit messages via
    a Bash heredoc (`git commit -F - <<'EOF' … EOF`), NOT PowerShell here-strings.
 
-### TEMPORAL PERIOD-AWARENESS (2026-07-13, latest) — "CHANGED OVER TIME" NOW FIRES IN BOTH MODES
+### ACTION PRIORITIES REDESIGN (2026-07-13, latest) — ANALYSIS-PAGE LANGUAGE, ONE ANOMALY TABLE
+
+**Action Priorities was rebuilt in the calm, spacious design language of the analysis
+pages (Process Health = the reference).** ⚠️ **PRESENTATION ONLY — NO lib/compute/
+threshold/anomaly-definition change; same data, same numbers, same 3 families + 8
+categories.** ONE file: `components/ActionDashboardView.tsx` (full rewrite, **370 lines
+SHORTER** — net −370). No `page.tsx` change, no pure-lib change, no Python.
+
+- **New top-to-bottom structure** (was: dense synthesis headline + 8 category tiles
+  across 3 bands + 3 stacked chip-soup anomaly blocks, ~3 screens):
+  1. **Subtitle** line.
+  2. **`Priorities at a glance`** — a PROSE narrative `Card` (mirrors "Cycle at a
+     glance"): lead paragraph (roster/spend/concentration/top-10) + **"Where the
+     exposure sits"** paragraph + **"Worth noting"** bullets (flagged-important + $,
+     widest lens gap, biggest temporal move, compound count) + italic hint. All
+     computed live; the hub-derived bullets fill in once the breakdown loads.
+  3. **`StatBlock` grid** (4 comfortable cards): Category concentration % · Flagged
+     suppliers (family split as sublabel) · On important relationships ($ exposure
+     sublabel) · Top-10 needing attention.
+  4. **`Where to act`** — ONE `Card` → 3 compact group cards (Spend / Suppliers /
+     Process), each listing its categories as one-line rows (dot + label + metric +
+     count); supplier-bearing categories EXPAND to clickable rows → modal.
+     Concentration keeps its `/spend-overview` link. (Replaces the donut/list/stat/bar
+     TILE grid.)
+  5. **`Cross-analysis anomalies`** — **3 FAMILY COUNT CARDS** (Process / Lens
+     disagreement / Changed over time; descriptor = by-signal mix; clicking filters +
+     scrolls) **+ ONE UNIFIED SORTABLE TABLE** of all flagged suppliers with **filter
+     chips**: All / Process / Lens disagreement / Changed over time / Important only /
+     In 2+ families. Table cols: #, Supplier, Spend, ABC, Exposure (Kraljic),
+     Performance (`PerfBar`), **Anomalies** (per-family chips — process flag chips ·
+     `Lens gap N` · quadrant `A → B` / `Spend ±%` / `Score ±`). Uses `useTableSort`
+     (default spend desc) + the shared `SortHead`/`SortArrow`/`TintChip` primitives.
+- **⚠️ THE BIG STRUCTURAL FIX:** the 3 stacked anomaly blocks (each with its own
+  chip-laden list) are GONE → one filterable table. **This ALSO FIXED the single-year
+  layout collision** (the old TemporalBlock header overlapped the ClassificationBlock's
+  expanded rows) — structurally impossible now.
+- **Architecture:** the breakdown fetch + `buildAnomalyHub` were **LIFTED into
+  `ActionDashboardView`** (mirrors `CycleTimeClient`) so the glance, stat grid, AND the
+  one table read ONE hub. Deleted: `SpendBand`/`SuppliersBand`/`ProcessBand`,
+  `Tile`/`ListTile`/`StatTile`/`DonutTile`/`BarTile`, `ProcessBlock`/
+  `ClassificationBlock`/`TemporalBlock`, `AnomalyRow`/`ClassificationRow`/
+  `TemporalRow`/`LensBars`/`SubBlockHeader`/`CrossAnalysisAnomalyHub`.
+- **Modal tab-routing (cross-family table):** a row's **process-family members open the
+  Process tab** (richest cycle detail); everything else → **Classification** (lens +
+  evolution live there). Reuses `UnifiedSupplierDetailModal` unchanged.
+- **Temporal note-states surface ON the "Changed over time" family card** (disabled +
+  the reason): single-year partial-year / no-prior / <2-periods. So single-year reads
+  cleanly.
+- **⚠️ VERIFIED numbers IDENTICAL.** Range hub **46** (36 process / 11 lens / 18
+  temporal), 19 compound, 17 important, $491.8M; every filter chip reconciles
+  (All 46 / Process 36 / Lens 11 / Changed 18 / Important 17 / In 2+ 19); table 46
+  rows. Single-year **2025 fires 41** (33/10/18, 19 compound, 14 important); **2026 →
+  partial-year note** (card disabled); **2024 → no-prior note** (card disabled).
+  Process Health **11/2/35** untouched. Filters/sort/modal work; dark-mode token-safe
+  (zero hex; `.dark` variants confirmed); tsc + ESLint clean; no console/server errors.
+  *(Full-page screenshots couldn't be captured — the in-app browser's rasterizer timed
+  out on this page even with no modal; verified via DOM + computed-style inspection.)*
+
+### TEMPORAL PERIOD-AWARENESS (2026-07-13) — "CHANGED OVER TIME" NOW FIRES IN BOTH MODES
 
 **The hub's temporal ("Changed over time") family is now PERIOD-AWARE in BOTH
 modes** — previously it only worked in Range and went inert in single-year. NO
@@ -218,6 +281,14 @@ compute-range). 5th analytical page.
 
 ### CROSS-PAGE ANOMALIES, BATCH 3 (2026-07-10) — TEMPORAL FAMILY → 3-FAMILY HUB COMPLETE
 
+> ⚠️ **PRESENTATION SUPERSEDED (2026-07-13) — the cyan `TemporalBlock` + stacked layout
+> are HISTORY** (the component was deleted in the redesign). The temporal family now
+> renders as the "Changed over time" **family count card + rows in the ONE unified
+> table** (with the note-states on the card), and `buildTemporalMatrix`/
+> `buildTemporalAnomalies` are period-aware (see "ACTION PRIORITIES REDESIGN" + "TEMPORAL
+> PERIOD-AWARENESS" at the top). **The temporal COMPUTE below is unchanged** — same
+> detectors, thresholds, and 2024→2025 numbers (18/48, Spend 10 · Quadrant 7 · Score 3).
+
 **The Cross-Analysis Anomaly Hub is now COMPLETE with 3 families: process (Batch 1)
 · classification (Batch 2) · changed-over-time (Batch 3, NEW).** The temporal
 family compares each supplier's LATEST vs PRIOR period. NO Python change, NO new
@@ -337,6 +408,16 @@ dark-mode verified).
 
 ### SESSION (2026-07-10) — CROSS-PAGE ANOMALIES, BATCH 2: "CROSS-ANALYSIS ANOMALY HUB"
 
+> ⚠️ **PRESENTATION SUPERSEDED (2026-07-13) — the STACKED-BLOCKS layout is HISTORY.**
+> The "hub header + synthesis + Block 1 (process) + Block 2 (classification) [+ Block 3
+> (temporal)]" stack of chip-laden lists was REPLACED by **3 family count cards + ONE
+> filterable/sortable supplier table** (see "ACTION PRIORITIES REDESIGN" at the top).
+> **The COMPUTE is UNCHANGED and still current** — `buildAnomalyHub` +
+> `buildClassificationAnomalies` + `CLASSIFICATION_DISAGREEMENT_CUTOFF = 80` +
+> `familiesBySupplier`/`compoundCount`/`importantUnionCount` are the SAME pure lib the
+> new table reads; only the rendering (Blocks → cards + table) changed. Numbers
+> identical (Range classification 11/55, gaps 96/94/93).
+
 **Batch 2 shipped: Batch 1's standalone process-anomaly section was RESTRUCTURED
 into a unified "Cross-Analysis Anomaly Hub" holding TWO anomaly families, and a
 NEW second family was added — cross-lens classification disagreement.** One amber
@@ -443,6 +524,15 @@ endpoint, NO migration, NO range-cache clear. Both AP modes; dark-mode/token-saf
   available to trigger them) — accepted as defensive for Batch 1.
 
 ### SESSION (2026-07-09) — ACTION PRIORITIES → 3-GROUP DASHBOARD GRID
+
+> ⚠️ **SUPERSEDED (2026-07-13) — the VIEW below is HISTORY.** The "instrument-panel
+> dashboard grid" of tiles + the 3-band tile layout were REPLACED by the analysis-page
+> redesign (prose glance → stat grid → compact 3-group "Where to act" → 3 family cards +
+> one table). See the "ACTION PRIORITIES REDESIGN" block at the top. **The COMPUTE/DATA
+> half of this block is still current** — the 8 categories, the 3 `ACTION_GROUPS`, the 3
+> added `recommendations_analysis` categories (`critical_spend`/`tail_spend`/`slow_stage`),
+> the de-dups, the narrative fields, and the `--priority-*` tokens are all unchanged; only
+> the tiled VIEW (`ActionDashboardView.tsx`) and the tile components were rewritten.
 
 **Action Priorities restructured into 3 analysis-grouped sections + 3 new
 categories, rendered as a compact instrument-panel dashboard grid.** ONE commit
