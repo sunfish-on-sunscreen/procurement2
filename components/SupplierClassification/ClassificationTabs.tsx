@@ -318,7 +318,7 @@ function GroupInsightsPanel({
           {standout &&
             (starred ? (
               <p className="flex items-start gap-1.5 text-xs">
-                <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" />
+                <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-[var(--warning)] text-[var(--warning)]" />
                 <span>{standout}</span>
               </p>
             ) : (

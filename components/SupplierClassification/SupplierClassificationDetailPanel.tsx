@@ -26,8 +26,8 @@ const SUBS: { key: SubKey; label: string }[] = [
   { key: "risk", label: "Risk" },
 ];
 
-const upCls = "text-green-600 dark:text-green-500";
-const downCls = "text-red-600 dark:text-red-500";
+const upCls = "text-[var(--success)]";
+const downCls = "text-[var(--destructive)]";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 

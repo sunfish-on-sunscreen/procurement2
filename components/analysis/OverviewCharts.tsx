@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cardElevation } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -43,7 +44,15 @@ const num0 = new Intl.NumberFormat("en-US");
  * If the per-category field is absent (old cached rows), the filter is hidden
  * and the card behaves exactly as before.
  */
-export function TopSuppliersCard({ spend }: { spend: SpendOverviewResult }) {
+export function TopSuppliersCard({
+  spend,
+  // Dashboard passes `elevated` for cardElevation parity with the other Spend
+  // Overview cards; the report editor omits it → flat, matching its other cards.
+  elevated = false,
+}: {
+  spend: SpendOverviewResult;
+  elevated?: boolean;
+}) {
   const byCategory = spend.top_suppliers_by_category;
   const categories = byCategory ? Object.keys(byCategory).sort() : [];
   const [selected, setSelected] = useState<string>(ALL_CATEGORIES);
@@ -60,7 +69,7 @@ export function TopSuppliersCard({ spend }: { spend: SpendOverviewResult }) {
   ];
 
   return (
-    <Card>
+    <Card className={elevated ? cardElevation : undefined}>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle>{isAll ? "Top 10 Suppliers" : `Top Suppliers — ${selected}`}</CardTitle>
         {showFilter && (

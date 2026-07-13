@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cardElevation } from "@/lib/utils";
 
 export default async function MethodologyPage() {
   await requireAuth();
@@ -20,7 +21,7 @@ export default async function MethodologyPage() {
       </div>
 
       {/* 1. Project Background */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>1. Project Background</CardTitle>
         </CardHeader>
@@ -52,7 +53,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 2. Data Sources */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>2. Data Sources</CardTitle>
         </CardHeader>
@@ -98,7 +99,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 3. The Four Analyses */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>3. The Four Analyses</CardTitle>
         </CardHeader>
@@ -337,7 +338,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 4. Supplier Scorecard Methodology */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>4. Supplier Scorecard Methodology</CardTitle>
         </CardHeader>
@@ -450,7 +451,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 5. Supplier Classification (Combined View) */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>5. Supplier Classification Methodology</CardTitle>
         </CardHeader>
@@ -511,7 +512,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 6. Action Recommendations Synthesis */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>6. Action Recommendations Synthesis</CardTitle>
         </CardHeader>
@@ -586,7 +587,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 7. Reporting Periods */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>7. Reporting Periods</CardTitle>
         </CardHeader>
@@ -613,7 +614,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 8. Assumptions and Limitations */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>8. Assumptions and Limitations</CardTitle>
         </CardHeader>
@@ -649,7 +650,7 @@ export default async function MethodologyPage() {
       </Card>
 
       {/* 9. References */}
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>9. References</CardTitle>
         </CardHeader>

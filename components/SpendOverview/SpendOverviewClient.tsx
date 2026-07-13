@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { StatBlock } from "@/components/ui/stat-block";
-import { formatCompactCurrency } from "@/lib/utils";
+import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 import { SpendByCategoryChart } from "@/components/charts/SpendByCategoryChart";
 import { MonthlySpendTrendChart } from "@/components/charts/MonthlySpendTrendChart";
 import { TopSuppliersCard } from "@/components/analysis/OverviewCharts";
@@ -167,7 +167,7 @@ export function SpendOverviewClient({
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className={cardElevation}>
           <CardHeader>
             <CardTitle>Spend by Category</CardTitle>
           </CardHeader>
@@ -177,11 +177,11 @@ export function SpendOverviewClient({
         </Card>
         {/* Top-10 bar clicks open the decomposition panel via this provider. */}
         <PinProvider value={pinValue}>
-          <TopSuppliersCard spend={spend} />
+          <TopSuppliersCard spend={spend} elevated />
         </PinProvider>
       </div>
 
-      <Card>
+      <Card className={cardElevation}>
         <CardHeader>
           <CardTitle>Monthly Spend Trend</CardTitle>
         </CardHeader>

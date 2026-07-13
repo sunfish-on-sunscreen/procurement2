@@ -1173,8 +1173,17 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   future period-COMPARISON view for the recommendation bands themselves (e.g. "this
   rec is new vs last year"), which is a NEW feature, not a staleness fix.
 - **Phase 10 polish → v1.0**: loading states, error boundaries, mobile responsive,
-  README, smoke test. Includes VISUAL UNIFICATION — a consistent visual language
-  across the anomaly hub and the analytical pages.
+  README, smoke test. ✅ **VISUAL UNIFICATION — RESOLVED (2026-07-13):** a read-only
+  cross-surface design audit (Spend Overview / Supplier Classification / Reports /
+  Methodology vs the Process Health / Action Priorities language) found the pages
+  ALREADY COHERENT — one shared design system (glance narrative, `StatBlock`,
+  `cardElevation`, `color-mix` chips, `SortArrow`/`PerfBar` all originated here and are
+  reused); NO unification project needed. Only one real gap (Supplier Classification
+  lacked the prominent `StatBlock` KPI row) + a few trivial nits (3 flat Spend Overview
+  chart cards, Methodology flat cards, 3 color literals) — all fixed in the polish pass.
+  Reports is appropriately a distinct document/PDF surface (left as-is); the two
+  raw-`<table>` rankings are invisible-to-users internal DRY (left as-is). **Don't
+  re-litigate — the pages are unified.**
 
 ### Spend Overview redesign + polish + Supplier Evolution + ABC merge
 - **`/` and `/abc-analysis` both redirect to `/spend-overview`** (renamed from

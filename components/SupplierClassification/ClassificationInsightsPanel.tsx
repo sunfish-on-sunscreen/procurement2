@@ -16,19 +16,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatBlock } from "@/components/ui/stat-block";
 
 const num0 = new Intl.NumberFormat("en-US");
-
-/** Compact span label for the relocated stat cells ("2024–2026" / "2025"). */
-function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
-  if (!periodLabel) return "this period";
-  if (isRangeMode) {
-    const parts = periodLabel.split(/[–-]/).map((s) => s.trim());
-    if (parts.length === 2 && parts[0] && parts[1]) return `${parts[0]}–${parts[1]}`;
-    return periodLabel;
-  }
-  return periodLabel;
-}
 
 /** Prose span phrase for the narrative ("in 2025" / "from 2024 to 2026"). */
 function periodPhraseProse(periodLabel: string, isRangeMode: boolean): string {
@@ -61,17 +51,6 @@ function quadShiftPhrase(changed: { q: KraljicQuadrant; d: number }[]): string {
     .join(", ");
 }
 
-/** Mini KPI card — surface tint, sentence-case label, prominent tabular value. */
-function KpiCell({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <div className="rounded-[10px] border bg-muted/30 p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-xl font-medium leading-tight tabular-nums">{value}</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
-    </div>
-  );
-}
-
 /**
  * "Classification at a glance" — a NARRATIVE prose summary mirroring the Cycle-at-a-glance
  * pattern (lead paragraph + self-omitting "Worth noting" bullets + closing hint), with the
@@ -94,7 +73,6 @@ export function ClassificationInsightsPanel({
   periodLabel: string;
   isRangeMode: boolean;
 }) {
-  const phrase = periodPhrase(periodLabel, isRangeMode);
   const prose = periodPhraseProse(periodLabel, isRangeMode);
   const total = perf.suppliers.length;
   const median = perf.axis_thresholds.performance_median;
@@ -186,6 +164,7 @@ export function ClassificationInsightsPanel({
   }
 
   return (
+    <>
     <Card className={cardElevation}>
       <CardHeader>
         <CardTitle>Classification at a glance</CardTitle>
@@ -214,26 +193,43 @@ export function ClassificationInsightsPanel({
           </div>
         )}
 
-        {/* Relocated stats — moved BELOW the narrative (Change 1). The Class-A
-            card was removed (Change 2); its count is folded into the prose above. */}
-        <div className="grid grid-cols-2 gap-2">
-          <KpiCell
-            label="Portfolio size"
-            value={num0.format(portfolioSize)}
-            sub={`active suppliers · ${phrase}`}
-          />
-          <KpiCell
-            label="Avg performance"
-            value={avgPerf.toFixed(2)}
-            sub={`period median ${median.toFixed(2)}`}
-          />
-        </div>
-
         <p className="text-xs italic text-muted-foreground">
           Click a group in Classification views to see who sits there, a scatter point for a
           supplier&apos;s profile, or any table row below.
         </p>
       </CardContent>
     </Card>
+
+    {/* Stat grid — the prominent StatBlock KPI row shared with Process Health /
+        Action Priorities / Spend Overview. All values already computed above. */}
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <StatBlock
+        size="comfortable"
+        label="Portfolio size"
+        value={num0.format(portfolioSize)}
+        sublabel="active suppliers"
+      />
+      <StatBlock
+        size="comfortable"
+        label="Avg performance"
+        value={avgPerf.toFixed(2)}
+        sublabel={`period median ${median.toFixed(2)}`}
+      />
+      <StatBlock
+        size="comfortable"
+        label="Strategic suppliers"
+        value={num0.format(strategicCount)}
+        sublabel="high spend × high risk"
+      />
+      {classA != null && (
+        <StatBlock
+          size="comfortable"
+          label="Class A suppliers"
+          value={num0.format(classA)}
+          sublabel="top spend concentration"
+        />
+      )}
+    </div>
+    </>
   );
 }
