@@ -21,11 +21,7 @@ import {
 import type { CycleBreakdown } from "@/lib/cycle-time-types";
 import type { TemporalLoad } from "@/lib/temporal-anomalies";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
-import {
-  ACTION_GROUPS,
-  CATEGORY_LABEL,
-  CATEGORY_COLOR_VAR,
-} from "@/lib/action-priorities";
+import { renderReportArgument, lensVerdict } from "@/lib/report-narrative";
 import { buildClassificationAnomalies, buildAnomalyCrossref } from "@/lib/anomaly-crossref";
 import { deriveCycleFlags } from "@/lib/cycle-flags";
 import { buildTemporalAnomalies } from "@/lib/temporal-anomalies";
@@ -204,6 +200,11 @@ export function ReportDocument({
     meta.periodLabel,
   );
   const T = TEMPLATES[tone];
+  // The decision-first ARGUMENT (headline / situation / findings / actions / watching),
+  // computed from the same analyses — numbers identical, tone applied.
+  const arg = renderReportArgument(analyses, tone);
+  const money = (n: number) =>
+    n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
 
   // Visibility-only row filter for a section (category, per scope).
   function keep<T extends { supplier_id?: string }>(
@@ -227,16 +228,6 @@ export function ReportDocument({
     return c ? `Filtered to ${c}.` : null;
   };
 
-  // ---- Recommendations: filter by category + scope, then cap ----------------
-  const recsAll = analyses.recommendations?.recommendations ?? [];
-  const recsScoped = keep(
-    recsAll.filter((r) =>
-      config.recommendationFilters.categories.includes(r.type),
-    ),
-    "actionDashboard",
-  );
-  const recCap = brief ? 3 : detailed ? recsScoped.length : config.recommendationFilters.topN;
-  const recsToShow = recsScoped.slice(0, recCap);
 
   // ---- Cross-Analysis Anomaly Hub summary (all 3 families) ------------------
   // Computed synchronously from data assembled into `analyses` server-side, so it
@@ -359,9 +350,8 @@ export function ReportDocument({
                 >
                   <span className="font-mono text-xs text-muted-foreground">{i + 1}</span>
                   <span className="font-medium">{r.supplier_name}</span>
-                  <span className="text-xs text-muted-foreground">{r.verdict.toLowerCase()}</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">
-                    S {r.spend_pct} · P {r.performance_pct} · R {r.risk_pct} · gap {r.disagreement}
+                  <span className="text-xs text-muted-foreground">
+                    {lensVerdict(r, i === 0)}
                   </span>
                 </li>
               ))}
@@ -528,35 +518,137 @@ export function ReportDocument({
             {meta.generatedBy}
             {meta.ephemeral ? " · not saved (range report)" : ""}
           </p>
-          <p className="mt-4 text-sm leading-relaxed">
-            {T.cover(ctx)}
-          </p>
-          <div className="mt-4">
-            <h3 className="text-sm font-semibold">Key findings</h3>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {T.keyFindings(ctx).map((f, i) => (
-                <li key={i}>{f}</li>
-              ))}
-            </ul>
-          </div>
-          {brief && recsToShow.length > 0 && (
-            <div className="mt-4">
-              <h3 className="text-sm font-semibold">Top priorities</h3>
-              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                {recsToShow.map((r, i) => (
-                  <li key={i}>
-                    <span className="uppercase">{r.action}</span>{" "}
-                    {r.supplier_name ?? r.scope} — {r.reasoning}
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {/* THE HEADLINE — the single most important finding, stated plainly. */}
+          {arg.hasArgument && (
+            <p className="mt-4 text-lg font-medium leading-snug text-foreground">
+              {arg.headline}
+            </p>
           )}
         </section>
 
-        {/* Brief stops at the cover. */}
+        {/* ── THE ARGUMENT — front matter, always (even in brief) ───────────── */}
+        {arg.hasArgument && (
+          <>
+            <section
+              id="section-situation"
+              className="pdf-page-break flex scroll-mt-24 flex-col gap-3"
+            >
+              <h2 className="text-xl font-semibold">The situation</h2>
+              {arg.situation.map((p, i) => (
+                <p key={i} className="text-sm leading-relaxed">
+                  {p}
+                </p>
+              ))}
+            </section>
+
+            {arg.findings.length > 0 && (
+              <section
+                id="section-findings"
+                className="pdf-page-break flex scroll-mt-24 flex-col gap-4"
+              >
+                <h2 className="text-xl font-semibold">What we found</h2>
+                {arg.findings.map((f, i) => (
+                  <div
+                    key={f.key}
+                    data-slot="card"
+                    className="flex flex-col gap-2 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10"
+                  >
+                    <h3 className="font-semibold leading-snug">
+                      {i + 1}. {f.headline}
+                    </h3>
+                    {f.body.map((b, j) => (
+                      <p key={j} className="leading-relaxed text-muted-foreground">
+                        {b}
+                      </p>
+                    ))}
+                    <div className="mt-1 grid grid-cols-3 gap-2">
+                      {f.evidence.map((e, k) => (
+                        <div key={k} className="rounded-md bg-muted/50 p-2">
+                          <div className="font-semibold">{e.value}</div>
+                          <div className="text-[11px] leading-tight text-muted-foreground">
+                            {e.label}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-1 border-l-2 border-primary pl-3 leading-relaxed">
+                      <span className="font-semibold">Recommended:</span>{" "}
+                      {f.recommendation}
+                    </p>
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {arg.actions.length > 0 && (
+              <section
+                id="section-actions"
+                className="pdf-page-break flex scroll-mt-24 flex-col gap-3"
+              >
+                <h2 className="text-xl font-semibold">What to do</h2>
+                <p className="text-sm text-muted-foreground">
+                  Prioritised by exposure — P1 is where the largest spend is at stake.
+                </p>
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="py-2 pr-2">Priority</th>
+                      <th className="py-2 pr-2">Action</th>
+                      <th className="py-2 pr-2 text-right">At stake</th>
+                      <th className="py-2">Why</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {arg.actions.map((a, i) => (
+                      <tr key={i} className="border-b align-top">
+                        <td className="py-2 pr-2 font-semibold">P{a.priority}</td>
+                        <td className="py-2 pr-2 font-medium">{a.action}</td>
+                        <td className="py-2 pr-2 text-right tabular-nums">
+                          {a.amount != null ? money(a.amount) : "—"}
+                        </td>
+                        <td className="py-2 text-muted-foreground">{a.rationale}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+
+            {(arg.watching.intro || arg.watching.items.length > 0) && (
+              <section
+                id="section-watching"
+                className="pdf-page-break flex scroll-mt-24 flex-col gap-2"
+              >
+                <h2 className="text-xl font-semibold">Worth watching</h2>
+                {arg.watching.intro && (
+                  <p className="text-sm text-muted-foreground">{arg.watching.intro}</p>
+                )}
+                {arg.watching.items.length > 0 && (
+                  <ul className="list-disc space-y-1 pl-5 text-sm">
+                    {arg.watching.items.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+          </>
+        )}
+
+        {/* ── APPENDIX — the workings; dropped entirely in brief. ───────────── */}
         {!brief && (
           <>
+            <section
+              id="section-appendix"
+              className="pdf-page-break flex scroll-mt-24 flex-col gap-1"
+            >
+              <h2 className="text-xl font-semibold">Appendix — supporting analysis</h2>
+              <p className="text-sm text-muted-foreground">
+                The full workings behind the findings above: the spend, ABC, Kraljic,
+                performance, and cycle-time analyses, plus the cross-analysis anomaly
+                detail.
+              </p>
+            </section>
             {/* Spend Overview */}
             {sections.spendOverview && analyses.spend_overview && (
               <ReportSection
@@ -881,108 +973,19 @@ export function ReportDocument({
                 )
               ))}
 
-            {/* Action Dashboard / Recommendations */}
-            {sections.actionDashboard && (
-              <ReportSection
-                id="actionDashboard"
-                title="Recommended Priorities"
-                embedded={embedded}
-                collapsed={collapsed.has("actionDashboard")}
-                onToggle={() => toggleCollapse("actionDashboard")}
+            {/* Cross-analysis anomalies — appendix evidence, readable (no S/P/R codes).
+                All three families are computed server-side (perf + kraljic + abc for
+                classification, the cycle-time breakdown for process, the temporal matrix
+                for changed-over-time), so they survive static PDF export and match the
+                live hub. The grouped recommendation cards were removed — the prioritised
+                "What to do" table above replaces them. */}
+            {sections.actionDashboard && anomalyBlock && (
+              <section
+                id="section-actionDashboard"
+                className="pdf-page-break flex scroll-mt-24 flex-col"
               >
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {T.recommendedPriorities(ctx)}
-                </p>
-                {filterNote("actionDashboard") && (
-                  <p className="text-xs text-muted-foreground">
-                    {filterNote("actionDashboard")}
-                  </p>
-                )}
-                {recsToShow.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No recommendations match the selected filters.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    {/* Grouped by the three diagnostic analyses (Spend / Suppliers /
-                        Process), mirroring the live Action Priorities structure. Each
-                        item is tagged with its category (one of the current eight);
-                        priority is conveyed by order, not a raw "Impact" number. */}
-                    {ACTION_GROUPS.map((group) => {
-                      const groupRecs = recsToShow.filter((r) =>
-                        group.categories.includes(r.type),
-                      );
-                      if (groupRecs.length === 0) return null;
-                      return (
-                        <div key={group.id} className="flex flex-col gap-2">
-                          <div
-                            className="flex flex-wrap items-baseline gap-x-2 border-l-2 pl-2"
-                            style={{ borderColor: group.colorVar }}
-                          >
-                            <span
-                              className="text-sm font-semibold"
-                              style={{ color: group.colorVar }}
-                            >
-                              {group.title}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              — {group.tagline}
-                            </span>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            {groupRecs.map((p, i) => {
-                              const pinned =
-                                p.supplier_id != null &&
-                                p.supplier_id === pinnedSupplierId;
-                              return (
-                                <div
-                                  key={i}
-                                  onClick={() => p.supplier_id && pin(p.supplier_id)}
-                                  className={`rounded-md border p-3 ${
-                                    p.supplier_id ? "cursor-pointer" : ""
-                                  } ${pinned ? "ring-1 ring-inset ring-foreground/30" : ""}`}
-                                  style={{
-                                    borderLeft: `4px solid ${CATEGORY_COLOR_VAR[p.type]}`,
-                                  }}
-                                >
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide">
-                                      {p.action}
-                                    </span>
-                                    <span className="font-medium">
-                                      {p.supplier_name ?? p.scope}
-                                    </span>
-                                    <span
-                                      className="ml-auto rounded px-1.5 py-0.5 text-xs font-medium"
-                                      style={{
-                                        color: CATEGORY_COLOR_VAR[p.type],
-                                        backgroundColor: `color-mix(in srgb, ${CATEGORY_COLOR_VAR[p.type]} 12%, transparent)`,
-                                      }}
-                                    >
-                                      {CATEGORY_LABEL[p.type]}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1 text-sm text-muted-foreground">
-                                    {p.reasoning}
-                                  </p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Cross-Analysis Anomaly Hub — all THREE families, computed from
-                    data assembled into this report server-side (perf + kraljic + abc
-                    for classification; the cycle-time `breakdown` for process; the
-                    latest-vs-prior `temporal` matrix for changed-over-time). No client
-                    fetch — present at render time, so it survives static PDF export.
-                    Reuses the same pure libs as the live hub, so the numbers match. */}
-                {!brief && anomalyBlock}
-              </ReportSection>
+                {anomalyBlock}
+              </section>
             )}
 
             {/* Methodology */}
