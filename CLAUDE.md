@@ -7,9 +7,10 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
-> do not trust this section for the latest state. **HEAD as of last doc update:
-> `c04eb0b` (2026-07-10) — reports render the full 3-family anomaly hub. Run
-> `git log` for the latest.**
+> do not trust this section for the latest state. **Last doc update: 2026-07-13 —
+> Supplier Selection REMOVED (see the removal note below); 4 analytical pages. Prior
+> code HEAD `c04eb0b` (2026-07-10) — reports render the full 3-family anomaly hub.
+> Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -24,15 +25,29 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > "Performance positioning"** (PillTabs code keys `kraljic`/`performance`
 > unchanged).
 
-5 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
+4 analytical pages live (Kraljic + Performance-vs-Spend merged into one Supplier
 Classification page; ABC merged into Spend Overview): Spend Overview, Supplier
-Classification, Process Health Monitoring, Action Priorities, Supplier Selection
+Classification, Process Health Monitoring, Action Priorities
 (+ Reports, Methodology). `/` → `/spend-overview`; `/abc-analysis` →
 `/spend-overview` (both redirects). The Action Priorities page (`/action-dashboard`
 URL unchanged) is a 3-group instrument-panel dashboard grid whose **Cross-Analysis
-Anomaly Hub** holds all 3 anomaly families; **Supplier Selection**
-(`/supplier-selection`) is the best-supplier-per-category engine — see the top
-session blocks.
+Anomaly Hub** holds all 3 anomaly families.
+
+> ⚠️ **Supplier Selection was REMOVED ENTIRELY (2026-07-13, latest — reverts
+> `f72c9d3`).** The route (`app/(dashboard)/supplier-selection/`), the client
+> (`components/SupplierSelection/`), the engine (`lib/supplier-selection.ts`), and
+> the nav entry (+ its `Award` lucide import in `Sidebar.tsx`) are all deleted;
+> `/supplier-selection` now 404s. **Why:** the "★ Recommended supplier per category"
+> framing overclaims — in real procurement, "who should I buy from" is dominated by
+> contracts, vendor relationships, internal politics, OEM compatibility, and
+> switching costs, none of which the data captures, so a data-derived recommendation
+> is presumptuous and indefensible. Cut rather than ship a page that overreaches.
+> **Removal was clean** — Supplier Selection was purely additive (it only *read*
+> shared libs `getSupplierCategoryMap`/`getSupplierDirectory` + `compute-range`,
+> nothing imported *it*); tsc/ESLint clean, no compute/Python/migration change, and
+> the anomaly hub (46/36/11/18), Process Health (11/2/35), Reports, the unified modal,
+> Spend Overview, and Supplier Classification all verified unchanged. The old
+> "SUPPLIER SELECTION VIEW" session block below is HISTORY.
 
 ### How I work (default approach — the operator can override per task)
 
@@ -97,7 +112,13 @@ has it at render time. NO client fetch (that was the deferral reason: PDF =
   families inside captured `.pdf-page-break` sections.** tsc/ESLint clean; no Python
   change, no migration; export structure intact.
 
-### SUPPLIER SELECTION VIEW (2026-07-10) — BEST-SUPPLIER-PER-CATEGORY ENGINE
+### SUPPLIER SELECTION VIEW (2026-07-10) — REMOVED 2026-07-13 (HISTORY)
+
+> 🗑️ **THIS FEATURE WAS DELETED on 2026-07-13** (reverting `f72c9d3`) — the
+> recommendation framing overclaims for real procurement. See the removal note near
+> the top of this file. Everything below is HISTORY; the files it describes no
+> longer exist. **The Path-B price refinement noted below is MOOT** (there is no
+> Supplier Selection engine to refine).
 
 **New page `/supplier-selection` (nav: after Action Priorities) — the
 decision-support half of the cross-page vision (the anomaly hub was the diagnostic
@@ -1002,7 +1023,7 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   Priorities period-awareness is still open.
 - **Phase 10 polish → v1.0**: loading states, error boundaries, mobile responsive,
   README, smoke test. Includes VISUAL UNIFICATION — a consistent visual language
-  across the anomaly hub, Supplier Selection, and the analytical pages.
+  across the anomaly hub and the analytical pages.
 
 ### Spend Overview redesign + polish + Supplier Evolution + ABC merge
 - **`/` and `/abc-analysis` both redirect to `/spend-overview`** (renamed from
