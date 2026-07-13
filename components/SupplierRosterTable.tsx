@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Pencil } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -17,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/CountryFlag";
 import { countryName } from "@/lib/countries";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { AddSupplierCard, type EditSupplier } from "@/components/AddSupplierCard";
 import {
   RowCheckbox,
   usePagination,
@@ -37,18 +35,10 @@ type Row = {
 type Filters = { id: string; name: string; country: string; category: string };
 const EMPTY_FILTERS: Filters = { id: "", name: "", country: "", category: "" };
 
-export function SupplierRosterTable({
-  suppliers,
-  categories,
-}: {
-  suppliers: Row[];
-  categories: string[];
-}) {
+export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
   const router = useRouter();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [editTarget, setEditTarget] = useState<EditSupplier | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -79,16 +69,6 @@ export function SupplierRosterTable({
     });
   }
 
-  function openEdit(s: Row) {
-    setEditTarget({
-      id: s.externalId,
-      name: s.supplierName,
-      country: s.country,
-      category: s.category,
-    });
-    setEditOpen(true);
-  }
-
   async function handleBatchDelete() {
     const ids = [...selected];
     setDeleting(true);
@@ -101,16 +81,16 @@ export function SupplierRosterTable({
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         deleted?: number;
-        recomputeWarning?: string | null;
       };
+      // A recompute failure returns a non-2xx error, so success means the analyses
+      // have actually refreshed.
       if (res.ok && typeof data.deleted === "number") {
         toast.success(`Removed ${data.deleted} supplier${data.deleted === 1 ? "" : "s"}.`);
-        if (data.recomputeWarning) toast.warning(data.recomputeWarning);
         setSelected(new Set());
         setConfirmOpen(false);
         router.refresh();
       } else {
-        // All-or-nothing block (e.g. some have purchases) — keep the dialog open.
+        // Block (some have purchases) or recompute failure — surface it.
         toast.error(data.error || "Could not remove the selected suppliers.");
         setConfirmOpen(false);
       }
@@ -155,7 +135,6 @@ export function SupplierRosterTable({
               <TableHead>Supplier</TableHead>
               <TableHead>Country</TableHead>
               <TableHead>Category</TableHead>
-              <TableHead className="w-12" />
             </TableRow>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-9" />
@@ -195,13 +174,12 @@ export function SupplierRosterTable({
                   aria-label="Filter by category"
                 />
               </TableHead>
-              <TableHead className="w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   No suppliers match the filters.
                 </TableCell>
               </TableRow>
@@ -239,17 +217,6 @@ export function SupplierRosterTable({
                       <CountryFlag code={s.country} />
                     </TableCell>
                     <TableCell>{s.category}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                        aria-label={`Edit ${s.externalId}`}
-                        onClick={() => openEdit(s)}
-                      >
-                        <Pencil className="size-[15px]" />
-                      </Button>
-                    </TableCell>
                   </TableRow>
                 );
               })
@@ -268,15 +235,6 @@ export function SupplierRosterTable({
           setPage={setPage}
         />
       )}
-
-      {/* Edit card (reuses AddSupplierCard in edit mode). */}
-      <AddSupplierCard
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        nextId=""
-        categories={categories}
-        editSupplier={editTarget}
-      />
 
       {/* Batch-delete confirmation. */}
       <Dialog open={confirmOpen} onOpenChange={(o) => !deleting && setConfirmOpen(o)}>

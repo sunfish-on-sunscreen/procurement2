@@ -39,11 +39,14 @@ export async function POST(request: Request) {
   const result = await prisma.purchase.deleteMany({ where: { poId: { in: ids } } });
 
   const { ok, failedPeriods } = await recomputeAllPeriods();
+  if (!ok) {
+    return NextResponse.json(
+      {
+        error: `Purchases removed, but analytics failed to refresh (periods: ${failedPeriods.join(", ")}). Re-run a full import to update the dashboards.`,
+      },
+      { status: 500 },
+    );
+  }
 
-  return NextResponse.json({
-    success: true,
-    deleted: result.count,
-    recomputed: true,
-    recomputeWarning: ok ? null : `Recompute failed for: ${failedPeriods.join(", ")}`,
-  });
+  return NextResponse.json({ success: true, deleted: result.count });
 }

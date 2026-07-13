@@ -8,11 +8,12 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **Last doc update: 2026-07-13 —
-> (1) Action Priorities REDESIGNED into the analysis-page language (see "ACTION
-> PRIORITIES REDESIGN" below); (2) hub temporal family now PERIOD-AWARE in both modes
-> (see "TEMPORAL PERIOD-AWARENESS" below); (3) Supplier Selection REMOVED (see the
-> removal note below); 4 analytical pages. Prior code HEAD `c04eb0b` (2026-07-10) — reports
-> render the full 3-family anomaly hub. Run `git log` for the latest.**
+> (1) CRUD REWORK: supplier/purchase EDIT removed + CREATE now recomputes + honest
+> failures + timeout (see the "CRUD REWORK" banner in Critical gotchas); (2) Action
+> Priorities REDESIGNED into the analysis-page language (see "ACTION PRIORITIES
+> REDESIGN"); (3) hub temporal family now PERIOD-AWARE in both modes (see "TEMPORAL
+> PERIOD-AWARENESS"); (4) Supplier Selection REMOVED; 4 analytical pages. Prior code
+> HEAD `c04eb0b` (2026-07-10). Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -1601,6 +1602,38 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - `prisma/migrations/.../add_range_cache_columns/` — nullable periodId + range columns.
 
 ### Critical gotchas
+
+> ⚠️ **CRUD REWORK (2026-07-13) — the four CRUD gotchas immediately below are
+> SUPERSEDED in the parts noted here; read this first.**
+> - **EDIT REMOVED (governance).** The supplier + purchase **PATCH handlers are
+>   DELETED**, and the Pencil/edit buttons + edit dialogs are gone (both `Add*Card`s
+>   are now add-only). Defensible line: transactional records can be **added or
+>   removed, never silently ALTERED** (no in-place edit without an audit trail). So
+>   "Supplier/Purchase edit/delete recomputes…" (Batch A/B below) is now **DELETE-only**
+>   — the edit half of those bullets, incl. the supplier re-point + name-only-skip +
+>   derived-field-recompute-on-edit, no longer exists.
+> - **CREATE NOW RECOMPUTES (integrity).** `POST /api/suppliers` **and** `POST
+>   /api/purchases` now call `recomputeAllPeriods()` synchronously after the insert —
+>   so a manual add is reflected in EVERY analysis immediately (verified: add supplier
+>   → all periods recompute + range cache cleared; add purchase → its spend appears in
+>   the cached spend_overview/ABC). This **REVERSES** the "manual add does NOT
+>   recompute / stays byte-identical" claims in Batch 2 + Batch 3 below. (The Batch-2
+>   delete-then-insert-wipe-on-reimport note + the Batch-3 derived-field COMPUTE note
+>   still hold.)
+> - **FAILURES ARE HONEST (create AND delete).** On ANY period's recompute failure the
+>   route returns a real **500** (not `success:true` + a soft `recomputeWarning`), and
+>   the **range cache is NOT cleared** on failure (`deleteMany` gated on
+>   `failedPeriods.length === 0`). A **60s per-period timeout** was added
+>   (`runComputeAnalyses(periodId, timeoutMs?)`; the bulk-import caller omits it →
+>   unchanged). `recomputeWarning` is gone from every route + client.
+> - ⚠️ **NO ROLLBACK ON CREATE FAILURE.** If the insert succeeds but the recompute
+>   fails, the row **persists** (not rolled back) and the 500 tells the admin to
+>   re-import — same as delete (which can't un-delete). So a create-then-recompute-fail
+>   leaves a row that isn't in the analyses until a full import.
+> - **UNCHANGED:** add + remove (single + batch) + the bulk import all stay; the bulk
+>   import is still the source of truth; `lib/recompute.ts` stays (now used by create +
+>   delete); analyses/anomaly-hub/pure-libs/Python untouched.
+
 - **Manually-added suppliers are replaced by a full re-import (Batch 2).** The
   add-supplier card (`POST /api/suppliers`, one INSERT tagged to the LATEST
   period, no analyses recompute) writes a `Supplier` row that the bulk import's

@@ -8,6 +8,7 @@ import {
   parsePurchaseDates,
   toPurchaseCreateData,
 } from "@/lib/purchase-import";
+import { recomputeAllPeriods } from "@/lib/recompute";
 
 export const runtime = "nodejs";
 
@@ -17,9 +18,9 @@ export const runtime = "nodejs";
  * The supplier must ALREADY exist (existing-only reference → orphan-proof);
  * supplier_name + category are denormalized from it. total_value_usd + all 5
  * cycle-day fields are COMPUTED (the card never sends them). The PO is a targeted
- * INSERT tagged to its PAYMENT-year period (upserted if new) — no analyses
- * recompute and no range-cache clear, so cached scores stay byte-identical (the
- * new PO only shows in Purchase-derived LIVE views until a full reimport).
+ * INSERT tagged to its PAYMENT-year period (upserted if new), THEN all periods are
+ * recomputed so the new PO is reflected in every analysis. Recompute is synchronous;
+ * on failure we surface a real error (the insert already committed).
  */
 export async function POST(request: Request) {
   const session = await getSession();
@@ -99,11 +100,14 @@ export async function POST(request: Request) {
   };
 
   // Server-assign the PO id from the DB max; retry on the rare unique collision.
+  let created:
+    | { poId: string; supplierExternalId: string; totalValueUsd: number; totalCycleDays: number }
+    | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.purchase.findMany({ select: { poId: true } });
     const poId = nextPoId(existing.map((p) => p.poId));
     try {
-      const created = await prisma.purchase.create({
+      created = await prisma.purchase.create({
         data: toPurchaseCreateData({ ...base, poId }),
         select: {
           poId: true,
@@ -112,7 +116,7 @@ export async function POST(request: Request) {
           totalCycleDays: true,
         },
       });
-      return NextResponse.json({ success: true, purchase: created });
+      break;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         continue;
@@ -121,8 +125,24 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json(
-    { error: "Could not assign a unique PO id — please retry." },
-    { status: 409 },
-  );
+  if (!created) {
+    return NextResponse.json(
+      { error: "Could not assign a unique PO id — please retry." },
+      { status: 409 },
+    );
+  }
+
+  // Recompute so the new PO is reflected in every analysis. Synchronous — the admin
+  // waits. On failure the insert already committed, so surface a real error.
+  const { ok, failedPeriods } = await recomputeAllPeriods();
+  if (!ok) {
+    return NextResponse.json(
+      {
+        error: `Purchase saved, but analytics failed to refresh (periods: ${failedPeriods.join(", ")}). Re-run a full import to update the dashboards.`,
+      },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ success: true, purchase: created });
 }

@@ -124,14 +124,9 @@ export default async function ImportPage() {
         supplierItems={supplierItems}
       />
 
-      <SupplierRosterTable suppliers={suppliers} categories={categories} />
+      <SupplierRosterTable suppliers={suppliers} />
 
-      <PurchaseRosterTable
-        purchases={purchases}
-        suppliers={supplierPicks}
-        units={units}
-        supplierItems={supplierItems}
-      />
+      <PurchaseRosterTable purchases={purchases} />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Recent Imports</h2>

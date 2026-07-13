@@ -67,15 +67,16 @@ export function RemovePurchaseCard({
     }
     setRemoving(true);
     try {
+      // Removing recomputes all periods server-side, so this can take a few seconds
+      // (the button stays in its "Removing…" state throughout). A recompute failure
+      // returns a non-2xx error, so success means the analyses have refreshed.
       const res = await fetch(`/api/purchases/${poId}`, { method: "DELETE" });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         deleted?: string;
-        recomputeWarning?: string | null;
       };
       if (res.ok && data.deleted) {
         toast.success(`Removed ${data.deleted}.`);
-        if (data.recomputeWarning) toast.warning(data.recomputeWarning);
         onOpenChange(false);
         router.refresh();
       } else {

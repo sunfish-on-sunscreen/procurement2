@@ -6,6 +6,7 @@ import {
   toSupplierCreateData,
   SupplierWriteBody,
 } from "@/lib/supplier-import";
+import { recomputeAllPeriods } from "@/lib/recompute";
 import { Prisma } from "@/lib/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -14,9 +15,11 @@ export const runtime = "nodejs";
  * Create ONE supplier (admin only). Reuses the shared validation + id-gen +
  * mapper (lib/supplier-import) — the SAME logic the bulk import uses, so there's
  * one source of truth for how a supplier row is shaped. The new supplier is a
- * targeted INSERT tagged to the LATEST reporting period; it does NOT recompute
- * analyses, so existing scores stay byte-identical. Unlike the permissive bulk
- * import, a manual add REJECTS an exact-duplicate name (409).
+ * targeted INSERT tagged to the LATEST reporting period, THEN all periods are
+ * recomputed so the addition is reflected in every analysis (roster concentration
+ * is global). Recompute is synchronous; on failure we surface a real error (the
+ * insert already committed). Unlike the permissive bulk import, a manual add
+ * REJECTS an exact-duplicate name (409).
  */
 export async function POST(request: Request) {
   const session = await getSession();
@@ -66,7 +69,8 @@ export async function POST(request: Request) {
   }
 
   // Assign the real next id from the DB max, then write. On the rare unique
-  // collision (a concurrent add grabbed the same id), recompute + retry.
+  // collision (a concurrent add grabbed the same id), re-derive the id and retry.
+  let created: { externalId: string; supplierName: string; country: string; category: string } | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.supplier.findMany({
       select: { externalId: true },
@@ -74,24 +78,16 @@ export async function POST(request: Request) {
     });
     const externalId = nextSupplierId(existing.map((s) => s.externalId));
     try {
-      const created = await prisma.supplier.create({
+      created = await prisma.supplier.create({
         data: toSupplierCreateData(
           { supplier_id: externalId, supplier_name, country, category },
           latestPeriod.id,
         ),
         select: { externalId: true, supplierName: true, country: true, category: true },
       });
-      return NextResponse.json({
-        success: true,
-        supplier: {
-          id: created.externalId,
-          name: created.supplierName,
-          country: created.country,
-          category: created.category,
-        },
-      });
+      break;
     } catch (err) {
-      // Unique-constraint race → recompute the id and retry; anything else fails.
+      // Unique-constraint race → re-derive the id and retry; anything else fails.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         continue;
       }
@@ -99,8 +95,33 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json(
-    { error: "Could not assign a unique supplier id — please retry." },
-    { status: 409 },
-  );
+  if (!created) {
+    return NextResponse.json(
+      { error: "Could not assign a unique supplier id — please retry." },
+      { status: 409 },
+    );
+  }
+
+  // Recompute so the new supplier appears in the analyses (concentration is roster-
+  // global). Synchronous — the admin waits. On failure the insert already committed,
+  // so surface a real error rather than a green success.
+  const { ok, failedPeriods } = await recomputeAllPeriods();
+  if (!ok) {
+    return NextResponse.json(
+      {
+        error: `Supplier saved, but analytics failed to refresh (periods: ${failedPeriods.join(", ")}). Re-run a full import to update the dashboards.`,
+      },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    supplier: {
+      id: created.externalId,
+      name: created.supplierName,
+      country: created.country,
+      category: created.category,
+    },
+  });
 }

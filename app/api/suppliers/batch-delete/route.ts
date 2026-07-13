@@ -66,11 +66,14 @@ export async function POST(request: Request) {
   ]);
 
   const { ok, failedPeriods } = await recomputeAllPeriods();
+  if (!ok) {
+    return NextResponse.json(
+      {
+        error: `Suppliers removed, but analytics failed to refresh (periods: ${failedPeriods.join(", ")}). Re-run a full import to update the dashboards.`,
+      },
+      { status: 500 },
+    );
+  }
 
-  return NextResponse.json({
-    success: true,
-    deleted: ids.length,
-    recomputed: true,
-    recomputeWarning: ok ? null : `Recompute failed for: ${failedPeriods.join(", ")}`,
-  });
+  return NextResponse.json({ success: true, deleted: ids.length });
 }

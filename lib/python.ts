@@ -57,9 +57,14 @@ function runScript(args: string[], timeoutMs?: number): Promise<PythonResult> {
   });
 }
 
-/** Mode A: compute + upsert AnalysisResult rows for a single period. */
-export function runComputeAnalyses(periodId: string): Promise<PythonResult> {
-  return runScript(["--period-id", periodId]);
+/**
+ * Mode A: compute + upsert AnalysisResult rows for a single period. `timeoutMs`
+ * (optional) kills a hung Python after that long — passed by the recompute path so
+ * a stuck compute can't hang the admin's request. The bulk-import caller omits it
+ * (unchanged behaviour).
+ */
+export function runComputeAnalyses(periodId: string, timeoutMs?: number): Promise<PythonResult> {
+  return runScript(["--period-id", periodId], timeoutMs);
 }
 
 /** Mode B: compute over a date range and return the analyses JSON on stdout. */

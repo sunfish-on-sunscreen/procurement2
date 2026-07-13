@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Pencil } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -16,11 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
-  AddPurchaseCard,
-  type EditPurchase,
-  type SupplierPick,
-} from "@/components/AddPurchaseCard";
-import {
   RowCheckbox,
   usePagination,
   PaginationFooter,
@@ -29,8 +23,8 @@ import {
 } from "@/components/ui/roster-table";
 import { formatCompactCurrency, panelElevation } from "@/lib/utils";
 
-/** One purchase row — the full raw field set (display uses a subset; the edit
- *  card in step 2 uses the rest). Dates are YYYY-MM-DD strings. */
+/** One purchase row — the full raw field set (the roster displays a subset).
+ *  Dates are YYYY-MM-DD strings. */
 export type PurchaseRow = {
   poId: string;
   supplierExternalId: string;
@@ -55,25 +49,10 @@ export type PurchaseRow = {
 type Filters = { poId: string; supplier: string; item: string; unit: string };
 const EMPTY_FILTERS: Filters = { poId: "", supplier: "", item: "", unit: "" };
 
-export function PurchaseRosterTable({
-  purchases,
-  suppliers,
-  units,
-  supplierItems,
-}: {
-  purchases: PurchaseRow[];
-  /** Existing suppliers for the edit card's existing-only picker (re-point). */
-  suppliers: SupplierPick[];
-  /** Existing units for the edit card's creatable unit combobox. */
-  units: string[];
-  /** supplierExternalId -> distinct items (scopes the edit card's Item combobox). */
-  supplierItems: Record<string, string[]>;
-}) {
+export function PurchaseRosterTable({ purchases }: { purchases: PurchaseRow[] }) {
   const router = useRouter();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [editTarget, setEditTarget] = useState<EditPurchase | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -104,27 +83,6 @@ export function PurchaseRosterTable({
     });
   }
 
-  function openEdit(p: PurchaseRow) {
-    setEditTarget({
-      poId: p.poId,
-      supplierId: p.supplierExternalId,
-      itemName: p.itemName,
-      unit: p.unit,
-      quantity: p.quantity,
-      unitPriceUsd: p.unitPriceUsd,
-      defectCount: p.defectCount,
-      complaintCount: p.complaintCount,
-      onTimeDelivery: p.onTimeDelivery,
-      threeWayMatchPass: p.threeWayMatchPass,
-      prDate: p.prDate,
-      poDate: p.poDate,
-      deliveryDate: p.deliveryDate,
-      invoiceDate: p.invoiceDate,
-      paymentDate: p.paymentDate,
-    });
-    setEditOpen(true);
-  }
-
   async function handleBatchDelete() {
     const ids = [...selected];
     setDeleting(true);
@@ -137,11 +95,11 @@ export function PurchaseRosterTable({
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         deleted?: number;
-        recomputeWarning?: string | null;
       };
+      // A recompute failure returns a non-2xx error, so success means the analyses
+      // have actually refreshed.
       if (res.ok && typeof data.deleted === "number") {
         toast.success(`Removed ${data.deleted} purchase${data.deleted === 1 ? "" : "s"}.`);
-        if (data.recomputeWarning) toast.warning(data.recomputeWarning);
         setSelected(new Set());
         setConfirmOpen(false);
         router.refresh();
@@ -195,7 +153,6 @@ export function PurchaseRosterTable({
                 <TableHead className="text-right">Unit price</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead>Payment date</TableHead>
-                <TableHead className="w-12" />
               </TableRow>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-9" />
@@ -235,13 +192,13 @@ export function PurchaseRosterTable({
                     aria-label="Filter by unit"
                   />
                 </TableHead>
-                <TableHead colSpan={5} />
+                <TableHead colSpan={4} />
               </TableRow>
             </TableHeader>
             <TableBody>
               {pageItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     No purchases match the filters.
                   </TableCell>
                 </TableRow>
@@ -278,17 +235,6 @@ export function PurchaseRosterTable({
                       <TableCell className="tabular-nums text-muted-foreground">
                         {p.paymentDate}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                          aria-label={`Edit ${p.poId}`}
-                          onClick={() => openEdit(p)}
-                        >
-                          <Pencil className="size-[15px]" />
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   );
                 })
@@ -306,17 +252,6 @@ export function PurchaseRosterTable({
           />
         </>
       )}
-
-      {/* Edit card (reuses AddPurchaseCard in edit mode). */}
-      <AddPurchaseCard
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        nextId=""
-        suppliers={suppliers}
-        units={units}
-        supplierItems={supplierItems}
-        editPurchase={editTarget}
-      />
 
       {/* Batch-delete confirmation. */}
       <Dialog open={confirmOpen} onOpenChange={(o) => !deleting && setConfirmOpen(o)}>
