@@ -87,6 +87,36 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > a "byte-identical elsewhere" claim — the composite-derived surfaces are exactly the ones
 > that move.
 
+> ⚠️ **AUDIT-DRIVEN DISPLAY FIXES (2026-07-14) — two wrong counts corrected + a NAMED
+> recurring pattern.** An adversarial integrity audit surfaced two displayed numbers
+> that didn't match the data (both landed after this doc's baseline correction above):
+> 1. **Category count (`8e23026`).** Spend Overview's "Spend spans N categories" prose
+>    AND the "Active suppliers · across N categories" KPI both counted
+>    `spend_overview.by_category.length` — which is capped at top-8 + a synthetic "Other"
+>    rollup for the donut — so with **14 real categories the app showed "9"** on every
+>    period view (10 in 2026), even counting "Other" as a category. Fix: `compute_analyses.py`
+>    emits **`total_categories`** (distinct REAL categories, "Other" excluded); both
+>    surfaces read it (fallback to the complete `top_suppliers_by_category` key count for
+>    old cached rows) and "Other" is now excluded from category NAMING. Recomputed (safe
+>    recipe) so the field is the live path. Verified: **14/14/14/10**, donut unchanged.
+>    ⚠️ **The KPI sublabel was a SECOND surface the audit's prose sweep missed** — found
+>    by grepping the whole codebase for `by_category.length` after fixing the first.
+> 2. **"Where to act" cap (`43e60d9`).** The Critical Issues / Hidden Gems / Bottleneck
+>    cards showed the top-5-capped rec count ("5") while Classification showed the full
+>    zone population ("12"). Now reads **"5 of 12"** (population from the already-loaded
+>    perf zones / Kraljic quadrant; only the 3 capped categories get "of M"). Presentation
+>    only — no compute change.
+>
+> ⚠️ **STANDING RULE — THE COMPUTE-LAYER CAP TRAP (now the 3rd sighting):** *the compute
+> layer emits COMPLETE data; the display layer decides what to truncate. **If you cap in
+> Python, you will poison a count.*** Three instances of the SAME pattern — a display cap
+> living in the compute layer that leaked into a displayed COUNT: **`.head(15)`** on the
+> cycle outliers (showed 11 outlier suppliers, truth 14 — `263d9f3`), **`head(8) + "Other"`**
+> on categories (showed 9, truth 14 — `8e23026`), and **`[:5]`** on the recommendation
+> lists (showed 5, population 12 — `43e60d9`). When you must cap for display, emit the full
+> count/set alongside the capped list (e.g. `total_categories`, the z>2 anomaly set, the
+> zone population) and let the UI show "N of M" — never derive a count from the capped array.
+
 > ⚠️ **DO NOT TRUST the two untracked `dashboard_*.md` files** (`dashboard_meeting_notes.md`
 > + `dashboard_audit_meeting_prep.md`) — STALE meeting-prep notes (dated 2026-06-28,
 > commit `2ad76cb`) that describe a **`tier`** concept and a **5-dimension / Service**
