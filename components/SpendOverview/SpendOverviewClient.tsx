@@ -125,7 +125,14 @@ export function SpendOverviewClient({
   const phrase = periodPhrase(periodLabel, isRangeMode);
   const perSupplier =
     spend.active_suppliers > 0 ? spend.total_pos / spend.active_suppliers : 0;
-  const categoryCount = spend.by_category.length;
+  // ⚠️ Distinct REAL category count — NOT `by_category.length` (capped at top-8 +
+  // synthetic "Other" for the donut). Prefer the compute-layer truth; fall back to
+  // the complete `top_suppliers_by_category` key set for pre-2026-07-14 cached rows.
+  const categoryCount =
+    spend.total_categories ??
+    (spend.top_suppliers_by_category
+      ? Object.keys(spend.top_suppliers_by_category).length
+      : spend.by_category.length);
 
   return (
     <>

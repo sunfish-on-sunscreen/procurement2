@@ -276,6 +276,13 @@ def spend_overview(purchases, suppliers, metrics):
         "total_pos": int(len(purchases)),
         "active_suppliers": int(purchases["supplierExternalId"].nunique()),
         "avg_cycle_time": num(purchases["totalCycleDays"].mean()),
+        # DISTINCT REAL category count for this window — the true number of
+        # categories, NOT len(by_category). `by_category` is capped at the top-8
+        # by spend PLUS a synthetic "Other" rollup for the donut, so its length
+        # (≤ 9) understates reality. `cat` is the full per-category groupby, so
+        # len(cat) is every real category and "Other" is never one of them. The
+        # display layer reads THIS to count/label categories.
+        "total_categories": int(len(cat)),
         "by_category": by_category,
         "top_suppliers": top_suppliers,
         "top_suppliers_by_category": top_suppliers_by_category,

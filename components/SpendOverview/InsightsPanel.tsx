@@ -70,10 +70,22 @@ export function InsightsPanel({
     aPct >= 70 ? "heavily concentrated" : aPct >= 50 ? "concentrated" : "relatively distributed";
   const isConcentrated = aPct >= 50;
 
-  // Categories (descending).
+  // Categories (descending). ⚠️ `by_category` is a top-8 + synthetic "Other"
+  // rollup for the donut — so it must NOT be used to COUNT or NAME categories.
+  // The true distinct-category count comes from the compute layer
+  // (`total_categories`); the `top_suppliers_by_category` key count is a complete
+  // fallback for pre-2026-07-14 cached rows; `named` excludes "Other" from any
+  // naming so the rollup bucket is never printed as a real category.
+  const OTHER = "Other";
   const categories = [...spendOverview.by_category].sort((a, b) => b.total - a.total);
-  const topCategory = categories[0];
-  const secondCategory = categories[1] ?? null;
+  const named = categories.filter((c) => c.category !== OTHER);
+  const totalCategories =
+    spendOverview.total_categories ??
+    (spendOverview.top_suppliers_by_category
+      ? Object.keys(spendOverview.top_suppliers_by_category).length
+      : named.length);
+  const topCategory = named[0];
+  const secondCategory = named[1] ?? null;
   const topCatPct = topCategory ? share(topCategory.total, total) : 0;
   // "Dominates" only when the top category's share is genuinely large — ≥ 40% or
   // ≥ 1.5× the second category. Otherwise it is merely "the largest".
@@ -83,17 +95,18 @@ export function InsightsPanel({
       (secondCategory != null &&
         secondCategory.total > 0 &&
         topCategory.total >= 1.5 * secondCategory.total));
-  const top3 = categories.slice(0, 3);
+  const top3 = named.slice(0, 3);
   const top3Pct = share(
     top3.reduce((s, c) => s + c.total, 0),
     total,
   );
-  // Categories carrying meaningful volume = those needed to cover 80% of spend.
+  // Categories needed to cover 80% of spend. The "Other" rollup still contributes
+  // its spend to the cumulative, but is never COUNTED as a category.
   let catCum = 0;
   let catsTo80 = 0;
   for (const c of categories) {
     catCum += c.total;
-    catsTo80 += 1;
+    if (c.category !== OTHER) catsTo80 += 1;
     if (share(catCum, total) >= 80) break;
   }
 
@@ -181,9 +194,9 @@ export function InsightsPanel({
                 {Math.max(0, activeRanking.length - sup80)} contribute the long tail.
               </li>
             )}
-            {categories.length > 0 && (
+            {totalCategories > 0 && (
               <li>
-                Spend spans {categories.length} categor{categories.length === 1 ? "y" : "ies"};
+                Spend spans {totalCategories} categor{totalCategories === 1 ? "y" : "ies"};
                 the top {catsTo80} cover 80% of it, so diversification is{" "}
                 {catsTo80 <= 2 ? "narrow" : catsTo80 <= 5 ? "moderate" : "broad"}.
               </li>

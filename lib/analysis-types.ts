@@ -16,6 +16,14 @@ export type SpendOverviewResult = {
   total_pos: number;
   active_suppliers: number;
   avg_cycle_time: number;
+  /**
+   * DISTINCT REAL category count for the window (excludes the synthetic "Other"
+   * rollup). Use this to COUNT or label categories — NOT `by_category.length`,
+   * which is capped at top-8 + "Other" for the donut and understates the truth.
+   * Optional: pre-2026-07-14 cached rows won't have it — consumers fall back to
+   * the `top_suppliers_by_category` key count (also complete).
+   */
+  total_categories?: number;
   by_category: { category: string; total: number }[];
   top_suppliers: TopSupplier[];
   /**
