@@ -59,6 +59,34 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > then removed/reframed as those got fixed (Fix 1/2). All three fixes are ✅ in KNOWN
 > OPEN ITEMS below.
 
+> ⚠️ **PERFORMANCE-ZONE BASELINE CORRECTED (2026-07-14) — the app was RIGHT, the doc
+> had lagged.** An adversarial audit found the performance-zone "VERIFIED numbers"
+> recorded below (in the FILTER-LIVE COMPOSITE / post-Stage-3 blocks) were frozen at
+> commit `5b8ede2` and never updated for the **very next commit `aca864c`** (per-PO
+> quality + Service dimension dropped + reweight to 0.30/0.30/0.22/0.18), which MOVED the
+> composite. The app computes the current zones correctly (cache == a fresh Mode-B
+> recompute, 0 diffs); only the doc numbers were stale. ⚠️ **CURRENT zone baseline
+> (Stars / Critical Issues / Hidden Gems / Long Tail):**
+> - **Range 2024–2026: `15 / 12 / 12 / 16`** (was doc'd 19/8/8/20) — perf_median **78.11**
+> - **2024: `16 / 10 / 10 / 17`** (was 17/9/9/18)
+> - **2025: `16 / 9 / 9 / 16`** (was 19/6/6/19) — perf_median **81.185** (was 79.24)
+> - **2026: `6 / 4 / 4 / 6`** (unchanged — was already correct)
+>
+> ⚠️ **FRAGILE vs STABLE baselines — know which is which before you "verify nothing
+> broke":** the zones (+ avg_performance, the perf-derived recommendation membership)
+> are **COMPOSITE-DERIVED** — they MOVE whenever the scoring model changes, so re-derive
+> them on any `scores.py` change. Everything **spend/risk-based is COMPOSITE-INDEPENDENT
+> and did NOT move**: ABC (10/9/31 for 2025), Kraljic quadrants (10/15/15/10 for 2025),
+> spend/PO counts ($283,596,813.69 / 313 / 50 for 2025), control exposure ($42.47M),
+> **Process Health 14/2/35**, and the **AP hub 46/36/11/18 (19 compound / 17 important)** —
+> all verified live-current. Treat those as the trustworthy regression gates.
+>
+> ⚠️ **STANDING RULE (2nd time the doc lagged the code on scores):** *if you change the
+> scoring model, re-record EVERY composite-derived baseline in the SAME commit* (zones per
+> period, perf_median, and any perf-membership counts). Don't leave stale numbers behind
+> a "byte-identical elsewhere" claim — the composite-derived surfaces are exactly the ones
+> that move.
+
 > ⚠️ **DO NOT TRUST the two untracked `dashboard_*.md` files** (`dashboard_meeting_notes.md`
 > + `dashboard_audit_meeting_prep.md`) — STALE meeting-prep notes (dated 2026-06-28,
 > commit `2ad76cb`) that describe a **`tier`** concept and a **5-dimension / Service**
@@ -185,6 +213,23 @@ nothing is lost across the migration.
   in the DB / reports list; and the 3 now-unused `TEMPLATES` methods
   (`cover`/`keyFindings`/`recommendedPriorities`) remain in `lib/report-templates.ts`
   (inert — pruning means editing the `SectionTemplates` type + all 3 tone objects).
+- **⚠️ LATENT (audit 2026-07-14, NOT firing now) — the spend ranking drops a
+  metric-less supplier.** `app/api/spend-overview/route.ts` builds its ranking roster
+  from `SupplierMetric` (`distinct supplierExternalId`) and looks up each supplier's
+  Purchase-aggregate spend. A supplier with POs but **no `SupplierMetric` row — i.e. one
+  added via the UI (`POST /api/suppliers` inserts only a `Supplier` row)** — is NOT in
+  that roster, so its spend is **silently dropped from the ranking table**, even though
+  the KPI "Total spend" (from the Python `spend_overview` aggregate over all POs) still
+  counts it → the table would under-sum the KPI. Verified not firing today (all 55
+  Purchase suppliers have metric rows). Fix = seed the roster from the Purchase
+  aggregate (or union it in), not just `SupplierMetric`. Same root cause as the
+  stale-read hole above (manual add ≠ full import).
+- **⚠️ LATENT (audit 2026-07-14) — hardcoded `≥ 80` lens-disagreement cutoff in report
+  copy.** `lib/report-narrative.ts:637` (`"≥ 80 pts"`) and
+  `components/Reports/ReportDocument.tsx:356` (`"rank ≥ 80 percentile-points apart"`)
+  hardcode the cutoff instead of interpolating `CLASSIFICATION_DISAGREEMENT_CUTOFF`
+  (`lib/anomaly-crossref.ts:190`). Consistent today; if the constant is retuned these two
+  copy strings won't follow. Fix = interpolate the constant.
 - **Phase 10 polish → v1.0** (see "Next / parked"): loading states, error boundaries,
   mobile responsive, README, smoke test.
 
@@ -948,7 +993,10 @@ the TS duplicate is deleted. Staged in 4 stages, **held for commit** (not yet in
   sub-score (0.18 — `100 − (0.6·country_distance + 0.4·roster_concentration)`) is
   window-independent. *(This corrects the earlier stale "0.45 dependent / 0.55 pinned"
   note, which pre-dated the Service-removal + per-PO-Quality changes.)*
-- **VERIFIED numbers.** SINGLE-YEAR is **byte-identical to the prior stored**
+- **VERIFIED numbers.** ⚠️ **STALE — these zone counts predate `aca864c` (the very
+  next commit) and are SUPERSEDED; see "PERFORMANCE-ZONE BASELINE CORRECTED" near the
+  top for the current baseline (Range 15/12/12/16, 2024 16/10/10/17, 2025 16/9/9/16,
+  2026 6/4/4/6).** SINGLE-YEAR is **byte-identical to the prior stored**
   composite: 2024 **17/9/9/18** (med 74.18), 2025 **19/6/6/19** (79.24), 2026
   **6/4/4/6** (82.96) — 0 composite diffs. RANGE moved from the latest-snapshot
   **18/9/9/19** to the true span-aggregate **19/8/8/20** (perf_median **80.01 →
@@ -1023,7 +1071,10 @@ backend computes all 6 scores server-side.** Commits: `b34c40a` (Stage 1),
 
 ⚠️ **VERIFIED CURRENT NUMBERS (post-Stage-3, computedAt 2026-07-06) — supersede any
 older doc.** SupplierMetric **payment-bucketed 53/50/20**. Only performance zones
-moved (they read the composite); everything spend/risk-based is unchanged.
+moved (they read the composite); everything spend/risk-based is unchanged. ⚠️ **The
+ZONE counts in this block are STALE (pre-`aca864c`) — SUPERSEDED by "PERFORMANCE-ZONE
+BASELINE CORRECTED" near the top (current: Range 15/12/12/16, 2024 16/10/10/17, 2025
+16/9/9/16, 2026 6/4/4/6). The spend/risk-based numbers below are still current.**
 - **2025:** zones still **19 / 6 / 6 / 19** but with 2 rebucket swaps (**S054
   Stars→Critical, S061 Critical→Stars**; perf_median 79.70→79.24). UNCHANGED:
   Kraljic **10/15/15/10**, ABC **10/9/31**, risk split 25/25, control **$42.47M**,
