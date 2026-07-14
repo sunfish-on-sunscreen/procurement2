@@ -117,6 +117,37 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > count/set alongside the capped list (e.g. `total_categories`, the z>2 anomaly set, the
 > zone population) and let the UI show "N of M" — never derive a count from the capped array.
 
+> ⚠️ **ACTION-PRIORITIES INSIGHT PANELS + THE "WHY THIS MATTERS" BAR (2026-07-14,
+> `a87384d`).** Every "Where to act" category (8) and anomaly family (3) has a **"View
+> more →"** that expands an insight panel IN PLACE (full-width below the section grid,
+> ONE open at a time) — a computed lead sentence, 3 stats, the **FULL-set** evidence
+> table (rows open the unified modal), and a **"Why this matters"** callout.
+> **`lib/action-insights.ts` (pure, `buildInsight(key, ctx)`) is where cross-analysis
+> prose lives**; `components/ActionInsightPanel.tsx` renders it. Data comes ONLY from what
+> the page already loads (recommendations / perf / kraljic / cycle_time / the fetched
+> breakdown / the hub) **+ one server-loaded `supplierCategory` map** (`getSupplierCategoryMap()`
+> in `page.tsx`, passed as a prop — the only extra data, no client fetch). No numbers /
+> logic / compute changed. It also **fixed the Concentration REDIRECT** (it opened the
+> panel in place; the `/spend-overview` link is now a footer OPTION) and **revived 3 DEAD
+> ROWS** (Tail Spend / Process Improvement / Slowest Stage had no href + no expand — they
+> did nothing).
+>
+> ⚠️ **STANDING RULE — THE "WHY THIS MATTERS" BAR:** *every panel's "Why this matters"
+> must say something **NO SINGLE NUMBER ON THE PAGE ALREADY SAYS**. If a "why" just
+> restates a stat, CUT IT — a short honest panel beats a padded one.* Why this is the bar:
+> - **Concentration** — *"3 of the 8 suppliers here are Strategic AND below the performance
+>   median"* is a JOIN across **category × Kraljic × performance**. No single page computes
+>   that. **That's the bar.**
+> - **Slowest Stage** — the table shows **PO→Delivery marked "excluded — physical lead
+>   time"**: a design decision the **Methodology page DEFENDS**, made VISIBLE on the page
+>   that makes it. **Honest > hidden.**
+> - **Process Improvement** — the *"failing on your easiest relationships"* reframe only
+>   fires when **Leverage IS actually the worst quadrant** (`worstFraming(worst.q)`); the
+>   prose ADAPTS to the data instead of asserting a fixed finding.
+>
+> ⚠️ **COROLLARY:** *if a panel can't say something meaningful with the data on hand, CUT
+> IT rather than fake it.* Padding a panel with filler is how a dashboard starts lying.
+
 > ⚠️ **DO NOT TRUST the two untracked `dashboard_*.md` files** (`dashboard_meeting_notes.md`
 > + `dashboard_audit_meeting_prep.md`) — STALE meeting-prep notes (dated 2026-06-28,
 > commit `2ad76cb`) that describe a **`tier`** concept and a **5-dimension / Service**
