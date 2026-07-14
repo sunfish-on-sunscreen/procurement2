@@ -226,8 +226,9 @@ def main():
     #   complaint_count 0-10 (>10/yr = severe relationship issue)
     #   lead_time 0-60 days (60-day lead = poor); response_time 0-14 days (2-wk SLA)
     #   OTD / rfx_rate / 3-way-match are percentages (0-100) by definition.
-    # risk_score: deterministic 100 - weighted(country, complaints, single-source),
-    # higher = safer; single_source_risk read as an existing 0/1 field.
+    # risk_score (python/scores.py): purely structural, higher = safer —
+    # 100 - (0.6*country_distance + 0.4*roster_concentration). No complaint or
+    # single-source term (both were dropped from the composite's risk sub-score).
     # D9-note: full-roster category sizes from the Suppliers master sheet (all
     # known suppliers, active or not) — the SAME roster basis A1 uses in
     # compute_analyses.py, so the composite's concentration signal and Kraljic's
@@ -249,11 +250,6 @@ def main():
 
     print("AFTER:")
     summarize("risk_score", metrics["risk_score"])
-    print(
-        "  single_source_risk flagged:",
-        int(metrics["single_source_risk"].sum()),
-        f"({metrics['single_source_risk'].mean() * 100:.0f}%)",
-    )
     summarize("composite_score", metrics["composite_score"])
 
     # --- Rebuild diff + review gate (Decision F) -------------------------- #

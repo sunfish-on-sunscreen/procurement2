@@ -23,8 +23,8 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > print`; (3) app copy DE-BRANDED, logins admin@mail.com / viewer@mail.com. Plus the
 > 2026-07-13 CRUD rework, Action Priorities redesign, temporal period-awareness,
 > Supplier Selection removal. ⚠️ **See "KNOWN OPEN ITEMS (handoff — 2026-07-14)"** —
-> the panel is DONE; still open: dead `single_source_risk` and the now-orphaned
-> `ReportPreset` model/table. Run `git log` for the latest.**
+> the panel is DONE; still open: the now-orphaned `ReportPreset` model/table + the
+> `recommendations.generated_at` reproducibility gap. Run `git log` for the latest.**
 
 > ⚠️ **OUTLIER-CAP FIX (2026-07-14) — the Range Process Health baseline is now
 > `14/2/35`, NOT `11/2/35`.** The `.head(15)` cap in `compute_analyses.py`'s
@@ -139,10 +139,17 @@ nothing is lost across the migration.
   byte-reproducible (same data in ≠ same raw JSON out) — a legitimate property to want
   if anyone verifies "same import → same analyses" by hashing. The other 5 analyses
   carry no timestamp and ARE byte-reproducible. Fix = drop/freeze the field.
-- **⚠️ `single_source_risk` is DEAD CODE** — a raw soft-survey column wired to nothing.
-  `supply_concentration` replaced it (roster-derived); it feeds NO composite and NO
-  recommendation. The older "KEPT — feeds the AD bottleneck 'Single-source' string"
-  note is stale (no bottleneck rec references it). NOT YET REMOVED.
+- **✅ FIXED (2026-07-14) — `single_source_risk` dead code removed.** A reader audit
+  found it was ALREADY gone from the runtime: the Prisma `SupplierMetric.singleSourceRisk`
+  column was dropped in migration `20260706130000`, the import path (`import_compute.py`
+  + the upload zod) doesn't reference it, and `scores.py`'s `compute_scores` ignores it
+  (`supply_concentration` replaced it). The only live reference was BROKEN dead code in
+  the offline `scripts/transform_dataset.py` — a diagnostic log reading
+  `metrics["single_source_risk"]` AFTER the column had been filtered out by `OUT_COLS`
+  (would `KeyError`); removed it + its stale risk-formula comment. **Kept:** the historical
+  RATIONALE comments in `scores.py`/`compute_analyses.py`/`analysis-types.ts` that explain
+  why the current roster-concentration signal replaced it (they document the design, and
+  prevent re-adding it) + the reference docs. Changes nothing at runtime.
 - **The 2 stale-read surfaces** (detailed under "THE LAST OPEN DATA-INTEGRITY HOLE"):
   the evolution-tab sub-score sparklines + the spend-detail composite "snapshot" read
   the stored per-period `SupplierMetric`, which only refreshes on a FULL IMPORT — so
