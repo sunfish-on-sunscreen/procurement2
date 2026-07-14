@@ -174,11 +174,11 @@ export default async function MethodologyPage() {
               <li>
                 <strong>Cost premium</strong> (≤25) — <em>period-scoped</em>, from
                 purchase prices. For each item the benchmark is the spend-weighted
-                average unit price across <em>all</em> suppliers selling it in the
-                period. A supplier&apos;s item premium ={" "}
+                average unit price across <em>all</em>{" "}
+                suppliers selling it in the period. A supplier&apos;s item premium ={" "}
                 <code>supplier_avg_unit_price / item_avg − 1</code>, counted only
-                when that supplier×item has <strong>≥2 POs</strong> (n=1 excluded as
-                noise) and the item has ≥2 suppliers (single-source items have no
+                when that supplier×item has <strong>≥2 POs</strong>{" "}
+                (n=1 excluded as noise) and the item has ≥2 suppliers (single-source items have no
                 benchmark → neutral). The supplier&apos;s overall premium is the
                 spend-weighted average of its qualifying item premiums; points ={" "}
                 <code>clip(premium × 62.5, 0, 25)</code> — so +8% → 5, +20% → 12.5,
@@ -321,14 +321,16 @@ export default async function MethodologyPage() {
               threshold above); <strong>Inconsistent</strong> — a supplier whose
               typical range (IQR) exceeds 1.5× the median of all suppliers&apos;
               IQRs, the Tukey convention for unusually wide spread; and{" "}
-              <strong>Stage-dominated POs</strong> (at least one PO where a single
-              procure-to-pay stage exceeds 60% of that PO&apos;s total cycle).
+              <strong>Stage-dominated POs</strong>{" "}
+              (at least one PO where a single procure-to-pay stage exceeds 60% of
+              that PO&apos;s total cycle).
             </p>
             <p>
-              Period comparison defaults to a midpoint split of the currently
-              selected period. Custom date ranges can be specified to compare
-              arbitrary windows. The analysis also reports cycle-time
-              descriptives and 3-way match pass rates per Kraljic quadrant.
+              Period comparison is a <strong>midpoint split of the currently
+              selected period</strong> — its first half against its second — so it
+              measures drift <em>within</em> the period, not year over year. The
+              analysis also reports cycle-time descriptives and 3-way match pass
+              rates per Kraljic quadrant.
             </p>
             <p className="text-xs">
               Reference: Mann &amp; Whitney (1947); Cohen (1988).
@@ -618,34 +620,231 @@ export default async function MethodologyPage() {
         <CardHeader>
           <CardTitle>8. Assumptions and Limitations</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm leading-relaxed text-muted-foreground">
-          <ul className="list-disc space-y-2 pl-5">
-            <li>
-              The data is synthetic and does not represent actual procurement
-              operations — it is calibrated to benchmarks, but not real.
-            </li>
-            <li>
-              Defect and complaint counts are recorded per purchase order and
-              aggregated per supplier for the Quality sub-score; the former RFx /
-              response-time (Service) inputs were removed from the model.
-            </li>
-            <li>
-              Currency is normalized to USD using period averages; real systems
-              would apply daily FX rates.
-            </li>
-            <li>
-              Scope is a single organization — there are no cross-entity
-              comparisons.
-            </li>
-            <li>
-              The analytical methodology is fixed: users cannot adjust thresholds
-              or parameters (ABC 80/95, Mann-Whitney U, α = 0.05).
-            </li>
-            <li>
-              The process structure is influenced by Indonesian government
-              procurement regulations (Perpres 12/2021).
-            </li>
-          </ul>
+        <CardContent className="space-y-6 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            The methodology is fixed, deterministic, and reproducible. This section
+            names what it can and cannot see. A page that lists only its formulas is
+            a spec; one that names its own blind spots is a defence — so the
+            limitations below are stated plainly, as properties we own rather than
+            flaws we hide.
+          </p>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              8.1 Two departures from the Kraljic textbook
+            </h3>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>Our profit-impact axis is spend, not profit impact.</strong>{" "}
+                Kraljic&apos;s X-axis is meant to be profit impact — margin,
+                criticality to production, substitutability. None of that lives in a
+                purchase order, so we use annual spend, the standard practical proxy.
+                It is directionally sound, but it will misplace a cheap,
+                production-critical component that a plant cannot run without.
+              </li>
+              <li>
+                <strong>
+                  Supply risk is three measurable proxies for a qualitative
+                  judgment.
+                </strong>{" "}
+                Kraljic&apos;s supply-risk axis is a qualitative assessment across
+                roughly eight factors. We operationalise it with three we can measure
+                from transaction data — competitor count (supply concentration),
+                pricing power (cost premium), and import friction. We deliberately
+                omit substitutability, storage and perishability risk, make-or-buy
+                potential, and competing demand from other buyers: those need domain
+                knowledge and market intelligence, not purchase orders. What we
+                compute is reproducible; what we omit is real.
+              </li>
+            </ul>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              8.2 Two opposite &ldquo;risks&rdquo;
+            </h3>
+            <p>
+              The word <em>risk</em> means two opposite things in this dashboard, and
+              it is the single most likely thing to trip a reader. The{" "}
+              <strong>Kraljic supply-risk score</strong> (Section 3.2) runs{" "}
+              <strong>higher = riskier</strong>{" "}
+              — it is the exposure axis of the matrix. The composite&apos;s <strong>Risk sub-score</strong> (Section
+              4.3) runs <strong>higher = safer</strong> — it is a structural safety
+              modifier on the performance score. Same word, opposite polarity, by
+              design. They also share an input — the roster-concentration term — as
+              the same step curve scaled: the composite carries exactly{" "}
+              <strong>twice</strong> the Kraljic points (0 alternatives → 50 on the
+              Kraljic axis, 100 on the composite; ≥5 → 0 on both). Read the axis
+              label, not just the word.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              8.3 What the model can&apos;t see on this dataset
+            </h3>
+            <p>
+              Several branches of the scoring machinery never engage on the current
+              data. We surface them so nobody mistakes an unused rung for a validated
+              one.
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>Two country tiers never fire.</strong> The composite&apos;s{" "}
+                <code>country_distance</code> has an ASEAN tier (30) and{" "}
+                <code>import_friction</code> an ASEAN tier (8), both meant for
+                regional-but-foreign origins. This roster has none — every supplier
+                is Indonesian or far-international — so those tiers never engage.
+                Because <code>country_distance</code>{" "}
+                drives 60% of the structural Risk sub-score, on this data that
+                sub-score is effectively
+                &ldquo;Indonesia vs the rest of the world&rdquo;.
+              </li>
+              <li>
+                <strong>Two concentration rungs are unreachable.</strong> Both
+                supply-concentration curves reserve their top rung for a true
+                single-source category (one supplier, no alternatives). On this
+                roster the smallest category has two suppliers, so that rung never
+                fires — the advertised ceilings (50 on the Kraljic axis, 100 on the
+                composite) cannot be reached. The real maxima on this data are{" "}
+                <strong>35 and 70</strong>. (A finding from the current roster; it
+                would change if a sole-source category appeared.)
+              </li>
+              <li>
+                <strong>
+                  Cost premium is a light tie-breaker, not a co-equal third.
+                </strong>{" "}
+                It is capped at 25 of the 100-point Kraljic axis, but on this roster
+                it registers for only 24 of 55 suppliers, and in a data audit every
+                quadrant boundary it moved was a low-spend Bottleneck↔Routine flip —
+                on this dataset it has never moved a high-spend Strategic↔Leverage
+                supplier. Read it as a nudge, not a driver.
+              </li>
+              <li>
+                <strong>The &ldquo;Inconsistent&rdquo; flag is rare.</strong> The
+                cycle-consistency flag (Section 3.4) is a genuine outlier detector,
+                not a common state — on this data it fires for 2 of 55 suppliers.
+              </li>
+              <li>
+                <strong>
+                  The &ldquo;Slowest stage&rdquo; recommendation is often silent.
+                </strong>{" "}
+                It fires only when an internal process stage averages over 8 days. On
+                this data it fires in 2024 but not in 2025 or 2026 — no internal stage
+                clears the threshold in those years.
+              </li>
+              <li>
+                <strong>Three recommendations always fire.</strong>{" "}
+                Concentration, Process Improvement, and Tail Spend always produce
+                output — they are
+                structural summaries of the portfolio, not conditional detections.
+                Read them as &ldquo;here is the shape of your spend and process&rdquo;,
+                not as &ldquo;a problem was found&rdquo;.
+              </li>
+            </ul>
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">
+                The outlier list is truncated for display
+              </h4>
+              <p className="mt-1">
+                The z-score outlier list is capped at <strong>15 POs</strong>, ranked
+                by z descending. On the full range, <strong>24 POs across 14
+                suppliers</strong> actually exceed the 2σ threshold — the dashboard
+                shows 15 POs across 11 suppliers. Anyone who recomputes the count by
+                hand will get 14 suppliers and be right; the dashboard is showing the
+                top of the list, not all of it.
+              </p>
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">
+                The two country lists are inconsistent
+              </h4>
+              <p className="mt-1">
+                <code>country_distance</code> (geographic: Indonesia 0 / ASEAN 30 /
+                Asia-Pacific 60 / other 100) and <code>import_friction</code>{" "}
+                (trade-bloc: Indonesia 0 / AFTA 8 / RCEP-non-ASEAN 16 / other 25) were
+                built from different country lists, and both have gaps. Brunei,
+                Myanmar, Laos and Cambodia — all ASEAN neighbours — score 100
+                (&ldquo;furthest&rdquo;) on <code>country_distance</code>; New Zealand
+                scores 100 while Australia scores 60; India sits in the Asia-Pacific
+                tier but not in RCEP (correctly — it left RCEP in 2019). None of these
+                countries appear in the dataset, so no displayed number is affected —
+                but the lists have holes, and we would rather say so than let someone
+                find them.
+              </p>
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              8.4 Statistical and scoring caveats
+            </h3>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>No significance threshold gates any decision.</strong> The
+                Mann-Whitney U test reports a p-value and an effect size, but nothing
+                in the dashboard acts on a fixed α, and the comparison is{" "}
+                <em>intra-period</em> — the selected period split at its midpoint, not
+                year over year. Choosing an α would be inventing a decision rule
+                nobody agreed to; we show the evidence and leave the judgment to a
+                human.
+              </li>
+              <li>
+                <strong>Most of the composite is period-sensitive.</strong> Quality,
+                Delivery and Process — 82% of the composite — re-aggregate over
+                whatever POs fall in the selected window. Only the structural Risk
+                sub-score (18%) is period-independent. A performance number is a
+                statement about a window, not a fixed rating; compare like windows.
+              </li>
+              <li>
+                <strong>Cost premium measures overpricing, not cheapness.</strong> It
+                penalises measured overpricing only — below-market, at-market, and
+                un-benchmarked suppliers all score 0, so it never rewards a cheap
+                supplier. And the benchmark is <em>our own</em> spend-weighted average
+                price per item, not an external market rate: it catches a supplier out
+                of line with our roster, not with the world.
+              </li>
+              <li>
+                <strong>Two sub-score halves are throttled by their bounds.</strong>{" "}
+                Complaint rate is scored 0–100% but real rates top out near 33%, so
+                that half only occupies 66.7–100 — the defect half does roughly 2.3×
+                the work inside Quality. Lead time is scored 0–60 days but real leads
+                run 8–26.5 days, so that half only occupies 55.8–86.7 — on-time
+                delivery carries most of Delivery. The bounds are honest industry
+                ceilings; they simply leave headroom this dataset never reaches.
+              </li>
+            </ul>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              8.5 Baseline assumptions
+            </h3>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>
+                The data is <strong>synthetic</strong> — calibrated to industry
+                benchmarks for realism, but not a record of real operations.
+              </li>
+              <li>
+                Scope is a <strong>single organization</strong>; there are no
+                cross-entity comparisons.
+              </li>
+              <li>
+                Currency is normalized to USD using <strong>period averages</strong>;
+                a real system would apply daily FX rates.
+              </li>
+              <li>
+                The methodology is <strong>fixed and not user-adjustable</strong> —
+                ABC at 80% / 95%, median splits on both classification matrices, the
+                2σ outlier rule, the 8-day slow-stage flag, and the Mann-Whitney U
+                comparison are all constants. There are no parameter sliders.
+              </li>
+              <li>
+                The process structure reflects Indonesian government procurement
+                regulation (<strong>Perpres 12/2021</strong>).
+              </li>
+            </ul>
+          </section>
         </CardContent>
       </Card>
 
