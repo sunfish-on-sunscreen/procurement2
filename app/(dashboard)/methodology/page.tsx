@@ -744,20 +744,21 @@ export default async function MethodologyPage() {
             </ul>
             <div>
               <h4 className="text-sm font-semibold text-foreground">
-                The two country lists are inconsistent
+                Two country scales, by design
               </h4>
               <p className="mt-1">
-                <code>country_distance</code> (geographic: Indonesia 0 / ASEAN 30 /
-                Asia-Pacific 60 / other 100) and <code>import_friction</code>{" "}
-                (trade-bloc: Indonesia 0 / AFTA 8 / RCEP-non-ASEAN 16 / other 25) were
-                built from different country lists, and both have gaps. Brunei,
-                Myanmar, Laos and Cambodia — all ASEAN neighbours — score 100
-                (&ldquo;furthest&rdquo;) on <code>country_distance</code>; New Zealand
-                scores 100 while Australia scores 60; India sits in the Asia-Pacific
-                tier but not in RCEP (correctly — it left RCEP in 2019). None of these
-                countries appear in the dataset, so no displayed number is affected —
-                but the lists have holes, and we would rather say so than let someone
-                find them.
+                The two country-based scores measure different things, so a country
+                can sit in a different tier on each — this is deliberate, not an
+                inconsistency. <code>country_distance</code>{" "}
+                (the composite&apos;s Risk sub-score) is <em>geographic proximity</em>:
+                Indonesia 0 / ASEAN 30 /
+                Asia-Pacific 60 / other 100. <code>import_friction</code> (the Kraljic
+                supply-risk axis) is <em>trade-agreement coverage</em> — how cheaply an
+                origin can be imported from: Indonesia 0 / AFTA 8 / RCEP-non-ASEAN 16 /
+                other 25. India, for instance, is geographically Asia-Pacific (60 on
+                distance) yet sits outside the RCEP trade bloc it left in 2019 (25 on
+                friction) — correctly different on the two scales. Both scales now
+                cover every ASEAN and Asia-Pacific origin.
               </p>
             </div>
           </section>

@@ -50,13 +50,17 @@ SOFT_COLS = []
 
 # --- Score helpers (methodology rebuild) ---------------------------------- #
 # Geographic supply risk, coarse tiers 0 (safest) … 100 (riskiest) (Decision C).
+# The ASEAN tier lists ALL nine non-Indonesian ASEAN members (was missing BN/MM/LA/KH),
+# and NZ joins the Asia-Pacific tier alongside AU (was scoring 100). India stays in
+# Asia-Pacific — it is geographically Asia-Pacific; its RCEP exit (2019) only affects
+# import_friction's trade-bloc list, which is a separate, deliberately different scale.
 def country_distance_score(code: str) -> float:
     c = str(code).strip().upper()
     if c in ("ID", "INDONESIA"):
         return 0.0
-    if c in ("SG", "MY", "TH", "VN", "PH"):  # ASEAN regional
+    if c in ("SG", "MY", "TH", "VN", "PH", "BN", "MM", "LA", "KH"):  # ASEAN regional
         return 30.0
-    if c in ("CN", "JP", "KR", "AU", "IN"):  # Asia-Pacific
+    if c in ("CN", "JP", "KR", "AU", "NZ", "IN"):  # Asia-Pacific
         return 60.0
     return 100.0  # other international
 

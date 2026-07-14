@@ -23,9 +23,8 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > print`; (3) app copy DE-BRANDED, logins admin@mail.com / viewer@mail.com. Plus the
 > 2026-07-13 CRUD rework, Action Priorities redesign, temporal period-awareness,
 > Supplier Selection removal. ⚠️ **See "KNOWN OPEN ITEMS (handoff — 2026-07-14)"** —
-> the panel is DONE; still open: `country_distance` holes, dead
-> `single_source_risk`, and the now-orphaned `ReportPreset` model/table. Run
-> `git log` for the latest.**
+> the panel is DONE; still open: dead `single_source_risk` and the now-orphaned
+> `ReportPreset` model/table. Run `git log` for the latest.**
 
 > ⚠️ **OUTLIER-CAP FIX (2026-07-14) — the Range Process Health baseline is now
 > `14/2/35`, NOT `11/2/35`.** The `.head(15)` cap in `compute_analyses.py`'s
@@ -121,11 +120,25 @@ nothing is lost across the migration.
   (cap removed; the display paginates via "View all N"). Process Health (Range) went
   **11/2/35 → 14/2/35** (outlier POs 15→24); AP hub `46/36/11/18` unchanged. See the
   "OUTLIER-CAP FIX" note near the top. *(No longer an open item.)*
-- **⚠️ `country_distance_score` has list holes** (`python/scores.py:53-61`): ASEAN =
-  `{SG,MY,TH,VN,PH}` → 30, Asia-Pacific = `{CN,JP,KR,AU,IN}` → 60, else → 100. So the
-  ASEAN neighbours **BN/MM/LA/KH score 100** ("furthest"), and **NZ scores 100 while
-  AU scores 60**. A one-line fix (extend the sets). **ZERO impact on current numbers** —
-  none of these countries appear in the data. NOT YET FIXED.
+- **✅ FIXED (2026-07-14) — `country_distance_score` list holes** (`python/scores.py`):
+  the ASEAN tier now lists all nine non-ID members (`{SG,MY,TH,VN,PH,BN,MM,LA,KH}` → 30)
+  and `NZ` joins Asia-Pacific (`{CN,JP,KR,AU,NZ,IN}` → 60). India stays in Asia-Pacific
+  (geographic) — its RCEP exit only affects `import_friction`'s trade-bloc scale, which
+  is deliberately different. ⚠️ **Verified BYTE-IDENTICAL** — none of BN/MM/LA/KH/NZ
+  appear in the data (countries are ID/AU/CH/DE/FR/GB/JP/SE/US), so every composite,
+  Risk sub-score, and quadrant is unchanged (md5 diff of all cached analyses = 0; the
+  only per-recompute delta is `recommendations.generated_at`, a wall-clock timestamp).
+- **⚠️ `recommendations.generated_at` breaks byte-reproducibility (NOT FIXED — noted
+  2026-07-14).** The `recommendations` analysis payload embeds a wall-clock
+  `generated_at` timestamp, so its RAW `resultJson` md5 changes on every recompute even
+  when the data is identical (a no-op recompute changes it; stripping `generated_at`
+  makes two recomputes byte-equal). ⚠️ **This is a false-alarm trap when diffing cached
+  analyses** — a country-lookup change (2026-07-14) showed a recommendations md5 diff
+  that turned out to be ONLY the timestamp. Harmless (nothing displayed reads it; all
+  recommendation DATA is deterministic), but it means the compute pipeline isn't
+  byte-reproducible (same data in ≠ same raw JSON out) — a legitimate property to want
+  if anyone verifies "same import → same analyses" by hashing. The other 5 analyses
+  carry no timestamp and ARE byte-reproducible. Fix = drop/freeze the field.
 - **⚠️ `single_source_risk` is DEAD CODE** — a raw soft-survey column wired to nothing.
   `supply_concentration` replaced it (roster-derived); it feeds NO composite and NO
   recommendation. The older "KEPT — feeds the AD bottleneck 'Single-source' string"
