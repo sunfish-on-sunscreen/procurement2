@@ -34,12 +34,16 @@ export function RangeCompute({
   startDate,
   endDate,
   temporal,
+  supplierCategory,
 }: {
   kind: View;
   startDate: string;
   endDate: string;
   /** Forwarded to the Action Priorities hub's temporal family (range mode). */
   temporal?: TemporalLoad | null;
+  /** Supplier → category map (server-loaded, period-independent) for the
+   *  Concentration insight panel. */
+  supplierCategory?: Record<string, string>;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
 
@@ -109,6 +113,7 @@ export function RangeCompute({
         startDate={startDate}
         endDate={endDate}
         temporal={temporal}
+        supplierCategory={supplierCategory}
         isRangeMode
       />
     ) : (
