@@ -57,7 +57,9 @@ export async function assembleSupplierFocus(
     .sort((a, b) => b.totalSpend - a.totalSpend);
 
   // --- YoY trajectory — mirrors the evolution route (all periods) ------------
-  const [periods, allPurchases] = await Promise.all([
+  // Identity (name/category/country) comes from the Supplier master row (latest),
+  // the same source the spend-detail route uses for the panel header.
+  const [periods, allPurchases, supplier] = await Promise.all([
     prisma.reportingPeriod.findMany({
       orderBy: { startDate: "asc" },
       select: { id: true, name: true, startDate: true, endDate: true },
@@ -65,6 +67,11 @@ export async function assembleSupplierFocus(
     prisma.purchase.findMany({
       where: { supplierExternalId: supplierId },
       select: { totalValueUsd: true, paymentDate: true, prDate: true },
+    }),
+    prisma.supplier.findFirst({
+      where: { externalId: supplierId },
+      orderBy: { periodId: "desc" },
+      select: { supplierName: true, category: true, country: true },
     }),
   ]);
 
@@ -103,6 +110,9 @@ export async function assembleSupplierFocus(
 
   return {
     supplierId,
+    name: supplier?.supplierName ?? supplierId,
+    category: supplier?.category ?? null,
+    country: supplier?.country ?? null,
     itemBreakdown,
     totalSpend,
     poCount: spanPurchases.length,

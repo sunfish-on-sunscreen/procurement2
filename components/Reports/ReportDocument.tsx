@@ -17,7 +17,15 @@ import { type ReportConfig, type SectionKey } from "@/lib/report-config";
 import type { CycleBreakdown } from "@/lib/cycle-time-types";
 import type { TemporalLoad } from "@/lib/temporal-anomalies";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
-import { renderReportArgument, lensVerdict } from "@/lib/report-narrative";
+import {
+  renderReportArgument,
+  renderSupplierBrief,
+  renderCategoryDeepDive,
+  lensVerdict,
+  type RenderedSupplierBrief,
+  type RenderedCategoryDeepDive,
+} from "@/lib/report-narrative";
+import type { ReportFocusData } from "@/lib/report-focus-types";
 import { buildClassificationAnomalies, buildAnomalyCrossref } from "@/lib/anomaly-crossref";
 import { deriveCycleFlags } from "@/lib/cycle-flags";
 import { buildTemporalAnomalies } from "@/lib/temporal-anomalies";
@@ -153,12 +161,20 @@ export function ReportDocument({
   meta,
   analyses,
   config,
+  supplierCategory,
+  focusData = null,
   legacyCycle,
   embedded = false,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
   config: ReportConfig;
+  /** Supplier → category map, for a Focus → category deep-dive. */
+  supplierCategory: Record<string, string>;
+  /** Assembled per-supplier data for a Focus → supplier brief (server-assembled
+   *  on the persisted path; fetched in the editor). Null for portfolio/category
+   *  focus, or while the editor is still fetching it. */
+  focusData?: ReportFocusData;
   /**
    * Set only for reports persisted before Batch 5 (no `cycle_framing` marker):
    * the stored pre/post automation cycle narrative. When present, the cycle
@@ -198,6 +214,34 @@ export function ReportDocument({
   const arg = renderReportArgument(analyses, tone);
   const money = (n: number) =>
     n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
+
+  // ---- FOCUS: supplier brief / category deep-dive ---------------------------
+  // When focus narrows to a supplier or category, the report becomes a brief /
+  // deep-dive instead of the portfolio argument. Both are computed prose (same
+  // tone registers); a supplier brief also reads the read-only focus assembler
+  // (item breakdown + trajectory). Portfolio focus (default) leaves all of this
+  // null → the portfolio document renders unchanged.
+  const supplierFocusData =
+    focusData?.kind === "supplier" ? focusData.data : null;
+  const supplierBrief: RenderedSupplierBrief | null =
+    config.focus.kind === "supplier" && config.focus.supplierId
+      ? renderSupplierBrief(analyses, supplierFocusData, config.focus.supplierId, tone)
+      : null;
+  const categoryDeepDive: RenderedCategoryDeepDive | null =
+    config.focus.kind === "category" && config.focus.category
+      ? renderCategoryDeepDive(analyses, config.focus.category, supplierCategory, tone)
+      : null;
+  const isSupplierBrief = supplierBrief != null;
+  const isCategoryDeepDive = categoryDeepDive != null;
+  const isFocused = isSupplierBrief || isCategoryDeepDive;
+  // The editor fetches supplier focus data async; while it's in flight the
+  // position/flagged/recommendation still render, and the item/trajectory tables
+  // show a loading affordance.
+  const focusLoadingDetail =
+    config.focus.kind === "supplier" &&
+    !!config.focus.supplierId &&
+    supplierFocusData == null;
+  const showMethodology = !brief && sections.methodology;
 
   // ---- Cross-Analysis Anomaly Hub summary (all 3 families) ------------------
   // Computed synchronously from data assembled into `analyses` server-side, so it
@@ -390,6 +434,33 @@ export function ReportDocument({
   }, []);
 
   const visibleSections = useMemo(() => {
+    // Focus modes have their own section set (brief / deep-dive).
+    if (supplierBrief) {
+      const list = [
+        { id: "cover", label: "Overview" },
+        { id: "situation", label: "The situation" },
+        { id: "flagged", label: "What's flagged" },
+      ];
+      if (supplierBrief.buy || focusLoadingDetail)
+        list.push({ id: "buy", label: "What you buy" });
+      if (supplierBrief.trajectory || focusLoadingDetail)
+        list.push({ id: "trajectory", label: "Trajectory" });
+      list.push({ id: "conversation", label: "The conversation" });
+      if (showMethodology) list.push({ id: "methodology", label: "Methodology" });
+      return list;
+    }
+    if (categoryDeepDive) {
+      const list = [
+        { id: "cover", label: "Overview" },
+        { id: "situation", label: "The situation" },
+      ];
+      if (categoryDeepDive.suppliers.length)
+        list.push({ id: "suppliers", label: "Suppliers" });
+      list.push({ id: "conversation", label: "Recommendation" });
+      if (showMethodology) list.push({ id: "methodology", label: "Methodology" });
+      return list;
+    }
+
     const list: { id: string; label: string }[] = [
       { id: "cover", label: "Executive Summary" },
     ];
@@ -405,7 +476,16 @@ export function ReportDocument({
     add(sections.actionDashboard, "actionDashboard", "Action Priorities");
     add(sections.methodology, "methodology", "Methodology");
     return list;
-  }, [brief, sections, analyses, legacyCycle]);
+  }, [
+    brief,
+    sections,
+    analyses,
+    legacyCycle,
+    supplierBrief,
+    categoryDeepDive,
+    focusLoadingDetail,
+    showMethodology,
+  ]);
 
   const visibleKey = visibleSections.map((s) => s.id).join(",");
 
@@ -473,6 +553,31 @@ export function ReportDocument({
           />
         )}
 
+        {/* FOCUS: supplier brief / category deep-dive (replaces the portfolio
+            argument when focus narrows). */}
+        {supplierBrief && (
+          <SupplierBriefView
+            brief={supplierBrief}
+            meta={meta}
+            isBriefLength={brief}
+            detailed={detailed}
+            loadingDetail={focusLoadingDetail}
+            showMethodology={showMethodology}
+            methodologyText={T.methodology(ctx)}
+          />
+        )}
+        {categoryDeepDive && (
+          <CategoryDeepDiveView
+            deep={categoryDeepDive}
+            meta={meta}
+            detailed={detailed}
+            showMethodology={showMethodology}
+            methodologyText={T.methodology(ctx)}
+          />
+        )}
+
+        {!isFocused && (
+          <>
         {/* Cover — always */}
         <section
           id="section-cover"
@@ -963,7 +1068,304 @@ export function ReportDocument({
             )}
           </>
         )}
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+// ---- Focus views ----------------------------------------------------------
+// The supplier brief + category deep-dive reuse the module-level `usd` +
+// `generatedFmt`. They render plain (non-collapsible) sections like the portfolio
+// front matter; the item/trajectory/supplier TABLES are appended at
+// standard/detailed length (an executive brief stays prose-only).
+
+function FocusCover({
+  eyebrow,
+  title,
+  subtitle,
+  meta,
+  headline,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string | null;
+  meta: ReportMeta;
+  headline: string;
+}) {
+  return (
+    <section
+      id="section-cover"
+      className="pdf-page-break flex scroll-mt-24 flex-col gap-3 rounded-lg border bg-card p-8"
+    >
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {eyebrow}
+      </p>
+      <h1 className="text-3xl font-bold">{title}</h1>
+      {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+      <p className="text-sm text-muted-foreground">
+        Period: {meta.periodLabel} &middot; Generated{" "}
+        {generatedFmt.format(new Date(meta.generatedAt))} by {meta.generatedBy}
+        {meta.ephemeral ? " · not saved (range report)" : ""}
+      </p>
+      <p className="mt-4 text-lg font-medium leading-snug text-foreground">
+        {headline}
+      </p>
+    </section>
+  );
+}
+
+function BriefSection({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={`section-${id}`}
+      className="pdf-page-break flex scroll-mt-24 flex-col gap-3"
+    >
+      <h2 className="text-xl font-semibold">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function MethodologyBlock({ text }: { text: string }) {
+  return (
+    <BriefSection id="methodology" title="Methodology">
+      <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+        <p>{text}</p>
+        <p className="text-xs">
+          Synthetic data calibrated to APQC, Hackett Group, CIPS, MOPS, and AME
+          benchmarks. References: Juran (1951); Mann &amp; Whitney (1947); Kraljic
+          (1983).
+        </p>
+      </div>
+    </BriefSection>
+  );
+}
+
+function SupplierBriefView({
+  brief,
+  meta,
+  isBriefLength,
+  detailed,
+  loadingDetail,
+  showMethodology,
+  methodologyText,
+}: {
+  brief: RenderedSupplierBrief;
+  meta: ReportMeta;
+  isBriefLength: boolean;
+  detailed: boolean;
+  loadingDetail: boolean;
+  showMethodology: boolean;
+  methodologyText: string;
+}) {
+  const showTables = !isBriefLength; // item/trajectory tables at standard/full
+  const buy = brief.buy;
+  const traj = brief.trajectory;
+  const total = buy?.totalSpend ?? 0;
+  return (
+    <>
+      <FocusCover
+        eyebrow="Supplier brief"
+        title={brief.name}
+        subtitle={brief.subtitle}
+        meta={meta}
+        headline={brief.headline}
+      />
+
+      <BriefSection id="situation" title="The situation">
+        {brief.situation.map((p, i) => (
+          <p key={i} className="text-sm leading-relaxed">
+            {p}
+          </p>
+        ))}
+      </BriefSection>
+
+      <BriefSection id="flagged" title="What's flagged">
+        {brief.flaggedClean ? (
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Nothing is flagged on {brief.name} — no process anomalies, no
+            cross-lens contradiction, and no sharp year-on-year move.
+          </p>
+        ) : (
+          brief.flagged.map((s, i) => (
+            <p key={i} className="text-sm leading-relaxed">
+              {s}
+            </p>
+          ))
+        )}
+      </BriefSection>
+
+      {(buy || loadingDetail) && (
+        <BriefSection id="buy" title="What you buy">
+          {buy ? (
+            <>
+              <p className="text-sm leading-relaxed">{buy.prose}</p>
+              {showTables && (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-1 font-medium">Item</th>
+                      <th className="py-1 text-right font-medium">POs</th>
+                      <th className="py-1 text-right font-medium">Spend</th>
+                      <th className="py-1 text-right font-medium">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detailed ? buy.items : buy.items.slice(0, 10)).map((it) => (
+                      <tr key={it.itemName} className="border-b">
+                        <td className="py-1">{it.itemName}</td>
+                        <td className="py-1 text-right">{it.poCount}</td>
+                        <td className="py-1 text-right">{usd(it.totalSpend)}</td>
+                        <td className="py-1 text-right">
+                          {total > 0
+                            ? `${((it.totalSpend / total) * 100).toFixed(1)}%`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading item detail…</p>
+          )}
+        </BriefSection>
+      )}
+
+      {(traj || loadingDetail) && (
+        <BriefSection id="trajectory" title="Trajectory">
+          {traj ? (
+            <>
+              <p className="text-sm leading-relaxed">{traj.prose}</p>
+              {showTables && traj.points.length > 0 && (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-1 font-medium">Year</th>
+                      <th className="py-1 text-right font-medium">Spend</th>
+                      <th className="py-1 text-right font-medium">Invoices</th>
+                      <th className="py-1 font-medium">ABC</th>
+                      <th className="py-1 font-medium">Quadrant</th>
+                      <th className="py-1 text-right font-medium">Performance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {traj.points.map((p) => (
+                      <tr key={p.year} className="border-b">
+                        <td className="py-1">{p.year}</td>
+                        <td className="py-1 text-right">{usd(p.spend)}</td>
+                        <td className="py-1 text-right">{p.invoiceCount}</td>
+                        <td className="py-1">{p.abcClass ?? "—"}</td>
+                        <td className="py-1">{p.kraljicQuadrant ?? "—"}</td>
+                        <td className="py-1 text-right">
+                          {p.performanceScore != null
+                            ? p.performanceScore.toFixed(1)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading trajectory…</p>
+          )}
+        </BriefSection>
+      )}
+
+      <BriefSection id="conversation" title="The conversation">
+        <p className="text-sm leading-relaxed">{brief.recommendation}</p>
+      </BriefSection>
+
+      {showMethodology && <MethodologyBlock text={methodologyText} />}
+    </>
+  );
+}
+
+function CategoryDeepDiveView({
+  deep,
+  meta,
+  detailed,
+  showMethodology,
+  methodologyText,
+}: {
+  deep: RenderedCategoryDeepDive;
+  meta: ReportMeta;
+  detailed: boolean;
+  showMethodology: boolean;
+  methodologyText: string;
+}) {
+  const rows = detailed ? deep.suppliers : deep.suppliers.slice(0, 15);
+  return (
+    <>
+      <FocusCover
+        eyebrow="Category deep-dive"
+        title={deep.category}
+        subtitle={null}
+        meta={meta}
+        headline={deep.headline}
+      />
+
+      <BriefSection id="situation" title="The situation">
+        {deep.situation.map((p, i) => (
+          <p key={i} className="text-sm leading-relaxed">
+            {p}
+          </p>
+        ))}
+      </BriefSection>
+
+      {deep.suppliers.length > 0 && (
+        <BriefSection id="suppliers" title="Suppliers in the category">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b text-left text-muted-foreground">
+                <th className="py-1 text-right font-medium">#</th>
+                <th className="py-1 font-medium">Supplier</th>
+                <th className="py-1 text-right font-medium">Spend</th>
+                <th className="py-1 font-medium">Quadrant</th>
+                <th className="py-1 font-medium">Zone</th>
+                <th className="py-1 text-right font-medium">Performance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.supplier_id} className="border-b">
+                  <td className="py-1 text-right">{i + 1}</td>
+                  <td className="py-1 font-medium">{r.name}</td>
+                  <td className="py-1 text-right">{usd(r.spend)}</td>
+                  <td className="py-1">{r.quadrant}</td>
+                  <td className="py-1">{r.zone}</td>
+                  <td className="py-1 text-right">{r.perf.toFixed(1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!detailed && deep.suppliers.length > 15 && (
+            <p className="text-xs text-muted-foreground">
+              Showing top 15 of {deep.suppliers.length}. Use Full for the complete
+              list.
+            </p>
+          )}
+        </BriefSection>
+      )}
+
+      <BriefSection id="conversation" title="Recommendation">
+        <p className="text-sm leading-relaxed">{deep.recommendation}</p>
+      </BriefSection>
+
+      {showMethodology && <MethodologyBlock text={methodologyText} />}
+    </>
   );
 }

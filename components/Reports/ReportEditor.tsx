@@ -14,6 +14,7 @@ import {
   buildSupplierDetail,
   type SupplierDirectory,
 } from "@/lib/supplier-detail";
+import type { ReportFocusData } from "@/lib/report-focus-types";
 import { buttonVariants } from "@/components/ui/button";
 import {
   ReportDocument,
@@ -206,6 +207,39 @@ export function ReportEditor({
     };
   }, [startDate, endDate, selectedPeriodId]);
 
+  // Focus → supplier: fetch the brief's per-supplier data (item breakdown +
+  // trajectory), keyed on (supplierId, span). Separate from the analyses fetch so
+  // changing focus doesn't refetch the whole payload — analyses are cached per span
+  // and don't depend on focus.
+  const focusSupplierId =
+    config.focus.kind === "supplier" ? config.focus.supplierId : null;
+  const [focusLoaded, setFocusLoaded] = useState<{
+    key: string;
+    data: ReportFocusData;
+  } | null>(null);
+  const focusKey = focusSupplierId ? `${focusSupplierId}_${spanKey}` : "";
+  const focusData =
+    focusKey && focusLoaded?.key === focusKey ? focusLoaded.data : null;
+
+  useEffect(() => {
+    if (!focusSupplierId || !startDate || !endDate) return;
+    const key = `${focusSupplierId}_${startDate}_${endDate}`;
+    let cancelled = false;
+    fetch("/api/reports/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ supplierId: focusSupplierId, startDate, endDate }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("focus fetch failed"))))
+      .then((d) => {
+        if (!cancelled) setFocusLoaded({ key, data: { kind: "supplier", data: d } });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [focusSupplierId, startDate, endDate]);
+
   const canSave = config.period.mode === "single";
 
   async function handleSave() {
@@ -292,6 +326,8 @@ export function ReportEditor({
                 meta={meta}
                 analyses={analyses}
                 config={config}
+                supplierCategory={supplierCategory}
+                focusData={focusData}
                 embedded
               />
             ) : null}

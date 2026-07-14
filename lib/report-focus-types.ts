@@ -29,6 +29,10 @@ export type FocusTrajectoryPoint = {
 
 export type SupplierFocusData = {
   supplierId: string;
+  // Identity (from the Supplier master row) so the brief needn't plumb a directory.
+  name: string;
+  category: string | null;
+  country: string | null;
   /** Every item bought over the span, sorted by spend desc. */
   itemBreakdown: FocusItem[];
   /** Span totals (for item share % + a header stat). */

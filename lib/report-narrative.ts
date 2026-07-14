@@ -6,10 +6,17 @@ import type {
   PerformanceSpendResult,
   RecommendationsResult,
   RecommendationAction,
+  KraljicQuadrant,
+  PerformanceZone,
 } from "@/lib/analysis-types";
 import type { CycleBreakdown } from "@/lib/cycle-time-types";
 import type { TemporalLoad, TemporalAnomalies } from "@/lib/temporal-anomalies";
 import type { ReportTone } from "@/lib/report-config";
+import type {
+  SupplierFocusData,
+  FocusItem,
+  FocusTrajectoryPoint,
+} from "@/lib/report-focus-types";
 import { deriveCycleFlags } from "@/lib/cycle-flags";
 import {
   buildAnomalyCrossref,
@@ -71,6 +78,9 @@ export type RenderedArgument = {
 // ---- formatting helpers --------------------------------------------------- #
 const usdM = (n: number) => `$${(n / 1_000_000).toFixed(1)}M`;
 const pct0 = (n: number) => `${Math.round(n)}%`;
+// A spend SHARE that never rounds a real (non-zero) fraction down to "0%" — the
+// long tail of small suppliers is genuinely <1%, not 0%.
+const sharePct = (n: number) => (n > 0 && n < 1 ? "<1%" : pct0(n));
 const intl = new Intl.NumberFormat("en-US");
 const firstSentence = (s: string) => {
   const i = s.indexOf(". ");
@@ -584,7 +594,7 @@ function findingEvidence(f: Finding): EvidenceStat[] {
     case "critical_issues":
       return [
         { label: "Underperforming high-spend suppliers", value: `${f.n}` },
-        { label: "Share of spend at risk", value: pct0(f.spendPct) },
+        { label: "Share of spend at risk", value: sharePct(f.spendPct) },
         {
           label: "Largest exposure",
           value: f.leaders[0] ? `${f.leaders[0].name} · ${usdM(f.leaders[0].spend)}` : "—",
@@ -772,4 +782,632 @@ export function renderReportArgument(
     })),
     hasArgument: situation.totalSpend > 0,
   };
+}
+
+// ==========================================================================
+// SUPPLIER BRIEF (Focus → one supplier)
+// A document you read on the way to a supplier meeting: a DERIVED headline (a Star
+// and a Critical-Issues supplier get genuinely different opening sentences), the
+// situation in prose, what's flagged in plain language, what you buy, what's moved,
+// and what to say. Same computed-prose + 3-tone approach as the portfolio argument;
+// numbers come from the analyses + the read-only focus assembler (no recompute).
+// ==========================================================================
+
+const ORDINALS = [
+  "zeroth", "first", "second", "third", "fourth", "fifth",
+  "sixth", "seventh", "eighth", "ninth", "tenth",
+];
+function ordinal(n: number): string {
+  if (n >= 1 && n <= 10) return ORDINALS[n];
+  const v = n % 100;
+  const suffix =
+    v >= 11 && v <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
+const QUAD_MEANING: Record<KraljicQuadrant, string> = {
+  Strategic: "high value and hard to replace",
+  Leverage: "high value but competitively sourced",
+  Bottleneck: "modest value but hard to source",
+  Routine: "modest value and easily sourced",
+};
+const QUAD_SHORT: Record<KraljicQuadrant, string> = {
+  Strategic: "strategically hard-to-replace",
+  Leverage: "competitively-sourced",
+  Bottleneck: "hard-to-source",
+  Routine: "easily-sourced",
+};
+const ZONE_MEANING: Record<PerformanceZone, string> = {
+  Stars: "high spend, strong performance",
+  "Critical Issues": "high spend, below-median performance",
+  "Hidden Gems": "modest spend, strong performance",
+  "Long Tail": "modest spend, below-median performance",
+};
+const PROC_FLAG_PROSE: Record<
+  "has_outlier" | "inconsistent" | "has_stage_dom",
+  string
+> = {
+  has_outlier: "unusually slow POs (cycle time beyond 2σ of the mean)",
+  inconsistent: "an inconsistent cycle — a wide spread in how long orders take",
+  has_stage_dom: "orders where a single stage dominates the cycle",
+};
+
+type BriefFacts = {
+  name: string;
+  category: string | null;
+  country: string | null;
+  rank: number | null;
+  totalSpend: number;
+  spendPct: number;
+  poCount: number;
+  abcClass: "A" | "B" | "C" | null;
+  quadrant: KraljicQuadrant | null;
+  supplyRisk: number | null;
+  zone: PerformanceZone | null;
+  perfScore: number | null;
+  perfMedian: number;
+  aboveMedian: boolean;
+  process: { has_outlier: boolean; inconsistent: boolean; has_stage_dom: boolean } | null;
+  outlierPoCount: number;
+  lens: string | null;
+  temporal: {
+    quadFrom: string | null;
+    quadTo: string | null;
+    spendPct: number | null;
+    scoreDelta: number | null;
+  } | null;
+  items: FocusItem[];
+  topItemsShare: number;
+  trajectory: FocusTrajectoryPoint[];
+  quadrantChanged: boolean;
+};
+
+export type RenderedSupplierBrief = {
+  name: string;
+  subtitle: string | null; // category · ABC · Kraljic · zone · country
+  headline: string;
+  situation: string[];
+  flagged: string[]; // plain-language sentences; empty = clean
+  flaggedClean: boolean;
+  buy: { prose: string; items: FocusItem[]; totalSpend: number } | null;
+  trajectory: { prose: string; points: FocusTrajectoryPoint[] } | null;
+  recommendation: string;
+  resolved: boolean; // false = supplier absent from the period
+};
+
+function buildBriefFacts(
+  input: ArgumentInput,
+  focus: SupplierFocusData | null,
+  supplierId: string,
+): BriefFacts {
+  const perf = input.performance_spend;
+  const abc = input.abc;
+  const kr = input.kraljic;
+
+  const psRow = perf?.suppliers.find((s) => s.supplier_id === supplierId) ?? null;
+  const abcRow = abc?.classifications.find((c) => c.supplier_id === supplierId) ?? null;
+  const krRow = kr?.quadrant_assignments.find((q) => q.supplier_id === supplierId) ?? null;
+  const perfMedian = perf?.axis_thresholds.performance_median ?? 0;
+
+  // name/category/country: prefer the focus assembler's identity, else an
+  // analysis row / rec label.
+  const name =
+    focus?.name ??
+    psRow?.supplier_name ??
+    abcRow?.supplier_name ??
+    krRow?.supplier_name ??
+    input.recommendations?.recommendations.find((r) => r.supplier_id === supplierId)
+      ?.supplier_name ??
+    supplierId;
+
+  // process flags (Batch 1) from the assembled breakdown.
+  let process: BriefFacts["process"] = null;
+  if (input.breakdown) {
+    const flags = deriveCycleFlags({
+      roster: input.breakdown.bySupplier,
+      anomalies: input.cycle_time?.anomalies ?? [],
+      stageAnomalies: input.breakdown.stageAnomalies ?? [],
+    }).flagsBySupplier.get(supplierId);
+    if (flags) process = flags;
+  }
+  const outlierPoCount = (input.cycle_time?.anomalies ?? []).filter(
+    (a) => a.supplier_id === supplierId,
+  ).length;
+
+  // lens disagreement (Batch 2): only if this supplier clears the cutoff.
+  let lens: string | null = null;
+  if (perf && kr && abc) {
+    const row = buildClassificationAnomalies({
+      perfSuppliers: perf.suppliers,
+      supplyRiskById: new Map(
+        kr.quadrant_assignments.map((q) => [q.supplier_id, q.supply_risk_score]),
+      ),
+      abcById: new Map(abc.classifications.map((c) => [c.supplier_id, c.abc_class])),
+    }).rows.find((r) => r.supplier_id === supplierId);
+    if (row) lens = lensVerdict(row, false);
+  }
+
+  // temporal move (Batch 3): only if flagged in the period-aware matrix.
+  let temporal: BriefFacts["temporal"] = null;
+  if (input.temporal?.kind === "ok") {
+    const t = buildTemporalAnomalies(input.temporal.matrix).rows.find(
+      (r) => r.supplier_id === supplierId,
+    );
+    if (t) {
+      temporal = {
+        quadFrom: t.quadrant?.from ?? null,
+        quadTo: t.quadrant?.to ?? null,
+        spendPct: t.spend?.pct ?? null,
+        scoreDelta: t.score?.delta ?? null,
+      };
+    }
+  }
+
+  const items = focus?.itemBreakdown ?? [];
+  const focusTotal = focus?.totalSpend ?? psRow?.total_spend_usd ?? 0;
+  const topItemsShare =
+    focusTotal > 0
+      ? (items.slice(0, 2).reduce((s, i) => s + i.totalSpend, 0) / focusTotal) * 100
+      : 0;
+
+  // trajectory: active years only. (Trend maths — incl. the partial-year guard —
+  // live in briefTrajectory; here we only need whether the quadrant ever changed.)
+  const active = (focus?.trajectory ?? []).filter(
+    (t) => t.spend > 0 || t.invoiceCount > 0,
+  );
+  const quadrantChanged =
+    new Set(active.map((t) => t.kraljicQuadrant).filter(Boolean)).size > 1;
+
+  return {
+    name,
+    category: focus?.category ?? null,
+    country: focus?.country ?? null,
+    rank: abcRow?.rank ?? null,
+    totalSpend: psRow?.total_spend_usd ?? focusTotal,
+    spendPct: (abcRow?.pct ?? 0) * 100,
+    poCount: focus?.poCount ?? 0,
+    abcClass: abcRow?.abc_class ?? null,
+    quadrant: krRow?.quadrant ?? null,
+    supplyRisk: krRow?.supply_risk_score ?? null,
+    zone: psRow?.zone ?? null,
+    perfScore: psRow?.performance_score ?? null,
+    perfMedian,
+    aboveMedian: psRow != null && psRow.performance_score >= perfMedian,
+    process,
+    outlierPoCount,
+    lens,
+    temporal,
+    items,
+    topItemsShare,
+    trajectory: active,
+    quadrantChanged,
+  };
+}
+
+/** THE DERIVED HEADLINE — branches on the supplier's zone (which encodes spend
+ *  position × performance), enriched with rank, quadrant, and score. */
+function briefHeadline(f: BriefFacts, tone: ReportTone): string {
+  if (!f.zone || f.perfScore == null) {
+    return `${f.name} had no recorded activity in this period.`;
+  }
+  const perf = f.perfScore;
+  const med = f.perfMedian;
+  const rankPhrase = f.rank ? `your ${ordinal(f.rank)}-largest supplier by spend` : "a supplier";
+  const rankBare = rankPhrase.replace("your ", "");
+  const quadShort = f.quadrant ? QUAD_SHORT[f.quadrant] : "";
+  // The Stars/Critical-Issues zones are median splits, so a supplier just above the
+  // spend median can land there while being small in ABSOLUTE terms. Only call it
+  // "high-spend" when it genuinely is — otherwise the headline contradicts the
+  // "$3.1M, 20th-largest" it then quotes.
+  const genuinelyLarge = f.spendPct >= 5 || (f.rank != null && f.rank <= 10);
+  switch (f.zone) {
+    case "Critical Issues":
+      if (tone === "executive")
+        return genuinelyLarge
+          ? `${f.name} is among your largest underperforming exposures — ${rankPhrase}, delivering below the performance median.`
+          : `${f.name} underperforms for what you pay it — below the performance median, though a modest share of outlay.`;
+      if (tone === "analytical")
+        return `${f.name} sits in the high-spend / below-median-performance quadrant (Critical Issues): ${usdM(
+          f.totalSpend,
+        )}, ${sharePct(f.spendPct)} of spend, performance ${perf.toFixed(1)} against a ${med.toFixed(
+          1,
+        )} median${f.quadrant ? `, ${f.quadrant} exposure` : ""}.`;
+      return genuinelyLarge
+        ? `${f.name} is ${rankPhrase} and one of your clearest underperforming exposures — ${usdM(
+            f.totalSpend,
+          )} (${sharePct(f.spendPct)} of outlay) to a ${quadShort} supplier scoring ${perf.toFixed(
+            0,
+          )} against the ${med.toFixed(0)}-point performance median.`
+        : `${f.name} underperforms for what you pay it — ${usdM(f.totalSpend)} (${rankBare}, ${sharePct(f.spendPct)} of outlay) at a score of ${perf.toFixed(0)}, under the ${med.toFixed(
+            0,
+          )}-point median. A smaller exposure, but below par.`;
+    case "Stars": {
+      const lever = f.quadrant === "Leverage" ? " — and where your buying power can press for terms" : "";
+      if (tone === "executive")
+        return genuinelyLarge
+          ? `${f.name} is a high-value supplier performing well — one of your largest relationships, above the performance median. Protect it.`
+          : `${f.name} is a strong performer on a modest share of spend — dependable, worth keeping close.`;
+      if (tone === "analytical")
+        return `${f.name} occupies the high-spend / above-median-performance quadrant (Stars): ${usdM(
+          f.totalSpend,
+        )}, performance ${perf.toFixed(1)} vs a ${med.toFixed(1)} median${
+          f.quadrant ? `, ${f.quadrant} exposure` : ""
+        }.`;
+      return genuinelyLarge
+        ? `${f.name} is a high-spend supplier that delivers — ${usdM(f.totalSpend)} (${rankBare}) at a performance score of ${perf.toFixed(
+            0,
+          )}, above the ${med.toFixed(0)}-point median. A relationship to protect${lever}.`
+        : `${f.name} performs well above the bar for what you spend — ${usdM(f.totalSpend)} (${rankBare}, ${sharePct(f.spendPct)} of outlay) at a score of ${perf.toFixed(0)}, over the ${med.toFixed(
+            0,
+          )}-point median. A dependable relationship${lever}.`;
+    }
+    case "Hidden Gems":
+      if (tone === "executive")
+        return `${f.name} is a strong performer on modest spend — a promotion candidate.`;
+      if (tone === "analytical")
+        return `${f.name} sits in the low-spend / above-median-performance quadrant (Hidden Gems): performance ${perf.toFixed(
+          1,
+        )} vs a ${med.toFixed(1)} median on ${usdM(f.totalSpend)} of spend.`;
+      return `${f.name} is a small supplier punching above its weight — a performance score of ${perf.toFixed(
+        0,
+      )} on just ${usdM(f.totalSpend)} (${sharePct(f.spendPct)} of spend). A candidate to entrust with more.`;
+    case "Long Tail":
+      if (tone === "executive")
+        return `${f.name} is a small, below-median supplier — a rationalisation candidate.`;
+      if (tone === "analytical")
+        return `${f.name} occupies the low-spend / below-median-performance quadrant (Long Tail): ${usdM(
+          f.totalSpend,
+        )}, performance ${perf.toFixed(1)} vs a ${med.toFixed(1)} median.`;
+      return `${f.name} is a small, underperforming supplier — ${usdM(
+        f.totalSpend,
+      )} at a performance score of ${perf.toFixed(0)}, below the ${med.toFixed(
+        0,
+      )}-point median. A candidate to rationalise or move to catalogue buys.`;
+  }
+}
+
+function briefSituation(f: BriefFacts, tone: ReportTone): string[] {
+  const paras: string[] = [];
+  const where = f.country ? ` from ${f.country}` : "";
+  const supplies = f.category ? `supplies ${f.category}${where}` : `is a supplier${where}`;
+  const rankClause = f.rank
+    ? ` — your ${ordinal(f.rank)}-largest supplier, ${sharePct(f.spendPct)} of total outlay`
+    : "";
+  paras.push(
+    `${f.name} ${supplies}. Over this period you spent ${usdM(f.totalSpend)} with them${
+      f.poCount ? ` across ${intl.format(f.poCount)} orders` : ""
+    }${rankClause}.`,
+  );
+  if (f.quadrant && f.zone) {
+    const method =
+      tone === "analytical"
+        ? ` Both placements are median splits of the current population — membership is relative, not absolute.`
+        : "";
+    paras.push(
+      `By exposure they sit in the ${f.quadrant} quadrant (${QUAD_MEANING[f.quadrant]}); on delivered performance they fall in the ${f.zone} zone (${ZONE_MEANING[f.zone]}).${method}`,
+    );
+  }
+  return paras;
+}
+
+function briefFlagged(f: BriefFacts): { sentences: string[]; clean: boolean } {
+  const sentences: string[] = [];
+  if (f.process) {
+    const active = (["has_outlier", "inconsistent", "has_stage_dom"] as const).filter(
+      (k) => f.process![k],
+    );
+    if (active.length) {
+      const detail =
+        f.outlierPoCount > 0 && f.process.has_outlier
+          ? ` (${f.outlierPoCount} outlier PO${f.outlierPoCount === 1 ? "" : "s"})`
+          : "";
+      sentences.push(
+        `Their procure-to-pay process shows ${andList(active.map((k) => PROC_FLAG_PROSE[k]))}${detail}.`,
+      );
+    }
+  }
+  if (f.lens) {
+    sentences.push(`Across the three classification lenses they are a contradiction — ${f.lens}.`);
+  }
+  if (f.temporal) {
+    const bits: string[] = [];
+    if (f.temporal.quadFrom && f.temporal.quadTo)
+      bits.push(`moved ${f.temporal.quadFrom}→${f.temporal.quadTo}`);
+    if (f.temporal.spendPct != null)
+      bits.push(`spend ${f.temporal.spendPct > 0 ? "rose" : "fell"} ${Math.abs(f.temporal.spendPct)}%`);
+    if (f.temporal.scoreDelta != null)
+      bits.push(`performance moved ${f.temporal.scoreDelta > 0 ? "+" : ""}${f.temporal.scoreDelta} pts`);
+    if (bits.length) sentences.push(`Year-on-year they ${andList(bits)}.`);
+  }
+  return { sentences, clean: sentences.length === 0 };
+}
+
+function briefBuy(f: BriefFacts, tone: ReportTone): RenderedSupplierBrief["buy"] {
+  if (f.items.length === 0) return null;
+  const concentrated = f.topItemsShare >= 60;
+  const top = f.items.slice(0, 2).map((i) => i.itemName);
+  const lead =
+    f.items.length === 1
+      ? `Everything you buy from them is ${f.items[0].itemName.toLowerCase()}`
+      : concentrated
+        ? `What you buy from them is concentrated: ${andList(top)} alone ${
+            top.length === 1 ? "is" : "are"
+          } ${pct0(f.topItemsShare)} of the ${usdM(f.totalSpend)} you spend here`
+        : `Your spend with them spreads across ${f.items.length} items, led by ${andList(top)}`;
+  const method =
+    tone === "analytical"
+      ? ` (${f.items.length} distinct item${f.items.length === 1 ? "" : "s"} over the span).`
+      : ".";
+  return { prose: `${lead}${method}`, items: f.items, totalSpend: f.totalSpend };
+}
+
+const TRAJECTORY_PARTIAL_FRACTION = 0.5;
+
+function briefTrajectory(f: BriefFacts, tone: ReportTone): RenderedSupplierBrief["trajectory"] {
+  const active = f.trajectory;
+  if (active.length < 2) {
+    if (active.length === 1) {
+      return {
+        prose: `They were active in only one year of the window, so there is no trajectory to read yet.`,
+        points: active,
+      };
+    }
+    return null;
+  }
+  // Partial-year guard (mirrors the temporal family's PARTIAL_YEAR fraction): a
+  // trailing year whose spend is under half the prior year's is a data artifact
+  // (e.g. an incomplete 2026), not a real collapse — set it aside from the trend
+  // and note it, rather than asserting a spurious "fell 72%".
+  const lastYr = active[active.length - 1];
+  const prevYr = active[active.length - 2];
+  const partial =
+    prevYr.spend > 0 && lastYr.spend < TRAJECTORY_PARTIAL_FRACTION * prevYr.spend;
+  const trend = partial ? active.slice(0, -1) : active;
+  // Setting aside a partial trailing year can leave a single full year — not enough
+  // for a trend. Say so rather than emitting a degenerate "Over 2025–2025".
+  if (trend.length < 2) {
+    const only = trend[0];
+    const partialTail = partial
+      ? `, plus a partial ${lastYr.year} (${intl.format(lastYr.invoiceCount)} invoice${
+          lastYr.invoiceCount === 1 ? "" : "s"
+        }, ${usdM(lastYr.spend)})`
+      : "";
+    return {
+      prose: `They have only one full year in the window — ${only.year}: ${usdM(
+        only.spend,
+      )}${
+        only.performanceScore != null
+          ? `, performance ${only.performanceScore.toFixed(0)}`
+          : ""
+      }${partialTail} — not enough for a trend yet.`,
+      points: active,
+    };
+  }
+  const first = trend[0];
+  const last = trend[trend.length - 1];
+
+  const spendPct =
+    first.spend > 0 ? Math.round(((last.spend - first.spend) / first.spend) * 100) : null;
+  const spendPhrase =
+    spendPct == null || Math.abs(spendPct) < 10
+      ? `spend has held broadly steady (around ${usdM(last.spend)}/yr)`
+      : `spend has ${spendPct > 0 ? "grown" : "fallen"} ${Math.abs(spendPct)}% (${usdM(
+          first.spend,
+        )} → ${usdM(last.spend)})`;
+
+  let perfPhrase = "";
+  if (first.performanceScore != null && last.performanceScore != null) {
+    const delta = +(last.performanceScore - first.performanceScore).toFixed(1);
+    if (Math.abs(delta) < 0.5) {
+      perfPhrase = ` and performance has held flat (${first.performanceScore.toFixed(
+        0,
+      )} → ${last.performanceScore.toFixed(0)})`;
+    } else {
+      const dir = delta > 0 ? "improved" : "slipped";
+      const interp =
+        delta < 0
+          ? f.aboveMedian
+            ? " — still above the median, but the direction is worth watching"
+            : " — and it sits below the median"
+          : " — a positive trend";
+      perfPhrase = ` and performance has ${dir} ${Math.abs(delta).toFixed(1)} points (${first.performanceScore.toFixed(
+        0,
+      )} → ${last.performanceScore.toFixed(0)})${interp}`;
+    }
+  }
+
+  const windowLabel = partial
+    ? `${first.year}–${last.year}`
+    : `${active.length} active years`;
+  const partialNote = partial
+    ? ` (${lastYr.year} is a partial year — ${intl.format(lastYr.invoiceCount)} invoice${
+        lastYr.invoiceCount === 1 ? "" : "s"
+      }, ${usdM(lastYr.spend)} — set aside from the trend)`
+    : "";
+  const quadPhrase = f.quadrantChanged
+    ? ` Their exposure quadrant also shifted over the window (${andList(
+        [...new Set(active.map((t) => t.kraljicQuadrant).filter(Boolean) as string[])],
+      )}).`
+    : "";
+  const method =
+    tone === "analytical"
+      ? ` Per-year performance is the Mode-A composite for each period; spend is payment-date bucketed.`
+      : "";
+  return {
+    prose: `Over ${windowLabel}, ${spendPhrase}${perfPhrase}${partialNote}.${quadPhrase}${method}`,
+    points: active,
+  };
+}
+
+function briefRecommendation(f: BriefFacts): string {
+  const stake = f.totalSpend > 0 ? ` against the ${usdM(f.totalSpend)} at stake` : "";
+  const flagClause =
+    f.process && (f.process.has_outlier || f.process.has_stage_dom)
+      ? " Bring the cycle-time anomalies as concrete examples."
+      : "";
+  if (!f.zone) {
+    return `Confirm whether this relationship is still active and worth carrying in the roster.`;
+  }
+  switch (f.zone) {
+    case "Critical Issues":
+      return `Go into the meeting on performance: they are ${
+        f.rank ? `a top-${f.rank} supplier` : "a high-spend supplier"
+      } delivering below the median${
+        f.quadrant === "Strategic" ? ", and one you cannot easily replace" : ""
+      }. Agree a concrete improvement plan — or, if the market allows, a sourcing alternative —${stake}.${flagClause}`;
+    case "Stars":
+      return `This is a keep-warm conversation: acknowledge strong delivery, make sure the relationship rests on a formal footing (contract, SLA, quarterly review), and explore consolidating more spend here${
+        f.quadrant === "Leverage" ? " while your competitive position lets you hold terms" : ""
+      }.${flagClause}`;
+    case "Hidden Gems":
+      return `Use the meeting to test appetite for more: they perform well on modest spend, so probe capacity and quality at higher volume before steering additional work their way.`;
+    case "Long Tail":
+      return `Keep it light-touch: confirm whether the relationship earns its place or the spend can move to catalogue or consolidated buys.${flagClause}`;
+  }
+}
+
+/** Build + render a supplier brief for a tone. Pure; numbers == the analyses +
+ *  the read-only focus assembler. `focus` may be null while the editor is still
+ *  fetching it — position/flagged/recommendation still render; buy/trajectory
+ *  come back null and the renderer shows a loading affordance. */
+export function renderSupplierBrief(
+  input: ArgumentInput,
+  focus: SupplierFocusData | null,
+  supplierId: string,
+  tone: ReportTone,
+): RenderedSupplierBrief {
+  const f = buildBriefFacts(input, focus, supplierId);
+  const resolved = f.zone != null || f.totalSpend > 0 || f.items.length > 0;
+
+  const subtitle =
+    [
+      f.category,
+      f.abcClass ? `Class ${f.abcClass}` : null,
+      f.quadrant,
+      f.zone,
+      f.country,
+    ]
+      .filter(Boolean)
+      .join(" · ") || null;
+
+  const { sentences, clean } = briefFlagged(f);
+  return {
+    name: f.name,
+    subtitle,
+    headline: briefHeadline(f, tone),
+    situation: briefSituation(f, tone),
+    flagged: sentences,
+    flaggedClean: clean,
+    buy: briefBuy(f, tone),
+    trajectory: briefTrajectory(f, tone),
+    recommendation: briefRecommendation(f),
+    resolved,
+  };
+}
+
+// ==========================================================================
+// CATEGORY DEEP-DIVE (Focus → one category)
+// ==========================================================================
+
+export type CategorySupplierRow = {
+  supplier_id: string;
+  name: string;
+  spend: number;
+  zone: PerformanceZone;
+  perf: number;
+  quadrant: KraljicQuadrant;
+};
+export type RenderedCategoryDeepDive = {
+  category: string;
+  headline: string;
+  situation: string[];
+  suppliers: CategorySupplierRow[];
+  recommendation: string;
+  resolved: boolean;
+};
+
+export function renderCategoryDeepDive(
+  input: ArgumentInput,
+  category: string,
+  supplierCategory: Record<string, string>,
+  tone: ReportTone,
+): RenderedCategoryDeepDive {
+  const perf = input.performance_spend;
+  const so = input.spend_overview;
+  const perfMedian = perf?.axis_thresholds.performance_median ?? 0;
+  const krById = new Map(
+    (input.kraljic?.quadrant_assignments ?? []).map((q) => [q.supplier_id, q.quadrant]),
+  );
+
+  const rows: CategorySupplierRow[] = (perf?.suppliers ?? [])
+    .filter((s) => supplierCategory[s.supplier_id] === category)
+    .map((s) => ({
+      supplier_id: s.supplier_id,
+      name: s.supplier_name,
+      spend: s.total_spend_usd,
+      zone: s.zone,
+      perf: s.performance_score,
+      quadrant: krById.get(s.supplier_id) ?? s.kraljic_quadrant,
+    }))
+    .sort((a, b) => b.spend - a.spend);
+
+  const catFromOverview = so?.by_category.find((c) => c.category === category)?.total;
+  const catTotal = catFromOverview ?? rows.reduce((s, r) => s + r.spend, 0);
+  const portfolioTotal = so?.total_spend ?? catTotal;
+  const share = portfolioTotal > 0 ? (catTotal / portfolioTotal) * 100 : 0;
+  const n = rows.length;
+  const top = rows[0];
+  const topShare = catTotal > 0 && top ? (top.spend / catTotal) * 100 : 0;
+  const underperformers = rows.filter((r) => r.perf < perfMedian);
+  const singleSource = n === 1;
+  const resolved = n > 0;
+
+  const headline = !resolved
+    ? `No active suppliers were recorded in ${category} for this period.`
+    : tone === "executive"
+      ? `${category} is ${pct0(share)} of spend across ${n} supplier${n === 1 ? "" : "s"}${
+          singleSource ? " — single-sourced" : ""
+        }.`
+      : `${category} accounts for ${pct0(share)} of portfolio spend (${usdM(
+          catTotal,
+        )}) across ${n} supplier${n === 1 ? "" : "s"}, led by ${top.name} at ${pct0(
+          topShare,
+        )} of the category.`;
+
+  const situation: string[] = [];
+  if (resolved) {
+    situation.push(
+      singleSource
+        ? `All ${usdM(catTotal)} of ${category} spend runs through a single supplier, ${top.name} — the category has no second source to fall back on.`
+        : `The ${n} suppliers in ${category} share ${usdM(catTotal)} of spend; ${top.name} leads with ${pct0(
+            topShare,
+          )}${topShare >= 60 ? ", so the category leans heavily on one relationship" : ""}.`,
+    );
+    if (underperformers.length > 0) {
+      situation.push(
+        `On performance, ${underperformers.length} of ${n} sit below the ${perfMedian.toFixed(
+          0,
+        )}-point median${
+          tone === "analytical" ? " (population median split)" : ""
+        } — ${andList(underperformers.slice(0, 3).map((r) => `${r.name} (${r.perf.toFixed(0)})`))}.`,
+      );
+    } else {
+      situation.push(`On performance, every supplier in the category sits at or above the ${perfMedian.toFixed(0)}-point median.`);
+    }
+  }
+
+  let recommendation: string;
+  if (!resolved) {
+    recommendation = `No action — the category is inactive this period.`;
+  } else if (singleSource) {
+    recommendation = `Priority is resilience: qualify at least one alternate source for ${category} before the next award, so a single supplier's disruption can't stop the category.`;
+  } else if (underperformers.length > 0) {
+    recommendation = `Engage the underperformers — ${andList(
+      underperformers.slice(0, 2).map((r) => r.name),
+    )} — on a performance plan, and use the competition within the category to hold terms.`;
+  } else {
+    recommendation = `The category is healthy — maintain the current split and use the multiple sources to keep pricing competitive.`;
+  }
+
+  return { category, headline, situation, suppliers: rows, recommendation, resolved };
 }

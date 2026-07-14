@@ -16,8 +16,11 @@ import {
   normalizeReportConfig,
   type ReportConfig,
 } from "@/lib/report-config";
+import { getSupplierCategoryMap } from "@/lib/suppliers";
 import { computeCycleBreakdown } from "@/lib/cycle-breakdown";
 import { loadTemporalMatrix } from "@/lib/temporal-load";
+import { assembleSupplierFocus } from "@/lib/report-focus";
+import type { ReportFocusData } from "@/lib/report-focus-types";
 import {
   ReportDocument,
   type ReportAnalyses,
@@ -42,7 +45,7 @@ export default async function ReportDetailPage({
   };
   const periodId = summary.periodId!;
 
-  const [spend, abc, kraljic, cycleTime, performance, recommendations] =
+  const [spend, abc, kraljic, cycleTime, performance, recommendations, supplierCategory] =
     await Promise.all([
       getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
       getAnalysisResult<AbcResult>(periodId, "abc"),
@@ -50,6 +53,7 @@ export default async function ReportDetailPage({
       getAnalysisResult<CycleTimeResult>(periodId, "cycle_time"),
       getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
       getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
+      getSupplierCategoryMap(),
     ]);
 
   // Reports persisted before Batch 5 lack the `cycle_framing` marker. Render
@@ -86,6 +90,16 @@ export default async function ReportDetailPage({
     loadTemporalMatrix({ selectedPeriodId: periodId }),
   ]);
 
+  // Focus → supplier: assemble the brief's per-supplier data server-side (read-only,
+  // same queries as the modal's routes) so it's present in the static / PDF render.
+  const focusData: ReportFocusData =
+    config.focus.kind === "supplier" && config.focus.supplierId
+      ? {
+          kind: "supplier",
+          data: await assembleSupplierFocus(config.focus.supplierId, pStart, pEnd),
+        }
+      : null;
+
   const analyses: ReportAnalyses = {
     spend_overview: spend,
     abc,
@@ -108,6 +122,8 @@ export default async function ReportDetailPage({
       }}
       analyses={analyses}
       config={config}
+      supplierCategory={supplierCategory}
+      focusData={focusData}
       legacyCycle={legacyCycle}
     />
   );
