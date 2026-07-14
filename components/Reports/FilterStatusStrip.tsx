@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  type ReportConfig,
-  type SectionKey,
-} from "@/lib/report-config";
+import { type ReportConfig, type SectionKey } from "@/lib/report-config";
 
 const SECTION_ORDER: SectionKey[] = [
   "spendOverview",
@@ -23,23 +20,10 @@ const TONE_LABELS = {
 
 /**
  * Read-only one-line summary of the current report config. Updates live as the
- * sidebar changes. `totalCategories` is needed to distinguish "All N" from a
- * partial selection (config alone doesn't carry the universe size).
+ * sidebar changes.
  */
-export function FilterStatusStrip({
-  config,
-  totalCategories,
-}: {
-  config: ReportConfig;
-  totalCategories: number;
-}) {
-  const catN = config.filters.categories.length;
-  const catLabel =
-    catN >= totalCategories
-      ? `All ${totalCategories} categories`
-      : `${catN} categor${catN === 1 ? "y" : "ies"}`;
-
-  // Executive Summary is always on; the other 7 are toggleable.
+export function FilterStatusStrip({ config }: { config: ReportConfig }) {
+  // Executive Summary is always on; the other 7 are toggleable appendix sections.
   const visibleOptional = SECTION_ORDER.filter((s) => config.sections[s]).length;
   const totalSections = 1 + visibleOptional;
   const hidden = SECTION_ORDER.length - visibleOptional;
@@ -49,7 +33,6 @@ export function FilterStatusStrip({
       : `${totalSections} sections`;
 
   const parts = [
-    catLabel,
     sectionLabel,
     `${TONE_LABELS[config.tone]} tone`,
     `${config.detailLevel[0].toUpperCase()}${config.detailLevel.slice(1)} detail`,

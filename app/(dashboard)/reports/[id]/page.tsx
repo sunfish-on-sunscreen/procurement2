@@ -11,8 +11,11 @@ import {
   type RecommendationsResult,
 } from "@/lib/analysis-types";
 import type { ReportMetrics } from "@/lib/report-templates";
-import { defaultReportConfig, type ReportConfig } from "@/lib/report-config";
-import { getSupplierCategoryMap } from "@/lib/suppliers";
+import {
+  defaultReportConfig,
+  normalizeReportConfig,
+  type ReportConfig,
+} from "@/lib/report-config";
 import { computeCycleBreakdown } from "@/lib/cycle-breakdown";
 import { loadTemporalMatrix } from "@/lib/temporal-load";
 import {
@@ -39,7 +42,7 @@ export default async function ReportDetailPage({
   };
   const periodId = summary.periodId!;
 
-  const [spend, abc, kraljic, cycleTime, performance, recommendations, supplierCategory] =
+  const [spend, abc, kraljic, cycleTime, performance, recommendations] =
     await Promise.all([
       getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
       getAnalysisResult<AbcResult>(periodId, "abc"),
@@ -47,7 +50,6 @@ export default async function ReportDetailPage({
       getAnalysisResult<CycleTimeResult>(periodId, "cycle_time"),
       getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
       getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
-      getSupplierCategoryMap(),
     ]);
 
   // Reports persisted before Batch 5 lack the `cycle_framing` marker. Render
@@ -59,12 +61,17 @@ export default async function ReportDetailPage({
       : null;
 
   // Old reports (pre-3c) have no config: default to standard / all sections.
-  const config: ReportConfig =
-    stored.config ??
-    defaultReportConfig(
-      { mode: "single", singleId: periodId, fromId: periodId, toId: periodId },
-      [...new Set(Object.values(supplierCategory))],
-    );
+  // Reports saved before the settings-panel rebuild carry the OLD config shape
+  // (no `focus`, plus the removed filter fields) — normalizeReportConfig maps them
+  // to portfolio focus and drops the dead fields (see lib/report-config).
+  const config: ReportConfig = stored.config
+    ? normalizeReportConfig(stored.config)
+    : defaultReportConfig({
+        mode: "single",
+        singleId: periodId,
+        fromId: periodId,
+        toId: periodId,
+      });
 
   // Process family needs the cycle-time breakdown (per-supplier IQR + stage
   // anomalies). Compute it server-side for this period's span, reusing the
@@ -101,7 +108,6 @@ export default async function ReportDetailPage({
       }}
       analyses={analyses}
       config={config}
-      supplierCategory={supplierCategory}
       legacyCycle={legacyCycle}
     />
   );

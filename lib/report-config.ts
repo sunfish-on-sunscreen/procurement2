@@ -1,9 +1,15 @@
 /**
- * Client-safe report customization config (Batch 3c). No server-only imports so
- * the modal + the shared <ReportDocument> renderer can use it freely.
+ * Client-safe report customization config. No server-only imports so the sidebar
+ * + the shared <ReportDocument> renderer can use it freely.
+ *
+ * The report is a decision-first ARGUMENT (see lib/report-narrative), not a table
+ * dump — so the config is four questions: what it's about (focus), which period,
+ * how long (detail), and which appendix evidence to attach (sections). Tone is a
+ * minor prose-register control. The old recommendation/category filters + per-section
+ * scope were REMOVED: the argument reads only the analyses + tone, so filtering rows
+ * could never change a finding — it was dashboard behaviour leaking into a document.
  */
 import type { PeriodSelection } from "@/lib/period-constants";
-import type { RecommendationCategory } from "@/lib/analysis-types";
 
 export type SectionKey =
   | "spendOverview"
@@ -17,8 +23,26 @@ export type SectionKey =
 export type DetailLevel = "brief" | "standard" | "detailed";
 export type ReportTone = "executive" | "operational" | "analytical";
 
+/**
+ * What the report is ABOUT (Focus). `portfolio` = the full review (default);
+ * `supplier` = a one-supplier brief; `category` = a category deep-dive. The picker
+ * IDs are validated at render time (an absent supplier/category falls back
+ * gracefully to the portfolio view).
+ */
+export type ReportFocus =
+  | { kind: "portfolio" }
+  | { kind: "supplier"; supplierId: string }
+  | { kind: "category"; category: string };
+
 export interface ReportConfig {
   period: PeriodSelection;
+  focus: ReportFocus;
+  /**
+   * Appendix "evidence" toggles (only meaningful at standard/detailed — brief drops
+   * the appendix entirely). `executiveSummary` is the always-on front matter. In
+   * supplier/category focus the portfolio-wide evidence is hidden; only Methodology
+   * applies (see ReportDocument).
+   */
   sections: {
     executiveSummary: true; // always on
     spendOverview: boolean;
@@ -29,64 +53,9 @@ export interface ReportConfig {
     actionDashboard: boolean;
     methodology: boolean;
   };
-  recommendationFilters: {
-    categories: RecommendationCategory[];
-    topN: number;
-  };
   detailLevel: DetailLevel;
   tone: ReportTone;
-  filters: {
-    categories: string[]; // supplier categories (e.g. "Fuel", "Tires")
-  };
-  filterScope: {
-    categoryApplies: SectionKey[];
-  };
 }
-
-/** A user-saved preset (Batch 6d): a named full-config snapshot from the DB. */
-export type SavedPreset = {
-  id: string;
-  name: string;
-  config: ReportConfig;
-  updatedAt: string;
-};
-
-export const ALL_REC_CATEGORIES: RecommendationCategory[] = [
-  "critical_issues_engagement",
-  "bottleneck_risk",
-  "hidden_gems_promotion",
-  "process_improvement",
-  "concentration",
-  "critical_spend",
-  "tail_spend",
-  "slow_stage",
-];
-
-export const REC_CATEGORY_LABELS: Record<RecommendationCategory, string> = {
-  critical_issues_engagement: "Critical Issues",
-  bottleneck_risk: "Bottleneck Risk",
-  hidden_gems_promotion: "Hidden Gems",
-  process_improvement: "Process Improvement",
-  concentration: "Concentration",
-  critical_spend: "Critical Spend",
-  tail_spend: "Tail Spend",
-  slow_stage: "Slowest Stage",
-};
-
-// Smart defaults: which sections the category filter applies to out of the box.
-export const DEFAULT_CATEGORY_SCOPE: SectionKey[] = [
-  "abc",
-  "kraljic",
-  "performanceSpend",
-];
-
-// Sections that filters can affect at all (the rest are aggregate-only).
-export const FILTERABLE_SECTIONS: SectionKey[] = [
-  "abc",
-  "kraljic",
-  "performanceSpend",
-  "actionDashboard",
-];
 
 export const SECTION_LABELS: Record<SectionKey, string> = {
   spendOverview: "Spend Overview",
@@ -98,71 +67,43 @@ export const SECTION_LABELS: Record<SectionKey, string> = {
   methodology: "Methodology",
 };
 
-export function defaultReportConfig(
-  period: PeriodSelection,
-  allCategories: string[],
-): ReportConfig {
+const ALL_SECTIONS_ON: ReportConfig["sections"] = {
+  executiveSummary: true,
+  spendOverview: true,
+  abc: true,
+  kraljic: true,
+  performanceSpend: true,
+  cycleTime: true,
+  actionDashboard: true,
+  methodology: true,
+};
+
+export function defaultReportConfig(period: PeriodSelection): ReportConfig {
   return {
     period,
-    sections: {
-      executiveSummary: true,
-      spendOverview: true,
-      abc: true,
-      kraljic: true,
-      performanceSpend: true,
-      cycleTime: true,
-      actionDashboard: true,
-      methodology: true,
-    },
-    recommendationFilters: { categories: [...ALL_REC_CATEGORIES], topN: 10 },
+    focus: { kind: "portfolio" },
+    sections: { ...ALL_SECTIONS_ON },
     detailLevel: "standard",
     tone: "operational",
-    filters: { categories: [...allCategories] },
-    filterScope: {
-      categoryApplies: [...DEFAULT_CATEGORY_SCOPE],
-    },
   };
 }
 
 /**
- * Reset all FILTER-related config to defaults (Batch 6c) while preserving the
- * user's deliberate choices: period, tone, and detail level. Resets the
- * category filter, section visibility, recommendation filters, and the
- * per-section filter scope.
+ * Normalise a persisted config into the current shape. Reports saved before this
+ * rebuild carry the OLD shape — no `focus`, plus the removed `recommendationFilters`
+ * / `filters` / `filterScope` fields. Those old reports default to portfolio focus;
+ * the removed fields are simply dropped (they were dead, or only hid appendix rows,
+ * so the rendered argument is unchanged). Missing sections/detail/tone fall back to
+ * the defaults, preserving backward compatibility.
  */
-export function resetReportFilters(
-  config: ReportConfig,
-  allCategories: string[],
+export function normalizeReportConfig(
+  raw: Partial<ReportConfig> & { period: PeriodSelection },
 ): ReportConfig {
   return {
-    ...config,
-    sections: {
-      executiveSummary: true,
-      spendOverview: true,
-      abc: true,
-      kraljic: true,
-      performanceSpend: true,
-      cycleTime: true,
-      actionDashboard: true,
-      methodology: true,
-    },
-    recommendationFilters: { categories: [...ALL_REC_CATEGORIES], topN: 10 },
-    filters: { categories: [...allCategories] },
-    filterScope: {
-      categoryApplies: [...DEFAULT_CATEGORY_SCOPE],
-    },
+    period: raw.period,
+    focus: raw.focus ?? { kind: "portfolio" },
+    sections: { ...ALL_SECTIONS_ON, ...(raw.sections ?? {}) },
+    detailLevel: raw.detailLevel ?? "standard",
+    tone: raw.tone ?? "operational",
   };
-}
-
-/** True when the category filter should hide rows for this section. */
-export function categoryFilterActive(
-  config: ReportConfig,
-  section: SectionKey,
-  totalCategories: number,
-) {
-  return (
-    config.filterScope.categoryApplies.includes(section) &&
-    config.filters.categories.length > 0 &&
-    config.filters.categories.length < totalCategories
-  );
 }

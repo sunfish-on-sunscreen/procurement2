@@ -54,14 +54,12 @@ function periodSpan(
 export function ReportEditor({
   defaultPeriod,
   periods,
-  allCategories,
   supplierCategory,
   supplierDirectory,
   generatedBy,
 }: {
   defaultPeriod: PeriodSelection;
   periods: PeriodOption[];
-  allCategories: string[];
   supplierCategory: Record<string, string>;
   supplierDirectory: SupplierDirectory;
   generatedBy: string;
@@ -73,7 +71,7 @@ export function ReportEditor({
   );
 
   const [config, setConfig] = useState<ReportConfig>(() =>
-    defaultReportConfig(defaultPeriod, allCategories),
+    defaultReportConfig(defaultPeriod),
   );
   // Loaded data and errors are tagged with the span key they belong to, so
   // `loading` is derived (no synchronous setState in the effect).
@@ -232,7 +230,6 @@ export function ReportEditor({
         config={config}
         onConfigChange={setConfig}
         periods={periods}
-        allCategories={allCategories}
         canSave={canSave}
         saving={saving}
         onSave={handleSave}
@@ -253,7 +250,7 @@ export function ReportEditor({
         </div>
 
         <div className="no-print">
-          <FilterStatusStrip config={config} totalCategories={allCategories.length} />
+          <FilterStatusStrip config={config} />
         </div>
 
         <PinProvider value={pinValue}>
@@ -273,7 +270,6 @@ export function ReportEditor({
                 meta={meta}
                 analyses={analyses}
                 config={config}
-                supplierCategory={supplierCategory}
                 embedded
               />
             ) : null}

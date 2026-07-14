@@ -13,11 +13,7 @@ import type {
   RecommendationsResult,
 } from "@/lib/analysis-types";
 import { deriveReportContext, TEMPLATES } from "@/lib/report-templates";
-import {
-  type ReportConfig,
-  type SectionKey,
-  categoryFilterActive,
-} from "@/lib/report-config";
+import { type ReportConfig, type SectionKey } from "@/lib/report-config";
 import type { CycleBreakdown } from "@/lib/cycle-time-types";
 import type { TemporalLoad } from "@/lib/temporal-anomalies";
 import { QUADRANT_COLORS } from "@/lib/chart-colors";
@@ -157,14 +153,12 @@ export function ReportDocument({
   meta,
   analyses,
   config,
-  supplierCategory,
   legacyCycle,
   embedded = false,
 }: {
   meta: ReportMeta;
   analyses: ReportAnalyses;
   config: ReportConfig;
-  supplierCategory: Record<string, string>;
   /**
    * Set only for reports persisted before Batch 5 (no `cycle_framing` marker):
    * the stored pre/post automation cycle narrative. When present, the cycle
@@ -183,7 +177,6 @@ export function ReportDocument({
   const { sections, detailLevel } = config;
   const brief = detailLevel === "brief";
   const detailed = detailLevel === "detailed";
-  const totalCategories = new Set(Object.values(supplierCategory)).size || 1;
 
   // Tone narratives are generated at RENDER time from the analyses (default to
   // operational for pre-3d reports that have no tone in their config).
@@ -205,29 +198,6 @@ export function ReportDocument({
   const arg = renderReportArgument(analyses, tone);
   const money = (n: number) =>
     n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : `$${Math.round(n / 1000)}K`;
-
-  // Visibility-only row filter for a section (category, per scope).
-  function keep<T extends { supplier_id?: string }>(
-    rows: T[],
-    section: SectionKey,
-  ): T[] {
-    let out = rows;
-    if (categoryFilterActive(config, section, totalCategories)) {
-      out = out.filter((r) => {
-        const cat = r.supplier_id ? supplierCategory[r.supplier_id] : undefined;
-        return cat == null || config.filters.categories.includes(cat);
-      });
-    }
-    return out;
-  }
-
-  const filterNote = (section: SectionKey): string | null => {
-    const c = categoryFilterActive(config, section, totalCategories)
-      ? `${config.filters.categories.length} categories`
-      : null;
-    return c ? `Filtered to ${c}.` : null;
-  };
-
 
   // ---- Cross-Analysis Anomaly Hub summary (all 3 families) ------------------
   // Computed synchronously from data assembled into `analyses` server-side, so it
@@ -675,9 +645,8 @@ export function ReportDocument({
                 onToggle={() => toggleCollapse("abc")}
               >
                 {(() => {
-                  const rows = keep(analyses.abc!.classifications, "abc");
+                  const rows = analyses.abc!.classifications;
                   const shown = detailed ? rows : rows.slice(0, 20);
-                  const note = filterNote("abc");
                   return (
                     <>
                       <table className="w-full border-collapse text-sm">
@@ -722,7 +691,6 @@ export function ReportDocument({
                       )}
                       <p className="text-sm leading-relaxed text-muted-foreground">
                         {T.abc(ctx)}
-                        {note ? ` ${note}` : ""}
                       </p>
                     </>
                   );
@@ -740,14 +708,7 @@ export function ReportDocument({
                 onToggle={() => toggleCollapse("kraljic")}
               >
                 {(() => {
-                  const assigns = keep(
-                    analyses.kraljic!.quadrant_assignments,
-                    "kraljic",
-                  );
-                  const filteredCount = (q: KraljicQuadrant) =>
-                    assigns.filter((a) => a.quadrant === q).length;
-                  const note = filterNote("kraljic");
-                  const isFiltered = note != null;
+                  const assigns = analyses.kraljic!.quadrant_assignments;
                   return (
                     <>
                       <table className="w-full border-collapse text-sm">
@@ -780,9 +741,7 @@ export function ReportDocument({
                                   {q}
                                 </td>
                                 <td className="py-2 text-right">
-                                  {isFiltered
-                                    ? filteredCount(q)
-                                    : (p?.n_suppliers ?? 0)}
+                                  {p?.n_suppliers ?? 0}
                                 </td>
                                 <td className="py-2 text-right">
                                   {(p?.pct_of_total_spend ?? 0).toFixed(1)}%
@@ -799,9 +758,6 @@ export function ReportDocument({
                       </table>
                       <p className="text-sm leading-relaxed text-muted-foreground">
                         {T.kraljic(ctx)}
-                        {note
-                          ? ` ${note} Supplier counts reflect the filter; spend and performance aggregates reflect the full population.`
-                          : ""}
                       </p>
                       {detailed && (
                         <table className="w-full border-collapse text-xs">
@@ -844,9 +800,8 @@ export function ReportDocument({
               >
                 {(() => {
                   const ps = analyses.performance_spend!;
-                  const note = filterNote("performanceSpend");
-                  const crit = keep(ps.top_critical_issues, "performanceSpend");
-                  const fullRows = keep(ps.suppliers, "performanceSpend");
+                  const crit = ps.top_critical_issues;
+                  const fullRows = ps.suppliers;
                   return (
                     <>
                       <table className="w-full border-collapse text-sm">
@@ -888,7 +843,6 @@ export function ReportDocument({
                       </table>
                       <p className="text-sm leading-relaxed text-muted-foreground">
                         {T.performanceSpend(ctx)}
-                        {note ? ` ${note}` : ""}
                       </p>
                       {crit.length > 0 && (
                         <div>
