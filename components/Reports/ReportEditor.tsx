@@ -19,7 +19,10 @@ import {
   ReportDocument,
   type ReportAnalyses,
 } from "@/components/Reports/ReportDocument";
-import { ReportEditorSidebar } from "@/components/Reports/ReportEditorSidebar";
+import {
+  ReportEditorSidebar,
+  type SupplierOption,
+} from "@/components/Reports/ReportEditorSidebar";
 import { FilterStatusStrip } from "@/components/Reports/FilterStatusStrip";
 import { PinProvider } from "@/components/Reports/PinContext";
 import { SupplierDetailPanel } from "@/components/Reports/SupplierDetailPanel";
@@ -54,12 +57,14 @@ function periodSpan(
 export function ReportEditor({
   defaultPeriod,
   periods,
+  allCategories,
   supplierCategory,
   supplierDirectory,
   generatedBy,
 }: {
   defaultPeriod: PeriodSelection;
   periods: PeriodOption[];
+  allCategories: string[];
   supplierCategory: Record<string, string>;
   supplierDirectory: SupplierDirectory;
   generatedBy: string;
@@ -102,6 +107,21 @@ export function ReportEditor({
   const analyses = loaded?.key === spanKey ? loaded.analyses : null;
   const error = errored?.key === spanKey ? errored.msg : null;
   const loading = !!startDate && !analyses && !error;
+
+  // Focus → supplier picker options: span-scoped (built from the loaded
+  // performance_spend suppliers, so spend reflects the selected period), joined
+  // with the static category map, sorted by spend desc. Empty until analyses load.
+  const supplierOptions: SupplierOption[] = useMemo(() => {
+    const rows = analyses?.performance_spend?.suppliers ?? [];
+    return [...rows]
+      .sort((a, b) => b.total_spend_usd - a.total_spend_usd)
+      .map((s) => ({
+        id: s.supplier_id,
+        name: s.supplier_name,
+        category: supplierCategory[s.supplier_id] ?? null,
+        spend: s.total_spend_usd,
+      }));
+  }, [analyses, supplierCategory]);
 
   // Clear the pin whenever the selected period changes — the pinned supplier may
   // not exist (or carry different data) in the new period. Tracking the previous
@@ -230,6 +250,8 @@ export function ReportEditor({
         config={config}
         onConfigChange={setConfig}
         periods={periods}
+        supplierOptions={supplierOptions}
+        allCategories={allCategories}
         canSave={canSave}
         saving={saving}
         onSave={handleSave}

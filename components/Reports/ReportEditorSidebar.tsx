@@ -6,21 +6,52 @@ import {
   type SectionKey,
   type DetailLevel,
   type ReportTone,
-  SECTION_LABELS,
+  type ReportFocus,
 } from "@/lib/report-config";
+import { formatCompactCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  TypeableCombobox,
+  type ComboOption,
+} from "@/components/ui/typeable-combobox";
 import { DownloadPdfButton } from "@/components/DownloadPdfButton";
 
 type PeriodOption = { id: string; name: string };
 
-const SECTION_ORDER: SectionKey[] = [
-  "spendOverview",
-  "abc",
-  "kraljic",
-  "performanceSpend",
-  "cycleTime",
-  "actionDashboard",
-  "methodology",
+/** Span-scoped supplier for the Focus → supplier picker (built from the loaded
+ *  analyses, so spend reflects the selected period). */
+export type SupplierOption = {
+  id: string;
+  name: string;
+  category: string | null;
+  spend: number;
+};
+
+type FocusKind = ReportFocus["kind"];
+
+const FOCUS_OPTIONS: { kind: FocusKind; label: string; hint: string }[] = [
+  { kind: "portfolio", label: "The portfolio", hint: "The full review" },
+  { kind: "supplier", label: "One supplier", hint: "A supplier brief" },
+  { kind: "category", label: "One category", hint: "A category deep-dive" },
+];
+
+// Length (detail level) — relabelled for the decision-first report.
+const LENGTH_OPTIONS: { value: DetailLevel; label: string; hint: string }[] = [
+  { value: "brief", label: "Executive brief", hint: "Decision only — no appendix" },
+  { value: "standard", label: "Standard", hint: "+ worth watching + appendix" },
+  { value: "detailed", label: "Full", hint: "+ full appendix depth" },
+];
+
+// "Attach evidence" — appendix blocks. Spend & ABC toggle together (one story);
+// "Cross-analysis anomalies" is the actionDashboard block. Methodology is always
+// available (incl. in a supplier/category brief); the rest are portfolio-only.
+const EVIDENCE_OPTIONS: { label: string; keys: SectionKey[] }[] = [
+  { label: "Spend & ABC", keys: ["spendOverview", "abc"] },
+  { label: "Kraljic exposure", keys: ["kraljic"] },
+  { label: "Performance vs spend", keys: ["performanceSpend"] },
+  { label: "Cycle time", keys: ["cycleTime"] },
+  { label: "Cross-analysis anomalies", keys: ["actionDashboard"] },
+  { label: "Methodology", keys: ["methodology"] },
 ];
 
 const TONE_LABELS: Record<ReportTone, string> = {
@@ -34,6 +65,37 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
     <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
       {children}
     </h4>
+  );
+}
+
+/** A radio row with a label + a small hint line. */
+function RadioRow({
+  name,
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  name: string;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input
+        type="radio"
+        name={name}
+        checked={checked}
+        onChange={onChange}
+        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+      />
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span>{label}</span>
+        {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+      </span>
+    </label>
   );
 }
 
@@ -55,7 +117,7 @@ function Check({
         checked={checked}
         disabled={disabled}
         onChange={onChange}
-        className="h-4 w-4 accent-primary"
+        className="h-4 w-4 accent-primary disabled:opacity-50"
       />
       <span className={disabled ? "text-muted-foreground" : ""}>{label}</span>
     </label>
@@ -66,6 +128,8 @@ export function ReportEditorSidebar({
   config,
   onConfigChange,
   periods,
+  supplierOptions,
+  allCategories,
   canSave,
   saving,
   onSave,
@@ -76,6 +140,8 @@ export function ReportEditorSidebar({
   config: ReportConfig;
   onConfigChange: (c: ReportConfig) => void;
   periods: PeriodOption[];
+  supplierOptions: SupplierOption[];
+  allCategories: string[];
   canSave: boolean;
   saving: boolean;
   onSave: () => void;
@@ -87,8 +153,48 @@ export function ReportEditorSidebar({
   const set = (patch: Partial<ReportConfig>) =>
     onConfigChange({ ...config, ...patch });
 
+  const focus = config.focus;
   const isRange = config.period.mode === "range";
+  const brief = config.detailLevel === "brief";
   const selectCls = "rounded-md border bg-background px-2 py-1 text-sm w-full";
+
+  // Focus-kind change PRESERVES the last-picked supplier/category so toggling
+  // between kinds doesn't lose the selection.
+  const pickedSupplier = focus.kind === "supplier" ? focus.supplierId : "";
+  const pickedCategory = focus.kind === "category" ? focus.category : "";
+  const setFocusKind = (kind: FocusKind) => {
+    if (kind === "portfolio") set({ focus: { kind: "portfolio" } });
+    else if (kind === "supplier")
+      set({ focus: { kind: "supplier", supplierId: pickedSupplier } });
+    else set({ focus: { kind: "category", category: pickedCategory } });
+  };
+
+  // Supplier picker: search by name OR category; show name + category · spend.
+  const supplierMeta = new Map(
+    supplierOptions.map((s) => [s.id, { category: s.category, spend: s.spend }]),
+  );
+  const supplierCombo: ComboOption[] = supplierOptions.map((s) => ({
+    value: s.id,
+    label: s.name,
+    keywords: s.category ?? undefined,
+  }));
+  const categoryCombo: ComboOption[] = allCategories.map((c) => ({
+    value: c,
+    label: c,
+  }));
+
+  // In a supplier/category brief, the portfolio-wide evidence is hidden — only
+  // Methodology applies (the supplier/category tables render inline).
+  const evidenceOptions =
+    focus.kind === "portfolio"
+      ? EVIDENCE_OPTIONS
+      : EVIDENCE_OPTIONS.filter((e) => e.keys.includes("methodology"));
+
+  const toggleEvidence = (keys: SectionKey[], next: boolean) => {
+    const sections = { ...config.sections };
+    for (const k of keys) sections[k] = next;
+    set({ sections });
+  };
 
   // Single root whose WIDTH animates — the collapsed rail and the open panel must
   // be the same element for the CSS transition to run.
@@ -108,7 +214,7 @@ export function ReportEditorSidebar({
   }
 
   return (
-    <aside className="sticky top-0 flex h-[calc(100vh-2rem)] w-[230px] shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r transition-[width] duration-150 ease-out">
+    <aside className="sticky top-0 flex h-[calc(100vh-2rem)] w-[248px] shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r transition-[width] duration-150 ease-out">
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-sm font-semibold">Report settings</span>
         <Button
@@ -122,9 +228,72 @@ export function ReportEditorSidebar({
       </div>
 
       <div className="flex flex-col gap-5 p-3">
-        {/* Period */}
+        {/* ① Focus */}
         <section className="space-y-2">
-          <GroupLabel>Period</GroupLabel>
+          <GroupLabel>What&rsquo;s it about?</GroupLabel>
+          {FOCUS_OPTIONS.map((f) => (
+            <RadioRow
+              key={f.kind}
+              name="reportFocus"
+              checked={focus.kind === f.kind}
+              onChange={() => setFocusKind(f.kind)}
+              label={f.label}
+              hint={f.hint}
+            />
+          ))}
+          {focus.kind === "supplier" && (
+            <div className="pl-6 pt-0.5">
+              <TypeableCombobox
+                aria-label="Choose a supplier"
+                value={pickedSupplier}
+                onChange={(id) => set({ focus: { kind: "supplier", supplierId: id } })}
+                options={supplierCombo}
+                placeholder="Search suppliers…"
+                maxVisible={40}
+                emptyText={
+                  supplierOptions.length
+                    ? "No matches"
+                    : "Select a period to load suppliers"
+                }
+                renderOption={(o) => {
+                  const m = supplierMeta.get(o.value);
+                  const sub = [
+                    m?.category,
+                    m && m.spend > 0 ? formatCompactCurrency(m.spend) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate">{o.label}</span>
+                      {sub && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {sub}
+                        </span>
+                      )}
+                    </div>
+                  );
+                }}
+              />
+            </div>
+          )}
+          {focus.kind === "category" && (
+            <div className="pl-6 pt-0.5">
+              <TypeableCombobox
+                aria-label="Choose a category"
+                value={pickedCategory}
+                onChange={(c) => set({ focus: { kind: "category", category: c } })}
+                options={categoryCombo}
+                placeholder="Search categories…"
+                emptyText="No matches"
+              />
+            </div>
+          )}
+        </section>
+
+        {/* ② Period */}
+        <section className="space-y-2">
+          <GroupLabel>Which period?</GroupLabel>
           <select
             value={config.period.mode}
             onChange={(e) =>
@@ -187,58 +356,77 @@ export function ReportEditorSidebar({
           )}
         </section>
 
-        {/* Detail level */}
+        {/* ③ Length */}
         <section className="space-y-2">
-          <GroupLabel>Detail</GroupLabel>
-          {(["brief", "standard", "detailed"] as DetailLevel[]).map((lvl) => (
-            <label key={lvl} className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="detailLevel"
-                checked={config.detailLevel === lvl}
-                onChange={() => set({ detailLevel: lvl })}
-                className="h-4 w-4 accent-primary"
-              />
-              <span className="capitalize">{lvl}</span>
-            </label>
-          ))}
-        </section>
-
-        {/* Sections */}
-        <section className="space-y-2">
-          <GroupLabel>Sections</GroupLabel>
-          <Check checked disabled label="Executive Summary" />
-          {SECTION_ORDER.map((s) => (
-            <Check
-              key={s}
-              checked={config.sections[s]}
-              onChange={() =>
-                set({
-                  sections: { ...config.sections, [s]: !config.sections[s] },
-                })
-              }
-              label={SECTION_LABELS[s]}
+          <GroupLabel>How long?</GroupLabel>
+          {LENGTH_OPTIONS.map((l) => (
+            <RadioRow
+              key={l.value}
+              name="reportLength"
+              checked={config.detailLevel === l.value}
+              onChange={() => set({ detailLevel: l.value })}
+              label={l.label}
+              hint={l.hint}
             />
           ))}
         </section>
 
-        {/* Tone */}
+        {/* ④ Attach evidence */}
         <section className="space-y-2">
-          <GroupLabel>Tone</GroupLabel>
-          {(["executive", "operational", "analytical"] as ReportTone[]).map(
-            (tn) => (
-              <label key={tn} className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="reportTone"
-                  checked={config.tone === tn}
-                  onChange={() => set({ tone: tn })}
-                  className="h-4 w-4 accent-primary"
-                />
-                {TONE_LABELS[tn]}
-              </label>
-            ),
+          <GroupLabel>Attach evidence</GroupLabel>
+          {brief ? (
+            <p className="text-[11px] text-muted-foreground">
+              An executive brief has no appendix. Choose Standard or Full to attach
+              supporting analysis.
+            </p>
+          ) : (
+            <>
+              {evidenceOptions.map((e) => {
+                const checked = e.keys.every((k) => config.sections[k]);
+                return (
+                  <Check
+                    key={e.label}
+                    checked={checked}
+                    onChange={() => toggleEvidence(e.keys, !checked)}
+                    label={e.label}
+                  />
+                );
+              })}
+              {focus.kind !== "portfolio" && (
+                <p className="text-[11px] text-muted-foreground">
+                  The {focus.kind === "supplier" ? "supplier" : "category"}&rsquo;s own
+                  evidence (items, POs, trajectory) is included inline.
+                </p>
+              )}
+            </>
           )}
+        </section>
+
+        {/* Draft voice (demoted) */}
+        <section className="space-y-2 border-t pt-4">
+          <GroupLabel>Draft voice</GroupLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {(["executive", "operational", "analytical"] as ReportTone[]).map(
+              (tn) => {
+                const active = config.tone === tn;
+                return (
+                  <button
+                    key={tn}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => set({ tone: tn })}
+                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "hover:bg-muted"
+                    }`}
+                  >
+                    {TONE_LABELS[tn]}
+                  </button>
+                );
+              },
+            )}
+          </div>
         </section>
       </div>
 
