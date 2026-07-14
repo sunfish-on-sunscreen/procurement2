@@ -598,11 +598,15 @@ function categoryMeta(
 function CategoryRow({
   cat,
   count,
+  population,
   meta,
   onSupplier,
 }: {
   cat: RecommendationCategory;
   count: number;
+  /** Full population for a top-5-capped category; when it exceeds `count`, the row
+   *  reads "count of population" so it reconciles with the Classification page. */
+  population?: number;
   meta: CategoryMeta;
   onSupplier?: (id: string) => void;
 }) {
@@ -621,7 +625,16 @@ function CategoryRow({
       {meta.metric && (
         <span className="truncate text-xs text-muted-foreground">{meta.metric}</span>
       )}
-      <span className="ml-auto font-mono text-xs text-muted-foreground">{count}</span>
+      <span
+        className="ml-auto font-mono text-xs text-muted-foreground"
+        title={
+          population != null && population > count
+            ? `Top ${count} shown of ${population} in this zone`
+            : undefined
+        }
+      >
+        {population != null && population > count ? `${count} of ${population}` : count}
+      </span>
       {canExpand ? (
         <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       ) : meta.href ? (
@@ -694,12 +707,16 @@ function CategoryRow({
 function WhereToAct({
   recommendations,
   byCat,
+  population,
   narrative,
   insights,
   onSupplier,
 }: {
   recommendations: Recommendation[];
   byCat: Record<RecommendationCategory, number>;
+  /** For the top-5-capped categories only: the full zone/quadrant population, so
+   *  the row can read "5 of 12" instead of a misleading "5". */
+  population: Partial<Record<RecommendationCategory, number>>;
   narrative: RecommendationsNarrative | undefined;
   insights: Record<"spend" | "suppliers" | "process", string | null>;
   onSupplier?: (id: string) => void;
@@ -739,6 +756,7 @@ function WhereToAct({
                       key={cat}
                       cat={cat}
                       count={byCat[cat] ?? 0}
+                      population={population[cat]}
                       meta={categoryMeta(cat, of(cat), narrative)}
                       onSupplier={onSupplier}
                     />
@@ -1166,6 +1184,29 @@ export function ActionDashboardView({
   const narrative = summary_stats.narrative;
   const byCat = summary_stats.by_category;
 
+  // The three zone/quadrant recommendation lists are capped at the top 5 in the
+  // compute layer, so their `byCat` count is ≤ 5 even when the underlying pool is
+  // larger — which contradicted the Classification page (e.g. the Critical Issues
+  // zone shows 12 there but "5" here). Surface the full population so the card
+  // reads "5 of 12". Only these three are capped; every other category (Critical
+  // Spend = all A-tier, Concentration, Tail, Process, Slow stage) already shows a
+  // complete count, so they get no "of M".
+  const cappedPopulation = useMemo(() => {
+    let criticalIssues = 0;
+    let hiddenGems = 0;
+    let bottleneck = 0;
+    for (const s of perf?.suppliers ?? []) {
+      if (s.zone === "Critical Issues") criticalIssues++;
+      else if (s.zone === "Hidden Gems") hiddenGems++;
+      if (s.kraljic_quadrant === "Bottleneck") bottleneck++;
+    }
+    return {
+      critical_issues_engagement: criticalIssues,
+      hidden_gems_promotion: hiddenGems,
+      bottleneck_risk: bottleneck,
+    } as Partial<Record<RecommendationCategory, number>>;
+  }, [perf]);
+
   // ---- In-place supplier detail (one modal, three analysis tabs) ----------- //
   const canDrill = !!(perf && startDate && endDate);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
@@ -1302,6 +1343,7 @@ export function ActionDashboardView({
       <WhereToAct
         recommendations={recommendations}
         byCat={byCat}
+        population={cappedPopulation}
         narrative={narrative}
         insights={insights}
         onSupplier={onWhereToActSupplier}
