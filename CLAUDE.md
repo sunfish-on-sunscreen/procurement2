@@ -8,17 +8,24 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
 > do not trust this section for the latest state. **Last doc update: 2026-07-14
-> (session handoff). Since the 2026-07-13 batch: (1) REPORTS REWRITTEN decision-first
-> (headline → situation → findings → P1/P2/P3 action table → worth watching → appendix;
-> grouped rec cards removed; `lib/report-narrative.ts` is the argument model;
-> `generateExecutiveSummary` dropped — see "REPORTS REWRITE"); (2) PDF export = native
-> `window.print()` + `@media print` (html2canvas/jspdf removed; embedded report charts
-> STACK); (3) app copy DE-BRANDED to "we/our/your" (no "Adaro"); logins now
-> admin@mail.com / viewer@mail.com. Plus the 2026-07-13 CRUD rework, Action Priorities
-> redesign, temporal period-awareness, and Supplier Selection removal. ⚠️ **See the new
-> "KNOWN OPEN ITEMS (handoff — 2026-07-14)" block below** — report settings panel is the
-> NEXT job; also the `.head(15)` outlier cap, `country_distance` holes, and dead
-> `single_source_risk`. Run `git log` for the latest.**
+> (report settings-panel rebuild). The NEW work since the decision-first rewrite:
+> the REPORT SETTINGS PANEL was rebuilt around FOUR QUESTIONS (Focus / Period /
+> Length / Attach evidence + a demoted Draft voice), and a Focus → one supplier now
+> renders a SUPPLIER BRIEF (+ Focus → one category a deep-dive) — see the new "REPORT
+> SETTINGS PANEL REBUILT" block below. The old ~30-control panel that configured a
+> table dump is GONE (dead recommendation/category filters + scope + Quick-View pills
+> + Saved views all removed; −614 lines in stage 1 alone). ⚠️ **Two standing rules
+> came out of it — see "REPORT SETTINGS PANEL REBUILT": (a) the PARTIAL-YEAR TRAP is
+> now a NAMED recurring trap (3rd sighting), and (b) the supplier brief / category
+> deep-dive are PRINT-SAFE BY CONSTRUCTION (no charts/canvas).** Before this: (1)
+> REPORTS REWRITTEN decision-first (`lib/report-narrative.ts` argument model;
+> `generateExecutiveSummary` dropped); (2) PDF = native `window.print()` + `@media
+> print`; (3) app copy DE-BRANDED, logins admin@mail.com / viewer@mail.com. Plus the
+> 2026-07-13 CRUD rework, Action Priorities redesign, temporal period-awareness,
+> Supplier Selection removal. ⚠️ **See "KNOWN OPEN ITEMS (handoff — 2026-07-14)"** —
+> the panel is DONE; still open: the `.head(15)` outlier cap, `country_distance`
+> holes, dead `single_source_risk`, and the now-orphaned `ReportPreset` model/table.
+> Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -83,13 +90,15 @@ data/numbers, calmer layout.
 A consolidated punch-list for the next session. None block the app; all recorded so
 nothing is lost across the migration.
 
-- **⚠️ NEXT JOB — the report SETTINGS PANEL is untouched.** `ReportEditorSidebar` is
-  still the old ~30-control version (section toggles, 8 recommendation-category
-  checkboxes, Top-N, ~14 category filters, per-section filter scope, Quick Views). The
-  report DOCUMENT was rewritten decision-first (see "REPORTS REWRITE"), but the sidebar
-  that drives it was NOT — it still exposes controls the new argument model largely
-  ignores (e.g. the recommendation-category filter no longer affects the action table).
-  Bringing the sidebar in line with the decision-first report is the next job.
+- **✅ DONE — the report SETTINGS PANEL was rebuilt** (the four-question panel + the
+  supplier brief / category deep-dive; see "REPORT SETTINGS PANEL REBUILT" below).
+  The old ~30-control table-dump panel is gone. **No longer the next job.**
+- **⚠️ Orphaned `ReportPreset` model + table** — the Saved-views UI + the
+  `/api/report-presets` routes were deleted in the rebuild, but the Prisma
+  `ReportPreset` model + its DB table remain (migration `add_report_preset`). Drop
+  them in a future migration (Prisma 7 `migrate dev` is interactive — author the SQL
+  via `migrate diff … --script` then `migrate deploy`, per the gotcha below). NOT YET
+  DROPPED; harmless (nothing reads it).
 - **⚠️ Outlier list silently truncated by `.head(15)`** (`python/compute_analyses.py:478`,
   the `cycle_time` emitter): the z>2 outlier set is capped at the top 15 POs by z desc.
   On the current data **24 POs / 14 suppliers actually exceed z>2, but the app shows
@@ -118,7 +127,96 @@ nothing is lost across the migration.
 - **Phase 10 polish → v1.0** (see "Next / parked"): loading states, error boundaries,
   mobile responsive, README, smoke test.
 
-### ACTION PRIORITIES REDESIGN (2026-07-13, latest) — ANALYSIS-PAGE LANGUAGE, ONE ANOMALY TABLE
+### REPORT SETTINGS PANEL REBUILT (2026-07-14, latest) — FOUR QUESTIONS + SUPPLIER BRIEF / CATEGORY DEEP-DIVE
+
+**The report SETTINGS PANEL was rebuilt around the FOUR QUESTIONS the decision-first
+report actually answers, and Focus → one supplier now renders a SUPPLIER BRIEF (Focus →
+one category a deep-dive).** The old ~30-control panel configured a TABLE DUMP; the
+report is an ARGUMENT, so most of those controls were dead or appendix-only. Shipped in
+5 staged commits (`b3ec5d8` config strip → `cf5c0b5` panel → `5812f88` assembler →
+`0f25e3d` render → docs). **The key audit finding: the argument (`renderReportArgument`)
+reads ONLY the analyses + tone — so NO filter or section toggle could ever change a
+finding.** −614 lines in stage 1 alone.
+
+- **The four-question panel** (`ReportEditorSidebar`, full rewrite): ① **Focus** —
+  The portfolio (default) / One supplier / One category, with a **searchable
+  `TypeableCombobox`** picker (supplier options show name + category + span-scoped
+  spend, built from the loaded `performance_spend` suppliers; category lists all).
+  ② **Period** (unchanged). ③ **Length** — the `detailLevel` radios relabelled
+  Executive brief / Standard / Full (brief = decision-only, NO appendix). ④ **Attach
+  evidence** — the appendix `sections` as SIX checkboxes (Spend & ABC toggle together;
+  "Cross-analysis anomalies" = the `actionDashboard` block), disabled at brief; in
+  supplier/category focus ONLY Methodology shows (the subject's own evidence renders
+  inline). Plus **Draft voice** demoted to a small pill row (it only sets the prose
+  register). `FilterStatusStrip` now reads `focus · length · voice`.
+- **CUT (dead or leaked-in dashboard behaviour):** `recommendationFilters` (categories
+  + Top-N — never read by the rewritten report), `filters` + `filterScope` (category
+  row-filter — appendix-only, never changed a finding), Quick-View pills
+  (`lib/report-pills.ts` DELETED), Saved views + the `/api/report-presets` routes
+  (DELETED; the `ReportPreset` model/table remain — see KNOWN OPEN ITEMS).
+  `ReportConfig` lost those three fields + gained `focus`. **`normalizeReportConfig`**
+  maps OLD persisted configs → portfolio focus + drops the dead fields (backward
+  compat; verified an old report still renders).
+- **Focus rendering (`ReportDocument` branches on `config.focus`):** portfolio keeps
+  the argument UNCHANGED; supplier → `renderSupplierBrief`, category →
+  `renderCategoryDeepDive` (both in `lib/report-narrative.ts`, same 3 tone registers).
+  - **Supplier brief** = a document you read on the way to a meeting: a **DERIVED
+    headline** (branches on the supplier's ZONE, so a Star, a Critical-Issues, and a
+    Hidden-Gem supplier get genuinely different opening sentences), situation in prose,
+    "What's flagged" in plain language (process flags / lens disagreement / temporal
+    move — NO S/P/R codes), "What you buy" (item breakdown), "Trajectory" (what moved +
+    what it means), "The conversation" (what to say). Item + trajectory TABLES append at
+    Standard/Full; Methodology per the checkbox.
+  - **Category deep-dive** = concentration headline + who-leads/performance situation +
+    a supplier comparison table + a resilience/engagement recommendation.
+- **`lib/report-focus.ts` (NEW, server-only) — the read-only assembler.** A supplier
+  brief needs two per-supplier cuts the analyses don't carry: the **item breakdown**
+  and the **YoY trajectory**. `assembleSupplierFocus(id, start, end)` runs the SAME
+  queries the modal's `spend-detail` (byItem) + `evolution` routes run, WITHOUT touching
+  them (no recompute; identity/position/anomaly/rec come from the analyses the report
+  already has). ⚠️ **VERIFIED `diffCount: 0`** against the UnifiedSupplierDetailModal for
+  Sandvik — matched to the cent, down to identical float artifacts. Types in
+  `lib/report-focus-types.ts` (client-safe: `SupplierFocusData` / `ReportFocusData`).
+- **Wiring (server-assembled → PDF-safe):** the persisted `/reports/[id]` page assembles
+  the focus data SERVER-SIDE; the editor fetches **`/api/reports/focus`** SEPARATELY from
+  the analyses (keyed on supplier+span) so a focus change doesn't refetch the whole
+  payload. `supplierCategory` returns to `ReportDocument` for the category view.
+
+> ⚠️ **THREE DATA-HONESTY GUARDS — a NAMED RECURRING TRAP, found by reading the brief's
+> own output before shipping. Check for these BY DEFAULT in any new narrative:**
+> 1. **THE PARTIAL-YEAR TRAP** (⚠️ **STANDING RULE** — this is now the THIRD sighting:
+>    the temporal anomaly family, the report's temporal section, and now the brief's
+>    trajectory). **A stub year (e.g. 2026 = ~24 invoices) must be SET ASIDE from ANY
+>    trend, never reported as a "−72% collapse".** The brief guards via
+>    `TRAJECTORY_PARTIAL_FRACTION = 0.5` (a trailing year under half the prior year's
+>    spend is dropped from the trend + noted). **Any year-over-year comparison must guard
+>    against the partial year — assume it's there until you've checked.**
+> 2. **MEDIAN-RELATIVE vs ABSOLUTE.** A $3.1M supplier can be a "Star" (above the spend
+>    MEDIAN) yet is NOT "high-spend" in absolute terms. **Never describe a median-relative
+>    position in absolute language** — the brief's headline gates "high-spend" on
+>    `genuinelyLarge = spendPct ≥ 5 || rank ≤ 10`, else "performs well for what you spend".
+> 3. **SUB-1% SHARES render "<1%", never "0%"** (`sharePct` helper) — the long tail is
+>    genuinely <1%, not zero.
+
+> ⚠️ **PRINT-SAFE BY CONSTRUCTION.** The supplier brief + category deep-dive contain **NO
+> charts and NO `<canvas>`** — pure text + `<table>` + prose. So they print correctly by
+> construction (native `window.print()` + `@media print`; `pdf-page-break` on every
+> section, `.no-print` chrome hidden, real selectable text). **⚠️ Before adding a chart to
+> either, remember the Recharts-in-a-hidden-container bug** (the reason embedded report
+> charts must STACK, not tab) — a chart here would reintroduce that risk. The PORTFOLIO
+> report keeps its 15 vector Recharts SVGs (no canvas either).
+
+- **⚠️ VERIFIED (2026-07-14).** Three genuinely different headlines: Liebherr (Critical
+  Issues) "…clearest underperforming exposures — $62.1M (11%) … scoring 72 against the
+  78-point median", United Tractors (Stars) "…high-spend supplier that delivers — $64.2M …
+  A relationship to protect", Cipta Krida Bahari (Hidden Gems) "…punching above its
+  weight — 89 on just $0.5M (<1% of spend)". **Persisted round-trip PASSES** (saved a
+  single-year supplier brief → `/reports/[id]` → server-assembled focus renders the
+  identical brief incl. item breakdown + trajectory). PDF-safe on all 3 focus modes
+  (0 canvas everywhere). Regressions HELD: Process Health **11/2/35**, AP hub
+  **46/36/11/18**, portfolio report byte-identical. tsc + ESLint clean.
+
+### ACTION PRIORITIES REDESIGN (2026-07-13) — ANALYSIS-PAGE LANGUAGE, ONE ANOMALY TABLE
 
 **Action Priorities was rebuilt in the calm, spacious design language of the analysis
 pages (Process Health = the reference).** ⚠️ **PRESENTATION ONLY — NO lib/compute/
@@ -1666,12 +1764,18 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
   unique would not enforce uniqueness (Postgres NULLs are distinct).
 - **Range results are cached** in `AnalysisResult` (computed once, then read);
   the range cache (`periodId IS NULL` rows) is **invalidated on re-upload**.
-- **Reports use `ReportConfig`** (`lib/report-config.ts`): 5 customization layers
-  (period, sections, recommendation filters, detail level, category filter
-  with per-section scope) + **3 tones** (executive/operational/analytical).
-- **Filter philosophy = visibility-only**: filters hide rows; narratives stay
-  full-population with a caveat (no recompute). **Tone variants are applied at
-  RENDER time** (`ReportDocument` picks `TEMPLATES[tone][section]`), not baked.
+- **Reports use `ReportConfig`** (`lib/report-config.ts`): ⚠️ **REBUILT 2026-07-14 to
+  FOUR fields** — `focus` (portfolio / supplier / category), `period`, `detailLevel`
+  (brief/standard/detailed = the "Length" question), `sections` (the appendix
+  "Attach evidence" toggles) + **3 tones** (the demoted "Draft voice"). The old
+  `recommendationFilters` / `filters` / `filterScope` fields were REMOVED (dead /
+  appendix-only). See "REPORT SETTINGS PANEL REBUILT". `normalizeReportConfig` maps
+  old persisted configs forward.
+- **Tone variants are applied at RENDER time** (`ReportDocument` picks
+  `TEMPLATES[tone][section]` for the appendix; the argument + brief prose are
+  tone-aware in `lib/report-narrative.ts`), not baked. *(The old "filter philosophy =
+  visibility-only" row-hiding is GONE with the category filter — the appendix renders
+  the full population.)*
 - **Single-year reports persist** (`ExecutiveSummary` + `/api/reports/generate`);
   **range reports are never saved** — they render live in the editor at `/reports/preview`
   (`ReportEditor` fetching `/api/reports/analyses`). *(The old `generate-ephemeral` route +
@@ -1703,13 +1807,20 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 ### Key files added in 11F
 - `scripts/transform_dataset.py` — one-off dataset transformer (DQ fixes, seed 42).
 - `scripts/migrate-period-tags.ts` — re-tag purchases by invoice year (reversible: `--by=pr`).
-- `lib/report-config.ts` — `ReportConfig` type, defaults, filter helpers.
+- `lib/report-config.ts` — `ReportConfig` type (focus/period/length/sections/tone),
+  defaults + `normalizeReportConfig` (rebuilt 2026-07-14).
+- `lib/report-narrative.ts` — the argument model + `renderSupplierBrief` /
+  `renderCategoryDeepDive` (the Focus-mode prose).
+- `lib/report-focus.ts` (server-only) + `lib/report-focus-types.ts` (client-safe) —
+  the read-only supplier-focus assembler (item breakdown + trajectory).
 - `lib/range-analyses.ts` — `getRangeAnalyses()` cache-or-compute helper.
 - `lib/suppliers.ts` — `getSupplierCategoryMap()` / `getCategories()`.
-- `components/Reports/ReportDocument.tsx` — shared config + tone-driven report renderer.
+- `components/Reports/ReportDocument.tsx` — shared config + tone-driven report renderer
+  (branches on `config.focus`: portfolio argument / supplier brief / category deep-dive).
 - ⚠️ `CustomizeReportModal.tsx` + `ReportGenerator.tsx` **NO LONGER EXIST** — the report
-  UI is now the always-on `components/Reports/ReportEditor.tsx` + `ReportEditorSidebar.tsx`
-  (the sidebar carries the 5-layer + tone customization inline; there is no launcher modal).
+  UI is the always-on `components/Reports/ReportEditor.tsx` + `ReportEditorSidebar.tsx`
+  (rebuilt 2026-07-14 into the FOUR-QUESTION panel; no launcher modal). ⚠️
+  `lib/report-pills.ts` + `app/api/report-presets/*` were also DELETED in that rebuild.
 - ⚠️ `app/api/reports/generate-ephemeral/route.ts` — **DELETED 2026-07-13** (was dead code;
   the editor's range preview uses `/api/reports/analyses`). The `EPHEMERAL_KEY` /
   `sessionStorage` hand-off it implied is gone too.
