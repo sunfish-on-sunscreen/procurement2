@@ -8,12 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 type CardMeta = {
   key: CycleFlagKey;
   title: string;
-  color: string; // semantic CSS token — used only as a small dot accent
-  icon: React.ComponentType<{ className?: string }>;
+  color: string; // semantic CSS token — colours the icon
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 };
 
-// Muted/neutral cards: identity carried by icon + label + a small colour dot
-// (never colour alone). Colour is a subtle accent, not a loud warn/danger fill.
+// Muted/neutral cards: identity carried by a COLOURED icon + label (the flag's
+// token colours the icon itself — the same colour used for this flag in the
+// roster chips and on Action Priorities). No separate dot; the icon carries it.
 const CARDS: CardMeta[] = [
   { key: "has_outlier", title: "Has outlier POs", color: "var(--warning)", icon: Timer },
   { key: "inconsistent", title: "Inconsistent", color: "var(--primary)", icon: Activity },
@@ -58,8 +59,7 @@ function AnomalyCard({
         aria-disabled="true"
       >
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
-          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Icon className="size-[18px] shrink-0 text-muted-foreground" />
           <span className="text-sm font-medium text-muted-foreground">{meta.title}</span>
           <span className="ml-auto text-lg font-semibold tabular-nums text-muted-foreground">0</span>
         </div>
@@ -79,8 +79,7 @@ function AnomalyCard({
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meta.color }} />
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <Icon className="size-[18px] shrink-0" style={{ color: meta.color }} />
         <span className="text-sm font-medium">{meta.title}</span>
         <span className="ml-auto text-lg font-semibold tabular-nums">{count}</span>
       </div>

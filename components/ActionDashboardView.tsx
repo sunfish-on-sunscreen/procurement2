@@ -5,11 +5,14 @@ import Link from "next/link";
 import {
   ArrowRight,
   ChevronDown,
+  DollarSign,
+  Gauge,
+  GitBranch,
   Loader2,
-  Scale,
-  Timer,
+  Settings,
   TrendingUp,
   TriangleAlert,
+  Users,
 } from "lucide-react";
 import type {
   RecommendationsResult,
@@ -84,6 +87,18 @@ const intFmt = new Intl.NumberFormat("en-US");
 const PROCESS_ACCENT = "var(--warning)"; // amber — process (cycle execution)
 const CLASS_ACCENT = "var(--zone-hidden-gems)"; // violet — lens disagreement
 const TEMPORAL_ACCENT = "var(--temporal)"; // cyan — changed over time
+
+// One icon per "Where to act" group, coloured with the group's own token (same
+// var the title uses) — icon + colour reinforce the section, they don't replace
+// the colour. Icons live at the GROUP level; the per-category rows keep their dots.
+const GROUP_ICON: Record<
+  "spend" | "suppliers" | "process",
+  React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+> = {
+  spend: DollarSign,
+  suppliers: Users,
+  process: Settings,
+};
 
 type DetailTab = "classification" | "spend" | "process";
 
@@ -736,9 +751,11 @@ function WhereToAct({
           {ACTION_GROUPS.map((group) => {
             const groupCount = group.categories.reduce((n, c) => n + (byCat[c] ?? 0), 0);
             const insight = insights[group.id];
+            const GroupIcon = GROUP_ICON[group.id];
             return (
               <div key={group.id} className="flex flex-col rounded-lg border bg-card/40 p-3">
                 <div className="flex items-center gap-2">
+                  <GroupIcon className="size-[18px] shrink-0" style={{ color: group.colorVar }} />
                   <span className="text-sm font-semibold" style={{ color: group.colorVar }}>
                     {group.title}
                   </span>
@@ -786,7 +803,7 @@ function FamilyCard({
   disabled,
   onSelect,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   color: string;
   label: string;
   count: number;
@@ -798,11 +815,10 @@ function FamilyCard({
   const inner = (
     <>
       <div className="flex items-center gap-2">
-        <span
-          className="h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: disabled ? "var(--muted-foreground)" : color, opacity: disabled ? 0.4 : 1 }}
+        <Icon
+          className={cn("size-[18px] shrink-0", disabled && "text-muted-foreground")}
+          style={disabled ? undefined : { color }}
         />
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className={cn("text-sm font-medium", disabled && "text-muted-foreground")}>{label}</span>
         <span className={cn("ml-auto text-lg font-semibold tabular-nums", disabled && "text-muted-foreground")}>
           {count}
@@ -1119,7 +1135,7 @@ function CrossAnalysisAnomalies({
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <FamilyCard
-              icon={Timer}
+              icon={Gauge}
               color={PROCESS_ACCENT}
               label="Process"
               count={process.flaggedCount}
@@ -1129,7 +1145,7 @@ function CrossAnalysisAnomalies({
               onSelect={() => onSelectFamily("process")}
             />
             <FamilyCard
-              icon={Scale}
+              icon={GitBranch}
               color={CLASS_ACCENT}
               label="Lens disagreement"
               count={classification.flaggedCount}
