@@ -744,19 +744,6 @@ export default async function MethodologyPage() {
             </ul>
             <div>
               <h4 className="text-sm font-semibold text-foreground">
-                The outlier list is truncated for display
-              </h4>
-              <p className="mt-1">
-                The z-score outlier list is capped at <strong>15 POs</strong>, ranked
-                by z descending. On the full range, <strong>24 POs across 14
-                suppliers</strong> actually exceed the 2σ threshold — the dashboard
-                shows 15 POs across 11 suppliers. Anyone who recomputes the count by
-                hand will get 14 suppliers and be right; the dashboard is showing the
-                top of the list, not all of it.
-              </p>
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-foreground">
                 The two country lists are inconsistent
               </h4>
               <p className="mt-1">

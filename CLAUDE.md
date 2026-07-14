@@ -23,9 +23,24 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > print`; (3) app copy DE-BRANDED, logins admin@mail.com / viewer@mail.com. Plus the
 > 2026-07-13 CRUD rework, Action Priorities redesign, temporal period-awareness,
 > Supplier Selection removal. ⚠️ **See "KNOWN OPEN ITEMS (handoff — 2026-07-14)"** —
-> the panel is DONE; still open: the `.head(15)` outlier cap, `country_distance`
-> holes, dead `single_source_risk`, and the now-orphaned `ReportPreset` model/table.
-> Run `git log` for the latest.**
+> the panel is DONE; still open: `country_distance` holes, dead
+> `single_source_risk`, and the now-orphaned `ReportPreset` model/table. Run
+> `git log` for the latest.**
+
+> ⚠️ **OUTLIER-CAP FIX (2026-07-14) — the Range Process Health baseline is now
+> `14/2/35`, NOT `11/2/35`.** The `.head(15)` cap in `compute_analyses.py`'s
+> `cycle_time` emitter was REMOVED — it silently truncated the z>2 outlier list to
+> the top 15 POs, so the Range showed 15 POs / **11** outlier suppliers when **24
+> POs / 14 suppliers** actually exceed 2σ. The count + flagged-supplier set derive
+> from `cycle_time.anomalies` (via `lib/cycle-flags`), so removing the cap made
+> Process Health (Range) read **14/2/35** and the outlier PO count 15→24. ⚠️
+> **The AP hub `46/36/11/18` is UNCHANGED** — the 3 newly-surfaced outlier suppliers
+> were already stage-dominated (already in the 36-process union), so the union total
+> stays 36 and the hub total stays 46; only the process-family by-signal descriptor
+> moved (**Outlier 11 → Outlier 14**). Per-period counts unchanged (all were already
+> ≤15: 2024 12/10, 2025 13/10, 2026 0/0). Reports show Outlier 14 too. Recomputed via
+> the SAFE recipe (`compute_analyses.py --period-id` ×3 + clear the range cache).
+> **Historical `11/2/35` / "Outlier 11" mentions below predate this fix.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -77,7 +92,9 @@ data/numbers, calmer layout.
 3. **Build staged** — smallest safe increments; do the regression-sensitive part first.
 4. **Verify against LIVE data** — independently recompute the expected numbers +
    screenshot; treat any shared-code extraction as a REGRESSION SURFACE and re-verify
-   the source page (e.g. Process Health flags must stay 11/2/35 on the Range).
+   the source page (e.g. Process Health flags must stay **14/2/35** on the Range —
+   see the ⚠️ note below; this was 11/2/35 before the 2026-07-14 outlier-cap fix, and
+   most HISTORICAL "11/2/35" mentions in this file predate that fix).
 5. **HOLD before committing** — present the diff + verification and let the operator
    review; commit (and update this file) only on their go.
 6. **Standard gotchas** — the browser preview intermittently redirects to
@@ -99,12 +116,11 @@ nothing is lost across the migration.
   them in a future migration (Prisma 7 `migrate dev` is interactive — author the SQL
   via `migrate diff … --script` then `migrate deploy`, per the gotcha below). NOT YET
   DROPPED; harmless (nothing reads it).
-- **⚠️ Outlier list silently truncated by `.head(15)`** (`python/compute_analyses.py:478`,
-  the `cycle_time` emitter): the z>2 outlier set is capped at the top 15 POs by z desc.
-  On the current data **24 POs / 14 suppliers actually exceed z>2, but the app shows
-  15 POs / 11 suppliers** (Process Health "Has outlier POs" + the per-PO anomaly list).
-  The cap silently drops the tail — either raise/remove it or surface "showing top 15
-  of N". NOT YET FIXED. *(This is why Process Health's outlier count reads 11.)*
+- **✅ FIXED (2026-07-14) — the `.head(15)` outlier truncation.** The
+  `python/compute_analyses.py` `cycle_time` emitter now emits the COMPLETE z>2 set
+  (cap removed; the display paginates via "View all N"). Process Health (Range) went
+  **11/2/35 → 14/2/35** (outlier POs 15→24); AP hub `46/36/11/18` unchanged. See the
+  "OUTLIER-CAP FIX" note near the top. *(No longer an open item.)*
 - **⚠️ `country_distance_score` has list holes** (`python/scores.py:53-61`): ASEAN =
   `{SG,MY,TH,VN,PH}` → 30, Asia-Pacific = `{CN,JP,KR,AU,IN}` → 60, else → 100. So the
   ASEAN neighbours **BN/MM/LA/KH score 100** ("furthest"), and **NZ scores 100 while

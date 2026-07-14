@@ -468,14 +468,19 @@ def cycle_time_analysis(
 
     # --- Z-score anomalies (cycle time > 2σ above the mean) ------------- #
     # One-sided: slow outliers are the operational concern (right-skewed data,
-    # so z < -2 effectively never occurs). Top 15 by z, descending.
+    # so z < -2 effectively never occurs). Emit the COMPLETE z>2 set, z-descending
+    # — the supplier "Has outlier POs" flag count + the flagged-supplier roster are
+    # derived from this list (lib/cycle-flags), so it must be complete for those
+    # counts to be truthful; the display paginates ("View all N"). (A prior .head(15)
+    # cap silently dropped the tail — 24 POs / 14 suppliers exceed z>2 on the full
+    # range, not 15 / 11.)
     anomalies = []
     mean_c = float(c.mean()) if len(c) else 0.0
     std_c = float(c.std(ddof=1)) if len(c) > 1 else 0.0
     if std_c > 0:
         pz = p.copy()
         pz["_z"] = (pz["_cycle"] - mean_c) / std_c
-        flagged = pz[pz["_z"] > 2].sort_values("_z", ascending=False).head(15)
+        flagged = pz[pz["_z"] > 2].sort_values("_z", ascending=False)
         for _, r in flagged.iterrows():
             d = r["_date"]
             anomalies.append(
