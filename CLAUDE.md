@@ -7,13 +7,18 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
-> do not trust this section for the latest state. **Last doc update: 2026-07-13 —
-> (1) CRUD REWORK: supplier/purchase EDIT removed + CREATE now recomputes + honest
-> failures + timeout (see the "CRUD REWORK" banner in Critical gotchas); (2) Action
-> Priorities REDESIGNED into the analysis-page language (see "ACTION PRIORITIES
-> REDESIGN"); (3) hub temporal family now PERIOD-AWARE in both modes (see "TEMPORAL
-> PERIOD-AWARENESS"); (4) Supplier Selection REMOVED; 4 analytical pages. Code HEAD
-> as of this doc update: `3f40f62` (2026-07-13, CRUD rework). Run `git log` for the latest.**
+> do not trust this section for the latest state. **Last doc update: 2026-07-14
+> (session handoff). Since the 2026-07-13 batch: (1) REPORTS REWRITTEN decision-first
+> (headline → situation → findings → P1/P2/P3 action table → worth watching → appendix;
+> grouped rec cards removed; `lib/report-narrative.ts` is the argument model;
+> `generateExecutiveSummary` dropped — see "REPORTS REWRITE"); (2) PDF export = native
+> `window.print()` + `@media print` (html2canvas/jspdf removed; embedded report charts
+> STACK); (3) app copy DE-BRANDED to "we/our/your" (no "Adaro"); logins now
+> admin@mail.com / viewer@mail.com. Plus the 2026-07-13 CRUD rework, Action Priorities
+> redesign, temporal period-awareness, and Supplier Selection removal. ⚠️ **See the new
+> "KNOWN OPEN ITEMS (handoff — 2026-07-14)" block below** — report settings panel is the
+> NEXT job; also the `.head(15)` outlier cap, `country_distance` holes, and dead
+> `single_source_risk`. Run `git log` for the latest.**
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -72,6 +77,46 @@ data/numbers, calmer layout.
    `/spend-overview` (just re-navigate); stale HMR after new files/routes → cold-restart
    ONE fresh dev server (kill any zombie squatting on `:3000`); write commit messages via
    a Bash heredoc (`git commit -F - <<'EOF' … EOF`), NOT PowerShell here-strings.
+
+### KNOWN OPEN ITEMS (handoff — 2026-07-14)
+
+A consolidated punch-list for the next session. None block the app; all recorded so
+nothing is lost across the migration.
+
+- **⚠️ NEXT JOB — the report SETTINGS PANEL is untouched.** `ReportEditorSidebar` is
+  still the old ~30-control version (section toggles, 8 recommendation-category
+  checkboxes, Top-N, ~14 category filters, per-section filter scope, Quick Views). The
+  report DOCUMENT was rewritten decision-first (see "REPORTS REWRITE"), but the sidebar
+  that drives it was NOT — it still exposes controls the new argument model largely
+  ignores (e.g. the recommendation-category filter no longer affects the action table).
+  Bringing the sidebar in line with the decision-first report is the next job.
+- **⚠️ Outlier list silently truncated by `.head(15)`** (`python/compute_analyses.py:478`,
+  the `cycle_time` emitter): the z>2 outlier set is capped at the top 15 POs by z desc.
+  On the current data **24 POs / 14 suppliers actually exceed z>2, but the app shows
+  15 POs / 11 suppliers** (Process Health "Has outlier POs" + the per-PO anomaly list).
+  The cap silently drops the tail — either raise/remove it or surface "showing top 15
+  of N". NOT YET FIXED. *(This is why Process Health's outlier count reads 11.)*
+- **⚠️ `country_distance_score` has list holes** (`python/scores.py:53-61`): ASEAN =
+  `{SG,MY,TH,VN,PH}` → 30, Asia-Pacific = `{CN,JP,KR,AU,IN}` → 60, else → 100. So the
+  ASEAN neighbours **BN/MM/LA/KH score 100** ("furthest"), and **NZ scores 100 while
+  AU scores 60**. A one-line fix (extend the sets). **ZERO impact on current numbers** —
+  none of these countries appear in the data. NOT YET FIXED.
+- **⚠️ `single_source_risk` is DEAD CODE** — a raw soft-survey column wired to nothing.
+  `supply_concentration` replaced it (roster-derived); it feeds NO composite and NO
+  recommendation. The older "KEPT — feeds the AD bottleneck 'Single-source' string"
+  note is stale (no bottleneck rec references it). NOT YET REMOVED.
+- **The 2 stale-read surfaces** (detailed under "THE LAST OPEN DATA-INTEGRITY HOLE"):
+  the evolution-tab sub-score sparklines + the spend-detail composite "snapshot" read
+  the stored per-period `SupplierMetric`, which only refreshes on a FULL IMPORT — so
+  after a manual create/delete they lag, and a newly-CREATED supplier (Supplier row
+  only, no `SupplierMetric`) shows nothing on those two surfaces until a reimport.
+- **Not-yet-cleaned (trivial):** a test `ExecutiveSummary` row (`cmrj9064…`, a normal
+  2025 report created 2026-07-13 while verifying the report save round-trip) still sits
+  in the DB / reports list; and the 3 now-unused `TEMPLATES` methods
+  (`cover`/`keyFindings`/`recommendedPriorities`) remain in `lib/report-templates.ts`
+  (inert — pruning means editing the `SectionTemplates` type + all 3 tone objects).
+- **Phase 10 polish → v1.0** (see "Next / parked"): loading states, error boundaries,
+  mobile responsive, README, smoke test.
 
 ### ACTION PRIORITIES REDESIGN (2026-07-13, latest) — ANALYSIS-PAGE LANGUAGE, ONE ANOMALY TABLE
 
@@ -768,8 +813,11 @@ dropped from zod (`SuppliersRow`/`SupplierMetricsRow`), the route supplier mappi
 `data/raw/procurement_data_raw.xlsx`, and `Supplier.productDescription` (migration
 `20260706120000_drop_product_description`, **held/unapplied** — DB still has the
 column). ⚠️ **`unit` is KEPT** (Purchases sheet + `Purchase.unit` + spend-detail
-plumbing) and `single_source_risk` is KEPT (feeds the AD bottleneck "Single-source"
-string; no longer feeds any composite — D9 uses roster concentration). Sample file
+plumbing). ⚠️ **`single_source_risk` is DEAD CODE** — a raw soft-survey column wired
+to nothing (see the KNOWN OPEN ITEMS block near the top): `supply_concentration`
+replaced it, so it feeds NO composite (D9 uses roster concentration) and NO
+recommendation. *(The older "KEPT — feeds the AD bottleneck 'Single-source' string"
+claim was stale; no bottleneck rec references it.)* Sample file
 now **Suppliers 4 / Purchases 21 / SupplierMetrics 9**; imports byte-identically
 for the staying columns.
 
