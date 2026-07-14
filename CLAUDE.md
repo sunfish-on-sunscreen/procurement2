@@ -7,9 +7,13 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
 > decisions, NOT commit-by-commit progress. For "where are we", read the commits —
-> do not trust this section for the latest state. **Last doc update: 2026-07-14
-> (report settings-panel rebuild). The NEW work since the decision-first rewrite:
-> the REPORT SETTINGS PANEL was rebuilt around FOUR QUESTIONS (Focus / Period /
+> do not trust this section for the latest state. **Last doc update: 2026-07-14.
+> ⚠️ NEWEST: three data-integrity fixes + a Methodology honesty rewrite — the outlier
+> cap removed (`263d9f3`, PH Range now **14/2/35** not 11/2/35), `country_distance`
+> holes fixed (`e53eb6f`), `single_source_risk` dead code removed (`4e87ad0`), and the
+> Methodology page's HONEST-LIMITATIONS rewrite (`22b6b18`); see the ⚠️ OUTLIER-CAP +
+> DATA-INTEGRITY notes right below. Just before those, the REPORT SETTINGS PANEL was
+> rebuilt around FOUR QUESTIONS (Focus / Period /
 > Length / Attach evidence + a demoted Draft voice), and a Focus → one supplier now
 > renders a SUPPLIER BRIEF (+ Focus → one category a deep-dive) — see the new "REPORT
 > SETTINGS PANEL REBUILT" block below. The old ~30-control panel that configured a
@@ -26,8 +30,8 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > the panel is DONE; still open: the now-orphaned `ReportPreset` model/table + the
 > `recommendations.generated_at` reproducibility gap. Run `git log` for the latest.**
 
-> ⚠️ **OUTLIER-CAP FIX (2026-07-14) — the Range Process Health baseline is now
-> `14/2/35`, NOT `11/2/35`.** The `.head(15)` cap in `compute_analyses.py`'s
+> ⚠️ **OUTLIER-CAP FIX (2026-07-14, `263d9f3`) — the Range Process Health baseline is
+> now `14/2/35`, NOT `11/2/35`.** The `.head(15)` cap in `compute_analyses.py`'s
 > `cycle_time` emitter was REMOVED — it silently truncated the z>2 outlier list to
 > the top 15 POs, so the Range showed 15 POs / **11** outlier suppliers when **24
 > POs / 14 suppliers** actually exceed 2σ. The count + flagged-supplier set derive
@@ -40,6 +44,27 @@ data. Multi-user with auth, single organization, fixed analyses (no parameter tw
 > ≤15: 2024 12/10, 2025 13/10, 2026 0/0). Reports show Outlier 14 too. Recomputed via
 > the SAFE recipe (`compute_analyses.py --period-id` ×3 + clear the range cache).
 > **Historical `11/2/35` / "Outlier 11" mentions below predate this fix.**
+
+> ⚠️ **TWO MORE DATA-INTEGRITY FIXES + METHODOLOGY HONESTY (2026-07-14).** (a)
+> `country_distance_score` list holes FIXED (`e53eb6f`) — BN/MM/LA/KH → ASEAN(30),
+> NZ → Asia-Pacific(60); **byte-identical** (none of those countries are in the data).
+> (b) `single_source_risk` dead code removed (`4e87ad0`) — it was already gone from the
+> runtime (Prisma column dropped, import path clean, scores ignore it); only a BROKEN
+> offline log in `transform_dataset.py` remained. (c) The **METHODOLOGY page got an
+> HONEST-LIMITATIONS rewrite** (`22b6b18`): §8 now names the model's own weak spots —
+> the two Kraljic departures (spend≠profit-impact; 3 measurable proxies for a
+> qualitative axis), the two opposite "risks", the ghosts that don't fire on this data,
+> the no-α-gate caveat, 82% filter sensitivity, and the throttled sub-score halves — a
+> DEFENSE, not a spec. The outlier-truncation + country-holes limitation paragraphs were
+> then removed/reframed as those got fixed (Fix 1/2). All three fixes are ✅ in KNOWN
+> OPEN ITEMS below.
+
+> ⚠️ **DO NOT TRUST the two untracked `dashboard_*.md` files** (`dashboard_meeting_notes.md`
+> + `dashboard_audit_meeting_prep.md`) — STALE meeting-prep notes (dated 2026-06-28,
+> commit `2ad76cb`) that describe a **`tier`** concept and a **5-dimension / Service**
+> scoring model (weights 25/25/20/15/15), BOTH LONG REMOVED. They also cite Adaro. A cold
+> session must NOT trust them for current state — use THIS file + `git log`. They are
+> untracked (never committed) and safe to delete.
 
 > ⚠️ **`tier` (declared Core/Established/Standard) was REMOVED ENTIRELY in
 > `158849b`** — data, Prisma columns (`Supplier.tier` + `SupplierMetric.tier`,
@@ -115,12 +140,12 @@ nothing is lost across the migration.
   them in a future migration (Prisma 7 `migrate dev` is interactive — author the SQL
   via `migrate diff … --script` then `migrate deploy`, per the gotcha below). NOT YET
   DROPPED; harmless (nothing reads it).
-- **✅ FIXED (2026-07-14) — the `.head(15)` outlier truncation.** The
+- **✅ FIXED (2026-07-14, `263d9f3`) — the `.head(15)` outlier truncation.** The
   `python/compute_analyses.py` `cycle_time` emitter now emits the COMPLETE z>2 set
   (cap removed; the display paginates via "View all N"). Process Health (Range) went
   **11/2/35 → 14/2/35** (outlier POs 15→24); AP hub `46/36/11/18` unchanged. See the
   "OUTLIER-CAP FIX" note near the top. *(No longer an open item.)*
-- **✅ FIXED (2026-07-14) — `country_distance_score` list holes** (`python/scores.py`):
+- **✅ FIXED (2026-07-14, `e53eb6f`) — `country_distance_score` list holes** (`python/scores.py`):
   the ASEAN tier now lists all nine non-ID members (`{SG,MY,TH,VN,PH,BN,MM,LA,KH}` → 30)
   and `NZ` joins Asia-Pacific (`{CN,JP,KR,AU,NZ,IN}` → 60). India stays in Asia-Pacific
   (geographic) — its RCEP exit only affects `import_friction`'s trade-bloc scale, which
@@ -139,7 +164,7 @@ nothing is lost across the migration.
   byte-reproducible (same data in ≠ same raw JSON out) — a legitimate property to want
   if anyone verifies "same import → same analyses" by hashing. The other 5 analyses
   carry no timestamp and ARE byte-reproducible. Fix = drop/freeze the field.
-- **✅ FIXED (2026-07-14) — `single_source_risk` dead code removed.** A reader audit
+- **✅ FIXED (2026-07-14, `4e87ad0`) — `single_source_risk` dead code removed.** A reader audit
   found it was ALREADY gone from the runtime: the Prisma `SupplierMetric.singleSourceRisk`
   column was dropped in migration `20260706130000`, the import path (`import_compute.py`
   + the upload zod) doesn't reference it, and `scores.py`'s `compute_scores` ignores it
@@ -170,7 +195,7 @@ report actually answers, and Focus → one supplier now renders a SUPPLIER BRIEF
 one category a deep-dive).** The old ~30-control panel configured a TABLE DUMP; the
 report is an ARGUMENT, so most of those controls were dead or appendix-only. Shipped in
 5 staged commits (`b3ec5d8` config strip → `cf5c0b5` panel → `5812f88` assembler →
-`0f25e3d` render → docs). **The key audit finding: the argument (`renderReportArgument`)
+`0f25e3d` render → `377ad27` docs). **The key audit finding: the argument (`renderReportArgument`)
 reads ONLY the analyses + tone — so NO filter or section toggle could ever change a
 finding.** −614 lines in stage 1 alone.
 
