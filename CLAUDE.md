@@ -2002,6 +2002,21 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 
 ### Critical gotchas
 
+> ⚠️ **HIDDEN-PREVIEW-TAB ANIMATION THROTTLING — a phantom "stuck modal", not a bug.**
+> When the in-app browser/preview tab loses focus (`document.visibilityState ===
+> "hidden"`), the browser THROTTLES/FREEZES CSS animations. base-ui's `Dialog`
+> unmounts a *closed* dialog on `animationend` — which never fires while frozen — so a
+> dialog you just closed can LINGER in the DOM (`role="dialog"` still present, its
+> backdrop stuck at `opacity: 1` with `data-closed`, or a just-opened one frozen at
+> `data-open` `opacity: 0`). ⚠️ **This looks exactly like a stuck/broken modal or a
+> double-scrim, but it is an ARTIFACT of the throttling, not a real stuck-modal bug —
+> DON'T chase it.** Confirm by reading `document.visibilityState` (if `"hidden"`, the
+> exit animation is simply frozen); the React open-state is correct. Verify dialog
+> open/close by the state logic + atomic DOM presence (e.g. a ✕-click that *unmounts*
+> the element), not by watching the fade complete — animation completion is not
+> observable in a hidden tab. (Same root cause as the sidebar-width / TOC-scroll-spy
+> throttling notes elsewhere in this file.)
+
 > ⚠️ **CRUD REWORK (2026-07-13) — the four CRUD gotchas immediately below are
 > SUPERSEDED in the parts noted here; read this first.**
 > - **EDIT REMOVED (governance).** The supplier + purchase **PATCH handlers are
