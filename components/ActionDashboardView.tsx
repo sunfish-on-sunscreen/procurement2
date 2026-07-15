@@ -23,8 +23,8 @@ import type {
   KraljicQuadrant,
   PerformanceZone,
 } from "@/lib/analysis-types";
-import { ActionInsightPanel } from "@/components/ActionInsightPanel";
-import { buildInsight, type InsightKey, type InsightCtx } from "@/lib/action-insights";
+import { ActionInsightCard, firstTabOfGroup } from "@/components/ActionInsightCard";
+import { type InsightKey, type InsightCtx } from "@/lib/action-insights";
 import type {
   CycleBreakdown,
   CycleFlagKey,
@@ -98,15 +98,6 @@ const GROUP_ICON: Record<
   suppliers: Users,
   process: Settings,
 };
-
-// The token that colours an insight panel's header rule + title — the SAME token
-// as the card the panel opened from (category token / family accent).
-function accentForKey(key: InsightKey): string {
-  if (key === "process") return PROCESS_ACCENT;
-  if (key === "classification") return CLASS_ACCENT;
-  if (key === "temporal") return TEMPORAL_ACCENT;
-  return CATEGORY_COLOR_VAR[key];
-}
 
 type DetailTab = "classification" | "spend" | "process";
 
@@ -623,8 +614,7 @@ function CategoryRow({
   count,
   population,
   metric,
-  active,
-  onToggle,
+  onOpen,
 }: {
   cat: RecommendationCategory;
   count: number;
@@ -632,8 +622,8 @@ function CategoryRow({
    *  reads "count of population" so it reconciles with the Classification page. */
   population?: number;
   metric: string | null;
-  active: boolean;
-  onToggle: () => void;
+  /** Opens the group's floating insight card, pre-selected to this row's tab. */
+  onOpen: () => void;
 }) {
   const color = CATEGORY_COLOR_VAR[cat];
   const countLabel =
@@ -642,12 +632,8 @@ function CategoryRow({
     <li className="border-t first:border-t-0">
       <button
         type="button"
-        onClick={onToggle}
-        aria-expanded={active}
-        className={cn(
-          "w-full rounded-md px-2 py-1.5 text-left transition-colors",
-          active ? "bg-muted/60" : "hover:bg-muted/50",
-        )}
+        onClick={onOpen}
+        className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/50"
       >
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
@@ -663,9 +649,7 @@ function CategoryRow({
           >
             {countLabel}
           </span>
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            {active ? "Hide" : "View more →"}
-          </span>
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">View more →</span>
         </div>
       </button>
     </li>
@@ -678,9 +662,7 @@ function WhereToAct({
   population,
   narrative,
   insights,
-  openPanel,
-  onTogglePanel,
-  categoryPanel,
+  onOpenPanel,
 }: {
   recommendations: Recommendation[];
   byCat: Record<RecommendationCategory, number>;
@@ -689,11 +671,8 @@ function WhereToAct({
   population: Partial<Record<RecommendationCategory, number>>;
   narrative: RecommendationsNarrative | undefined;
   insights: Record<"spend" | "suppliers" | "process", string | null>;
-  openPanel: InsightKey | null;
-  onTogglePanel: (key: InsightKey) => void;
-  /** The open category insight panel (full-width, below the grid); null when the
-   *  open panel is a family or nothing is open. */
-  categoryPanel: React.ReactNode;
+  /** Opens the floating insight card on the given tab. */
+  onOpenPanel: (key: InsightKey) => void;
 }) {
   const of = (t: RecommendationCategory) => recommendations.filter((r) => r.type === t);
   return (
@@ -734,16 +713,21 @@ function WhereToAct({
                       count={byCat[cat] ?? 0}
                       population={population[cat]}
                       metric={categoryMeta(cat, of(cat), narrative).metric}
-                      active={openPanel === cat}
-                      onToggle={() => onTogglePanel(cat)}
+                      onOpen={() => onOpenPanel(cat)}
                     />
                   ))}
                 </ul>
+                <button
+                  type="button"
+                  onClick={() => onOpenPanel(firstTabOfGroup(group.id))}
+                  className="mt-2 self-end text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  View more →
+                </button>
               </div>
             );
           })}
         </div>
-        {categoryPanel}
       </CardContent>
     </Card>
   );
@@ -762,7 +746,6 @@ function FamilyCard({
   descriptor,
   active,
   disabled,
-  panelOpen,
   onSelect,
   onViewMore,
 }: {
@@ -773,7 +756,6 @@ function FamilyCard({
   descriptor: string;
   active: boolean;
   disabled: boolean;
-  panelOpen: boolean;
   onSelect: () => void;
   onViewMore: () => void;
 }) {
@@ -800,12 +782,12 @@ function FamilyCard({
     );
   }
   // Two explicit actions (a full-card button can't nest these): filter the roster
-  // below, or open the insight panel. The card highlights when either is active.
+  // below, or open the insight card. The card highlights while its filter is active.
   return (
     <div
       className={cn(
         "flex flex-col gap-2 rounded-lg border bg-muted/30 p-4 text-left transition-colors",
-        active || panelOpen ? "ring-2 ring-inset ring-foreground/40" : "",
+        active ? "ring-2 ring-inset ring-foreground/40" : "",
       )}
     >
       {body}
@@ -821,10 +803,9 @@ function FamilyCard({
         <button
           type="button"
           onClick={onViewMore}
-          aria-expanded={panelOpen}
           className="text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
         >
-          {panelOpen ? "Hide" : "View more →"}
+          View more →
         </button>
       </div>
     </div>
@@ -1034,9 +1015,7 @@ function CrossAnalysisAnomalies({
   temporal,
   activeFilter,
   onSelectFamily,
-  openPanel,
-  onTogglePanel,
-  familyPanel,
+  onOpenPanel,
 }: {
   hub: AnomalyHub | null;
   pending: boolean;
@@ -1044,10 +1023,8 @@ function CrossAnalysisAnomalies({
   temporal?: TemporalLoad | null;
   activeFilter: FamilyFilter | null;
   onSelectFamily: (f: FamilyFilter) => void;
-  openPanel: InsightKey | null;
-  onTogglePanel: (key: InsightKey) => void;
-  /** The open family insight panel (full-width, below the family-card grid). */
-  familyPanel: React.ReactNode;
+  /** Opens the anomalies insight card on the given family tab. */
+  onOpenPanel: (key: InsightKey) => void;
 }) {
   const header = (
     <CardHeader>
@@ -1126,9 +1103,8 @@ function CrossAnalysisAnomalies({
               descriptor={processDescriptor}
               active={activeFilter === "process"}
               disabled={process.flaggedCount === 0}
-              panelOpen={openPanel === "process"}
               onSelect={() => onSelectFamily("process")}
-              onViewMore={() => onTogglePanel("process")}
+              onViewMore={() => onOpenPanel("process")}
             />
             <FamilyCard
               icon={GitBranch}
@@ -1138,9 +1114,8 @@ function CrossAnalysisAnomalies({
               descriptor={classDescriptor}
               active={activeFilter === "classification"}
               disabled={classification.flaggedCount === 0}
-              panelOpen={openPanel === "classification"}
               onSelect={() => onSelectFamily("classification")}
-              onViewMore={() => onTogglePanel("classification")}
+              onViewMore={() => onOpenPanel("classification")}
             />
             <FamilyCard
               icon={TrendingUp}
@@ -1150,13 +1125,11 @@ function CrossAnalysisAnomalies({
               descriptor={tempDescriptor}
               active={activeFilter === "temporal"}
               disabled={tempDisabled}
-              panelOpen={openPanel === "temporal"}
               onSelect={() => onSelectFamily("temporal")}
-              onViewMore={() => onTogglePanel("temporal")}
+              onViewMore={() => onOpenPanel("temporal")}
             />
           </div>
         )}
-        {familyPanel}
       </CardContent>
     </Card>
   );
@@ -1333,8 +1306,8 @@ export function ActionDashboardView({
   const phrase = periodPhrase(startDate ?? "", endDate ?? "", !!isRangeMode);
   const tailRec = recommendations.find((r) => r.type === "tail_spend");
 
-  // ---- "View more →" insight panels — one open at a time, built from the data
-  //      already on this page (+ the server-loaded supplier→category map). ------ //
+  // ---- "View more →" tabbed floating insight card — one open at a time, built
+  //      from the data already on this page (+ the server-loaded category map). -- //
   const insightCtx = useMemo<InsightCtx>(
     () => ({
       recommendations,
@@ -1348,27 +1321,35 @@ export function ActionDashboardView({
     }),
     [recommendations, perf, kraljic, cycleTime, breakdown, hub, narrative, supplierCategory],
   );
-  const togglePanel = (key: InsightKey) => setOpenPanel((cur) => (cur === key ? null : key));
-  const openIsFamily =
-    openPanel === "process" || openPanel === "classification" || openPanel === "temporal";
-  const openModel = useMemo(
-    () => (openPanel ? buildInsight(openPanel, insightCtx) : null),
-    [openPanel, insightCtx],
+  // Per-tab count badges — the number each card/row already shows (population for
+  // the top-5-capped categories; flaggedCount for families).
+  const insightTabCounts = useMemo<Partial<Record<InsightKey, number>>>(
+    () => ({
+      concentration: byCat.concentration ?? 0,
+      critical_spend: byCat.critical_spend ?? 0,
+      tail_spend: byCat.tail_spend ?? 0,
+      critical_issues_engagement: cappedPopulation.critical_issues_engagement ?? 0,
+      hidden_gems_promotion: cappedPopulation.hidden_gems_promotion ?? 0,
+      bottleneck_risk: cappedPopulation.bottleneck_risk ?? 0,
+      process_improvement: byCat.process_improvement ?? 0,
+      slow_stage: byCat.slow_stage ?? 0,
+      process: hub?.process.flaggedCount ?? 0,
+      classification: hub?.classification.flaggedCount ?? 0,
+      temporal: hub?.temporal?.flaggedCount ?? 0,
+    }),
+    [byCat, cappedPopulation, hub],
   );
-  // Panel table rows open the modal — the process family on its Process tab; all
-  // else on Classification (where lens + evolution live).
-  const onPanelSupplier = canDrill
-    ? (id: string) => openSupplier(id, openPanel === "process" ? "process" : "classification")
+  const openInsight = (key: InsightKey) => setOpenPanel(key);
+  // A row click inside the card CLOSES the card first, then opens the supplier
+  // modal — no stacked dialogs (single scrim, unambiguous Esc). Process family →
+  // Process tab; everything else → Classification.
+  const onCardSupplier = canDrill
+    ? (id: string) => {
+        const tab: DetailTab = openPanel === "process" ? "process" : "classification";
+        setOpenPanel(null);
+        openSupplier(id, tab);
+      }
     : undefined;
-  const panelEl =
-    openPanel && openModel ? (
-      <ActionInsightPanel
-        model={openModel}
-        accent={accentForKey(openPanel)}
-        onSupplier={onPanelSupplier}
-        onClose={() => setOpenPanel(null)}
-      />
-    ) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -1395,9 +1376,7 @@ export function ActionDashboardView({
         population={cappedPopulation}
         narrative={narrative}
         insights={insights}
-        openPanel={openPanel}
-        onTogglePanel={togglePanel}
-        categoryPanel={openPanel && !openIsFamily ? panelEl : null}
+        onOpenPanel={openInsight}
       />
 
       <CrossAnalysisAnomalies
@@ -1407,9 +1386,7 @@ export function ActionDashboardView({
         temporal={temporal}
         activeFilter={activeFilter}
         onSelectFamily={selectFamily}
-        openPanel={openPanel}
-        onTogglePanel={togglePanel}
-        familyPanel={openIsFamily ? panelEl : null}
+        onOpenPanel={openInsight}
       />
 
       {hub && hub.distinctFlagged > 0 && filterCounts && (
@@ -1429,6 +1406,23 @@ export function ActionDashboardView({
             No priorities flagged for this period.
           </CardContent>
         </Card>
+      )}
+
+      {/* Tabbed floating insight card ("View more →") — one per group, over a scrim.
+          CONDITIONALLY MOUNTED: setting openPanel = null removes the card + its
+          overlay from the tree atomically, so a row-click's close-then-open of the
+          supplier modal can never leave a second scrim stacked (no modal-over-modal). */}
+      {openPanel != null && (
+        <ActionInsightCard
+          openKey={openPanel}
+          ctx={insightCtx}
+          tabCounts={insightTabCounts}
+          startDate={startDate ?? ""}
+          endDate={endDate ?? ""}
+          onTab={openInsight}
+          onClose={() => setOpenPanel(null)}
+          onSupplier={onCardSupplier}
+        />
       )}
 
       {/* In-place unified supplier detail — one centered modal, three analysis tabs. */}

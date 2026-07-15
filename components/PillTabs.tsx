@@ -1,11 +1,15 @@
 "use client";
 
+import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
  * Pill-style tab switcher (decision S): a `bg-muted` (surface-1) bar with 4px
  * padding and rounded corners; the active pill gets `bg-card` (surface-2) +
  * subtle shadow + primary text. Theme-token only.
+ *
+ * `label` is a ReactNode (not just a string) so a tab can carry a count badge;
+ * plain-string callers are unaffected (a string is a ReactNode).
  */
 export function PillTabs<T extends string>({
   tabs,
@@ -13,7 +17,7 @@ export function PillTabs<T extends string>({
   onChange,
   className,
 }: {
-  tabs: readonly (readonly [T, string])[];
+  tabs: readonly (readonly [T, React.ReactNode])[];
   active: T;
   onChange: (t: T) => void;
   className?: string;
