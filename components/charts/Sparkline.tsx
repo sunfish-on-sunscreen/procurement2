@@ -1,5 +1,7 @@
 "use client";
 
+import { buildSparkGeometry } from "@/lib/sparkline";
+
 /**
  * Minimal inline-SVG trend line (Batch 6c) for KPI cards — no axes, labels, or
  * interactivity. Graceful fallback: fewer than 3 finite points renders nothing
@@ -18,19 +20,17 @@ export function Sparkline({
   height?: number;
   className?: string;
 }) {
-  const pts = data.filter(
-    (v): v is number => typeof v === "number" && Number.isFinite(v),
-  );
-  if (pts.length < 3) return null;
-
-  const min = Math.min(...pts);
-  const max = Math.max(...pts);
-  const span = max - min || 1;
-  const stepX = width / (pts.length - 1);
-  const y = (v: number) => height - 1 - ((v - min) / span) * (height - 2);
-  const d = pts
-    .map((v, i) => `${i === 0 ? "M" : "L"}${(i * stepX).toFixed(1)},${y(v).toFixed(1)}`)
-    .join(" ");
+  // Path geometry shared with CardSparkline (PerformanceTrajectory) via the pure
+  // helper. Decorative mode: finite points compressed to contiguous indices
+  // (xPad 0, yPad 1). The min-3-points null guard below is preserved as-is.
+  const { points, path } = buildSparkGeometry(data, {
+    width,
+    height,
+    yPad: 1,
+    xPad: 0,
+    preserveGaps: false,
+  });
+  if (points.length < 3) return null;
 
   return (
     <svg
@@ -42,7 +42,7 @@ export function Sparkline({
       preserveAspectRatio="none"
     >
       <path
-        d={d}
+        d={path}
         fill="none"
         stroke={color}
         strokeWidth={1.5}

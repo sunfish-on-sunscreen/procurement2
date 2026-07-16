@@ -13,6 +13,7 @@ import type { SupplierEvolution } from "@/lib/spend-overview-types";
 import { CHART_COLORS } from "@/lib/chart-colors";
 import { ChartFrame } from "@/components/charts/ChartFrame";
 import { usePortalTooltip, PortalTooltip } from "@/components/charts/PortalTooltip";
+import { buildSparkGeometry } from "@/lib/sparkline";
 
 type SubKey = "quality" | "delivery" | "process" | "risk";
 const SUBS: { key: SubKey; label: string; weight: number }[] = [
@@ -37,29 +38,25 @@ function CardSparkline({ values, years }: { values: Array<number | null>; years:
   const w = 92;
   const h = 46;
   const pad = 5;
-  const n = values.length;
-  const pts = values
-    .map((v, i) => ({ v, i }))
-    .filter((p): p is { v: number; i: number } => p.v != null);
-  if (pts.length === 0) return <div style={{ height: h }} />;
-
-  const vals = pts.map((p) => p.v);
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const span = max - min || 1;
-  const x = (i: number) => (n > 1 ? pad + (i / (n - 1)) * (w - 2 * pad) : w / 2);
-  const y = (v: number) => h - pad - ((v - min) / span) * (h - 2 * pad);
-  const d = pts
-    .map((p, k) => `${k === 0 ? "M" : "L"}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`)
-    .join(" ");
+  // Path/coord geometry shared with the decorative Sparkline via the pure helper.
+  // Interactive mode: finite points keep their ORIGINAL index (nulls leave gaps),
+  // xPad = pad; `points` carries {i,v,x,y} for the dots + tooltips.
+  const { points, path } = buildSparkGeometry(values, {
+    width: w,
+    height: h,
+    yPad: pad,
+    xPad: pad,
+    preserveGaps: true,
+  });
+  if (points.length === 0) return <div style={{ height: h }} />;
 
   return (
     <>
       <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="group" aria-label="Sub-score trajectory">
-        {pts.length >= 2 && (
-          <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+        {points.length >= 2 && (
+          <path d={path} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         )}
-        {pts.map((p) => {
+        {points.map((p) => {
           const year = years[p.i] ?? "";
           return (
             <g
@@ -78,8 +75,8 @@ function CardSparkline({ values, years }: { values: Array<number | null>; years:
               onBlur={tooltip.hide}
             >
               {/* Transparent hit target for a comfortable hover/focus area. */}
-              <circle cx={x(p.i)} cy={y(p.v)} r={7} fill="transparent" />
-              <circle cx={x(p.i)} cy={y(p.v)} r={2.5} fill="currentColor" />
+              <circle cx={p.x} cy={p.y} r={7} fill="transparent" />
+              <circle cx={p.x} cy={p.y} r={2.5} fill="currentColor" />
             </g>
           );
         })}
