@@ -4,11 +4,16 @@ import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-// The two separated raw sample files (new-format ids, item_name). `?file=`
-// selects which one to download; defaults to the Suppliers file.
+// The two downloadable sample files. These OMIT the system-generated id columns
+// (Suppliers has no `supplier_id`, Purchases has no `po_id`) — both auto-generate
+// on import (makeIdGen: S#### / PO-#######), and each Purchases `supplier_id`
+// reference still resolves against the regenerated Suppliers ids. Kept SEPARATE from
+// the id-bearing `data/raw/procurement_{suppliers,purchases}.xlsx`, which remain the
+// python test fixtures / import source. `?file=` selects which to download; defaults
+// to the Suppliers file.
 const FILES: Record<string, { name: string; download: string }> = {
-  suppliers: { name: "procurement_suppliers.xlsx", download: "procurement_suppliers_sample.xlsx" },
-  purchases: { name: "procurement_purchases.xlsx", download: "procurement_purchases_sample.xlsx" },
+  suppliers: { name: "procurement_suppliers_sample.xlsx", download: "procurement_suppliers_sample.xlsx" },
+  purchases: { name: "procurement_purchases_sample.xlsx", download: "procurement_purchases_sample.xlsx" },
 };
 
 export async function GET(request: Request) {
