@@ -149,12 +149,12 @@ export function KraljicScatterChart({
         <Legend verticalAlign="top" height={32} wrapperStyle={{ fontSize: 12 }} />
         <ReferenceLine
           x={thresholds.spend_median}
-          stroke="#94a3b8"
+          stroke="var(--muted-foreground)"
           strokeDasharray="6 4"
         />
         <ReferenceLine
           y={thresholds.risk_median}
-          stroke="#94a3b8"
+          stroke="var(--muted-foreground)"
           strokeDasharray="6 4"
         />
         {present.map((q) => (
