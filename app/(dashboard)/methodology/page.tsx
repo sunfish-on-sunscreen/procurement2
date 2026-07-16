@@ -305,7 +305,7 @@ export default async function MethodologyPage() {
               </li>
               <li>
                 <strong>Mann-Whitney U non-parametric hypothesis test</strong>:
-                an optional period-vs-period comparison via a two-sample
+                a period-vs-period comparison via a two-sample
                 non-parametric test. Chosen over Student&apos;s t-test because
                 cycle times are right-skewed and violate normality assumptions.
               </li>
@@ -479,7 +479,7 @@ export default async function MethodologyPage() {
               with the <strong>period performance median</strong> — the same median
               line the Performance-vs-Spend scatter uses, so the cards and the chart
               are always internally consistent. &ldquo;Below&rdquo; means a composite
-              below the period median; &ldquo;above&rdquo; means at or over it:
+              at or below the period median; &ldquo;above&rdquo; means strictly above it:
             </p>
             <ul className="list-disc space-y-1.5 pl-5">
               <li>
@@ -578,12 +578,80 @@ export default async function MethodologyPage() {
                 risk-based ranking.
               </li>
               <li>
-                <strong>Process Improvement</strong> — 3-way-match issues use{" "}
-                <code>fail_rate_pct</code>; stage-time issues use{" "}
+                <strong>Process Improvement</strong> — the worst quadrant&apos;s
+                three-way-match <code>fail_rate_pct</code> (compliance only).
+              </li>
+              <li>
+                <strong>Slowest Stage</strong> — a slow internal process stage&apos;s{" "}
                 <code>mean_days ÷ 18 × 100</code>, normalized against a ~18-day
-                reference for a slow internal process stage.
+                reference. PO-to-delivery (physical supplier lead time) is excluded.
+              </li>
+              <li>
+                <strong>Concentration</strong> — a category&apos;s{" "}
+                <code>share × 100</code> (its % of total spend).
+              </li>
+              <li>
+                <strong>Critical Spend</strong> — an A-tier supplier&apos;s{" "}
+                <code>share_pct</code> (its % of total spend).
+              </li>
+              <li>
+                <strong>Tail Spend</strong> — <code>tail_supplier_pct</code>, the
+                share of the supplier count made up of sub-1%-of-spend suppliers.
               </li>
             </ul>
+          </section>
+
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">
+              Cross-analysis anomalies
+            </h4>
+            <p>
+              Alongside the ranked actions, Action Priorities surfaces a{" "}
+              <strong>cross-analysis anomaly hub</strong> — suppliers that stand out
+              when the analyses are read against one another, grouped into three
+              families:
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>
+                <strong>Process</strong> — the three per-supplier cycle-time flags
+                from Section 3.4 (has outlier POs, inconsistent spread, and
+                stage-dominated POs).
+              </li>
+              <li>
+                <strong>Lens disagreement</strong> — a supplier whose{" "}
+                <em>percentile ranks</em> on spend, performance, and supply risk
+                spread by <strong>80 points or more</strong>: it ranks very
+                differently depending on which lens you read it through.
+              </li>
+              <li>
+                <strong>Changed over time</strong> — a supplier with a sharp
+                year-over-year move: a spend fold of <strong>≥ 2.5×</strong>, a
+                Kraljic quadrant jump, or a composite-score swing of{" "}
+                <strong>≥ 18 points</strong>. A partial trailing year (under half the
+                prior year&apos;s spend) is set aside rather than compared, so a stub
+                year is not read as a collapse.
+              </li>
+            </ul>
+            <p>
+              At the hub level, <strong>distinct flagged</strong> is the set-union
+              across the three families — a supplier is counted once even if it trips
+              several; <strong>Important</strong> means flagged <em>and</em> either
+              ABC Class A or Kraljic Strategic; and <strong>compound</strong> means
+              flagged by two or more families.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">Reports</h4>
+            <p>
+              The <strong>Reports</strong> view composes the four analyses and their
+              recommendations into a decision-first document — headline finding →
+              situation → ranked findings → an action table — rather than a dump of
+              every table. It offers three tone registers (executive, operational,
+              analytical), an optional single-supplier brief or single-category
+              deep-dive, and native browser print-to-PDF. The report renders its own
+              methodology section, so this note is only a pointer.
+            </p>
           </section>
         </CardContent>
       </Card>
@@ -597,7 +665,9 @@ export default async function MethodologyPage() {
           <ul className="list-disc space-y-1 pl-5">
             <li>
               Periods are <strong>auto-detected</strong> from the data — one period
-              per distinct year found in the <code>pr_date</code> values.
+              per distinct year found in the <code>payment_date</code> values (with a{" "}
+              <code>pr_date</code> fallback for any record missing a payment). This
+              payment-date basis is what surfaces the 2026 period.
             </li>
             <li>
               <strong>Single Year</strong> mode shows the analyses for one year,
@@ -734,12 +804,15 @@ export default async function MethodologyPage() {
                 clears the threshold in those years.
               </li>
               <li>
-                <strong>Three recommendations always fire.</strong>{" "}
-                Concentration, Process Improvement, and Tail Spend always produce
-                output — they are
-                structural summaries of the portfolio, not conditional detections.
-                Read them as &ldquo;here is the shape of your spend and process&rdquo;,
-                not as &ldquo;a problem was found&rdquo;.
+                <strong>Two recommendations always fire; Concentration is
+                conditional.</strong> Process Improvement and Tail Spend always
+                produce output — they are structural summaries of the portfolio,
+                not conditional detections. Read them as &ldquo;here is the shape of
+                your spend and process&rdquo;, not as &ldquo;a problem was
+                found&rdquo;. Concentration, by contrast, is{" "}
+                <strong>threshold-gated</strong> — it fires only when a single
+                category exceeds 30% of total spend, so a well-diversified portfolio
+                produces none.
               </li>
             </ul>
             <div>
