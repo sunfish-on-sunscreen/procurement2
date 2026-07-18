@@ -1,0 +1,220 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============= AUTH =============
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+
+  sessions Session[]
+  imports  Import[]
+  reports  ExecutiveSummary[]
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ============= REPORTING PERIODS =============
+
+model ReportingPeriod {
+  id        String   @id @default(cuid())
+  name      String   @unique // "Q1 2024", "FY 2024", etc.
+  startDate DateTime
+  endDate   DateTime
+  isLocked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  suppliers          Supplier[]
+  purchases          Purchase[]
+  metrics            SupplierMetric[]
+  imports            Import[]
+  analysisResults    AnalysisResult[]
+  executiveSummaries ExecutiveSummary[]
+}
+
+// ============= DATA =============
+
+model Supplier {
+  id                 String          @id @default(cuid())
+  externalId         String // S001, S002, etc.
+  supplierName       String
+  country            String
+  category           String
+  periodId           String
+  period             ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([externalId, periodId])
+  @@index([periodId])
+  @@index([category])
+}
+
+model Purchase {
+  id                    String          @id @default(cuid())
+  poId                  String
+  supplierExternalId    String
+  supplierName          String
+  category              String
+  itemName              String
+  unit                  String
+  quantity              Float
+  unitPriceUsd          Float
+  totalValueUsd         Float
+  prDate                DateTime
+  poDate                DateTime
+  deliveryDate          DateTime
+  invoiceDate           DateTime
+  paymentDate           DateTime
+  prToPoDays            Int
+  poToDeliveryDays      Int
+  deliveryToInvoiceDays Int
+  invoiceToPaymentDays  Int
+  totalCycleDays        Int
+  onTimeDelivery        Boolean
+  threeWayMatchPass     Boolean
+  defectCount           Int
+  complaintCount        Int
+  periodId              String
+  period                ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([poId, periodId])
+  @@index([periodId])
+  @@index([supplierExternalId, periodId])
+}
+
+model SupplierMetric {
+  id                   String          @id @default(cuid())
+  supplierExternalId   String
+  supplierName         String
+  category             String
+  totalSpendUsd        Float
+  numPos               Int
+  avgPoValueUsd        Float
+  avgLeadTimeDays      Float
+  avgCycleTimeDays     Float
+  onTimeDeliveryPct    Float
+  threeWayMatchPct     Float
+  qualityScore         Float
+  deliveryScore        Float
+  processScore         Float
+  riskScore            Float
+  compositeScore       Float
+
+  // Phase 11A: Kraljic matrix data layer (computed post-import, nullable until run)
+  supplyRiskScore     Float?  @db.Real // 0-100 supply-risk index
+  kraljicQuadrant     String? @db.VarChar(30) // Strategic | Leverage | Bottleneck | Routine
+  categoryCompetition Int? // count of OTHER suppliers in the same category
+
+  periodId             String
+  period               ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierExternalId, periodId])
+  @@index([periodId])
+}
+
+// ============= IMPORTS =============
+
+model Import {
+  id           String          @id @default(cuid())
+  userId       String
+  user         User            @relation(fields: [userId], references: [id])
+  periodId     String
+  period       ReportingPeriod @relation(fields: [periodId], references: [id])
+  filename     String
+  fileType     String // 'suppliers' | 'purchases' | 'supplier_metrics'
+  rowCount     Int
+  status       ImportStatus
+  errorMessage String?
+  uploadedAt   DateTime        @default(now())
+  processedAt  DateTime?
+
+  @@index([periodId])
+  @@index([uploadedAt])
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+// ============= PRE-COMPUTED ANALYSES =============
+
+model AnalysisResult {
+  id       String           @id @default(cuid())
+  // Single-year results set periodId (range dates null). Cached RANGE results
+  // set rangeStartDate/rangeEndDate (periodId null).
+  periodId String?
+  period   ReportingPeriod? @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  rangeStartDate DateTime?
+  rangeEndDate   DateTime?
+
+  analysisType String // 'spend_overview' | 'abc' | 'cycle_time' | 'performance_spend' | 'kraljic' | 'recommendations'
+  resultJson   Json
+  computedAt   DateTime @default(now())
+
+  // Two constraints, each with no NULLs in its own key, so uniqueness is
+  // actually enforced (Postgres treats NULLs as distinct).
+  @@unique([periodId, analysisType])
+  @@unique([rangeStartDate, rangeEndDate, analysisType])
+  @@index([periodId])
+  @@index([rangeStartDate, rangeEndDate])
+}
+
+// ============= EXECUTIVE SUMMARIES =============
+
+model ExecutiveSummary {
+  id              String          @id @default(cuid())
+  periodId        String
+  period          ReportingPeriod @relation(fields: [periodId], references: [id])
+  title           String
+  narrative       String          @db.Text
+  metricsJson     Json
+  createdAt       DateTime        @default(now())
+  generatedBy     String
+  generatedByUser User            @relation(fields: [generatedBy], references: [id])
+
+  @@index([periodId])
+}
+
+// ============= REPORT PRESETS (Batch 6d) =============
+
+// User-saved snapshot of a full ReportConfig (period + filters + sections +
+// tone + detail). `createdBy` is a plain nullable User id (no FK relation) so a
+// preset survives if its author is removed; per-user scoping is enforced in the
+// API via a `where: { createdBy }` clause.
+model ReportPreset {
+  id        String   @id @default(cuid())
+  name      String
+  config    Json
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdBy])
+}

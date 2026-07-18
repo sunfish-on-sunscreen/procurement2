@@ -1,0 +1,302 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-8: var(--chart-8);
+  --color-chart-7: var(--chart-7);
+  --color-chart-6: var(--chart-6);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  /* Chart palette — light values preserve the prior hardcoded CHART_COLORS so
+     light mode is visually unchanged; .dark provides tuned variants so charts
+     finally adapt to theme like the rest of the UI. */
+  --chart-1: #3b82f6;
+  --chart-2: #10b981;
+  --chart-3: #f59e0b;
+  --chart-4: #ef4444;
+  --chart-5: #8b5cf6;
+  --chart-6: #06b6d4;
+  --chart-7: #ec4899;
+  --chart-8: #84cc16;
+  /* Neutral line used for the Pareto cumulative-% overlay. */
+  --chart-line: #334155;
+  /* Semantic analysis colors (ABC class, Kraljic quadrant, performance zone).
+     --abc-a and --quadrant-strategic intentionally share red — separate tokens. */
+  --abc-a: #ef4444;
+  --abc-b: #f59e0b;
+  --abc-c: #84cc16;
+  --quadrant-strategic: #ef4444;
+  --quadrant-leverage: #10b981;
+  --quadrant-bottleneck: #f59e0b;
+  --quadrant-routine: #3b82f6;
+  --zone-stars: #10b981;
+  --zone-critical: #ef4444;
+  --zone-hidden-gems: #8b5cf6;
+  --zone-long-tail: #94a3b8;
+  /* StatBlock accent helpers (theme has --destructive already). */
+  --warning: #f59e0b;
+  --success: #84cc16;
+  /* Cross-Analysis Anomaly Hub — the "Changed over time" (temporal) family accent
+     (cyan), distinct from the amber hub + violet classification. Light ≈ cyan-600. */
+  --temporal: #0891b2;
+  /* Action Priorities category colours (one per bucket). concentrate is a violet
+     distinct from the zone/quadrant families. Light values ≈ *-500. */
+  --priority-engage: #ef4444;
+  --priority-mitigate: #f59e0b;
+  --priority-promote: #10b981;
+  --priority-improve: #3b82f6;
+  --priority-concentrate: #8b5cf6;
+  /* New categories (Spend/Process groups). Cool family, distinct from the above;
+     slowstage is indigo (NOT improve's blue — they share the Process group). */
+  --priority-steward: #0891b2; /* cyan — critical_spend */
+  --priority-consolidate: #0d9488; /* teal — tail_spend */
+  --priority-slowstage: #6366f1; /* indigo — slow_stage */
+  /* Category palette — deliberately a separate family from --abc-* / --quadrant-*
+     (no pure red/amber/lime/green), so the Spend-by-Category donut never collides
+     with ABC class or Kraljic quadrant colours. Blues/violets/cyans/magentas. */
+  --category-1: #2563eb;
+  --category-2: #7c3aed;
+  --category-3: #0891b2;
+  --category-4: #db2777;
+  --category-5: #4f46e5;
+  --category-6: #9333ea;
+  --category-7: #0e7490;
+  --category-8: #64748b;
+  --radius: 0.625rem;
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
+}
+
+.dark {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  /* Brightened palette for legibility on the dark canvas (≈Tailwind *-400). */
+  --chart-1: #60a5fa;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #f87171;
+  --chart-5: #a78bfa;
+  --chart-6: #22d3ee;
+  --chart-7: #f472b6;
+  --chart-8: #a3e635;
+  --chart-line: #94a3b8;
+  --abc-a: #f87171;
+  --abc-b: #fbbf24;
+  --abc-c: #a3e635;
+  --quadrant-strategic: #f87171;
+  --quadrant-leverage: #34d399;
+  --quadrant-bottleneck: #fbbf24;
+  --quadrant-routine: #60a5fa;
+  --zone-stars: #34d399;
+  --zone-critical: #f87171;
+  --zone-hidden-gems: #a78bfa;
+  --zone-long-tail: #cbd5e1;
+  --warning: #fbbf24;
+  --success: #a3e635;
+  --temporal: #22d3ee; /* dark ≈ cyan-400 (brighter) */
+  /* Action Priorities — dark values ≈ *-400 (brighter). */
+  --priority-engage: #f87171;
+  --priority-mitigate: #fbbf24;
+  --priority-promote: #34d399;
+  --priority-improve: #60a5fa;
+  --priority-concentrate: #a78bfa;
+  --priority-steward: #22d3ee; /* cyan — critical_spend */
+  --priority-consolidate: #2dd4bf; /* teal — tail_spend */
+  --priority-slowstage: #818cf8; /* indigo — slow_stage */
+  --category-1: #60a5fa;
+  --category-2: #a78bfa;
+  --category-3: #22d3ee;
+  --category-4: #f472b6;
+  --category-5: #818cf8;
+  --category-6: #c084fc;
+  --category-7: #67e8f9;
+  --category-8: #94a3b8;
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
+@media print {
+  /* The app has no reachable dark mode; pin light for print regardless. */
+  :root {
+    color-scheme: light;
+  }
+
+  /* Keep chart fills, chip tints, ABC/quadrant colours + card backgrounds —
+     browsers drop backgrounds/colour in print by default. */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* App + editor chrome and interactive affordances never print. `aside` covers
+     BOTH the dashboard sidebar and the report-editor settings panel; `header`
+     covers the dashboard top bar. The report document uses only section/div/table,
+     so nothing in the document is hit. */
+  aside,
+  header,
+  .no-print,
+  [data-sonner-toaster],
+  [data-slot="select-trigger"] {
+    display: none !important;
+  }
+
+  /* Sticky section headers / TOC must sit in normal flow — otherwise they render
+     at the bottom of their section and overlap the content (the old export bug). */
+  .sticky {
+    position: static !important;
+  }
+
+  /* (Collapsed section bodies + inactive Spend-Overview tab panels reveal in print
+     via the `print:flex` / `print:block` utilities on the elements themselves — the
+     native `hidden` attribute can't be overridden by an author rule, so those
+     elements use the `.hidden` class + a print: variant instead. This replaces the
+     old "strip [hidden] then html2canvas" DOM-mutation hack.) */
+
+  /* Let the report own the page: drop the app layout's centering + padding. */
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  #report-root {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  /* Cards define their edge with a faint box-shadow ring (ring-1 ring-foreground/10)
+     that does NOT reliably print → KPI/chart/table cards would render as naked
+     floating text. Give them a crisp border instead. Plain hex (≈ light --border),
+     not the oklch token, to be bulletproof in print. */
+  [data-slot="card"] {
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  /* Pagination: keep cards/tables/charts whole and don't strand a heading. Drops
+     the old `page-break-after: always` (which left a near-blank page per section). */
+  .pdf-page-break {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  [data-slot="card"],
+  table,
+  .recharts-wrapper,
+  .recharts-responsive-container {
+    break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+}
