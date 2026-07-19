@@ -55,8 +55,9 @@ export async function POST(request: Request) {
     (kraljic?.quadrant_assignments ?? []).map((q) => [q.supplier_id, q]),
   );
 
-  // Per-supplier Purchase aggregate over the span. Filter mirrors the Python
-  // load (COALESCE(paymentDate, prDate)) so totals reconcile with spend_overview.
+  // Per-supplier aggregate over the span from the derived EnrichedPurchase view.
+  // Filter mirrors the Python load (poDate = order-year membership) so totals
+  // reconcile with spend_overview.
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T23:59:59`);
   const agg = await prisma.$queryRaw<
@@ -65,9 +66,9 @@ export async function POST(request: Request) {
     SELECT "supplierExternalId" AS id,
            COUNT(*)::int AS po_count,
            SUM("totalValueUsd")::float8 AS total_spend
-    FROM "Purchase"
-    WHERE COALESCE("paymentDate", "prDate") >= ${start}
-      AND COALESCE("paymentDate", "prDate") <= ${end}
+    FROM "EnrichedPurchase"
+    WHERE "poDate" >= ${start}
+      AND "poDate" <= ${end}
     GROUP BY "supplierExternalId"
   `);
   const aggById = new Map(agg.map((r) => [r.id, r]));

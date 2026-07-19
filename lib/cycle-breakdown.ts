@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { getRangeAnalyses } from "@/lib/range-analyses";
 import type {
   CycleAnomaly,
@@ -38,7 +38,7 @@ const round1 = (x: number) => Math.round(x * 10) / 10;
 /**
  * Per-supplier (median/IQR/PO count/slowest stage) and per-category (stage means)
  * cycle-time breakdown for a span, plus per-PO stage anomalies and 3-way-match
- * control exposure. Filters by payment date (1:1 non-null, matches the period tag).
+ * control exposure. Filters by order-year (poDate) via the EnrichedPurchase view.
  *
  * Extracted VERBATIM from the /api/cycle-time/breakdown route so the SAME
  * computation feeds both the live route (Process Health / the anomaly hub / the
@@ -56,27 +56,9 @@ export async function computeCycleBreakdown(
   end: string,
   preloaded?: BreakdownClassification,
 ): Promise<CycleBreakdown> {
-  const purchases = await prisma.purchase.findMany({
-    where: {
-      paymentDate: {
-        gte: new Date(`${start}T00:00:00`),
-        lte: new Date(`${end}T23:59:59`),
-      },
-    },
-    select: {
-      poId: true,
-      invoiceDate: true,
-      supplierExternalId: true,
-      supplierName: true,
-      category: true,
-      prToPoDays: true,
-      poToDeliveryDays: true,
-      deliveryToInvoiceDays: true,
-      invoiceToPaymentDays: true,
-      totalCycleDays: true,
-      threeWayMatchPass: true,
-      totalValueUsd: true,
-    },
+  const purchases = await getEnrichedPurchases({
+    start: new Date(`${start}T00:00:00`),
+    end: new Date(`${end}T23:59:59`),
   });
 
   // ---- Per-supplier aggregation ------------------------------------------- #

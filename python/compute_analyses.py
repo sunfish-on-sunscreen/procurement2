@@ -100,28 +100,31 @@ def _df(conn, query, params):
 
 def load_frames(conn, start_ts, end_ts):
     """Load purchases in [start_ts, end_ts] plus the suppliers/metrics for the
-    suppliers that appear in those purchases (deduped across periods)."""
-    # Filter by PAYMENT date (when cash actually leaves), falling back to PR date
-    # for any row without a payment. This mirrors the period TAG assigned at
-    # import (paymentDate ?? prDate), so a period's compute covers exactly the
-    # rows tagged to it.
+    suppliers that appear in those purchases (deduped across periods).
+
+    The PO-grain "purchases" frame is the derived EnrichedPurchase VIEW — its
+    columns are byte-identical to the old flat Purchase, so every downstream
+    analysis + scores.rename_purchase_columns is unchanged. Period membership is
+    now ORDER YEAR: filter by "poDate" (which converges exactly with the
+    PurchaseOrder.period column) instead of the old payment-date bucketing."""
     purchases = _df(
         conn,
-        'SELECT * FROM "Purchase" '
-        'WHERE COALESCE("paymentDate", "prDate") >= %s '
-        'AND COALESCE("paymentDate", "prDate") <= %s',
+        'SELECT * FROM "EnrichedPurchase" '
+        'WHERE "poDate" >= %s AND "poDate" <= %s',
         (start_ts, end_ts),
     )
+    # Supplier master columns needed downstream, aliased id -> externalId so the
+    # analyses (compute_supply_risk / build_live_composite_map) read them unchanged.
+    _SUP_COLS = 'id AS "externalId", "supplierName", country, category'
     if len(purchases) == 0:
-        suppliers = _df(conn, 'SELECT * FROM "Supplier" WHERE false', ())
+        suppliers = _df(conn, f'SELECT {_SUP_COLS} FROM "Supplier" WHERE false', ())
         metrics = _df(conn, 'SELECT * FROM "SupplierMetric" WHERE false', ())
         return suppliers, purchases, metrics
 
     supplier_ids = tuple(sorted(set(purchases["supplierExternalId"].tolist())))
     suppliers = _df(
         conn,
-        'SELECT DISTINCT ON ("externalId") * FROM "Supplier" '
-        'WHERE "externalId" IN %s ORDER BY "externalId"',
+        f'SELECT {_SUP_COLS} FROM "Supplier" WHERE id IN %s ORDER BY id',
         (supplier_ids,),
     )
     # Per-period (P2): SupplierMetric now holds one row per supplier-period.
@@ -158,16 +161,42 @@ def load_roster_category_counts(conn):
     active or not) from the Supplier master table. Feeds A1's supply_concentration
     so the availability of alternatives reflects the whole roster, not just the
     period-active supplier set."""
+    # Supplier is now a clean master (one row per supplier, no period-scoping);
+    # its PK `id` is the supplier external id (e.g. "S0001"). Aliased to
+    # "externalId" so the downstream groupby is unchanged.
     roster = _df(
         conn,
-        'SELECT DISTINCT ON ("externalId") "externalId", category '
-        'FROM "Supplier" ORDER BY "externalId"',
+        'SELECT id AS "externalId", category FROM "Supplier"',
         (),
     )
     if len(roster) == 0:
         return {}
     counts = roster.groupby("category")["externalId"].nunique()
     return {str(k): int(v) for k, v in counts.items()}
+
+
+# Window-scoped PO LINE frame: one row per PoLine for the POs in [start_ts,
+# end_ts], loaded once in main() after load_frames. The cost_premium term
+# (compute_supply_risk / _cost_premium_points) benchmarks item unit prices, which
+# are LINE-level in the normalized model — the PO-grain EnrichedPurchase view
+# cannot carry them — so cost_premium reads the actual lines here. Columns match
+# what _cost_premium_points selects (supplierExternalId, itemName, unitPriceUsd,
+# quantity) plus poId so each compute_supply_risk call can scope to its PO subset.
+# None => fall back to the PO-grain frame (e.g. a direct unit-test call).
+_PO_LINES = None
+
+
+def load_po_lines(conn, start_ts, end_ts):
+    """PoLine rows for the POs in the window (order-year filter on poDate). `quantity`
+    is the per-line quantity_ordered — the price×qty basis cost_premium expects."""
+    return _df(
+        conn,
+        'SELECT po.id AS "poId", po."supplierId" AS "supplierExternalId", '
+        'pl."itemName", pl."unitPriceUsd", pl."quantityOrdered" AS "quantity" '
+        'FROM "PoLine" pl JOIN "PurchaseOrder" po ON po.id = pl."poId" '
+        'WHERE po."poDate" >= %s AND po."poDate" <= %s',
+        (start_ts, end_ts),
+    )
 
 
 # Live composite map (Stage 2): {supplier_id -> composite} computed from THIS
@@ -831,7 +860,16 @@ def compute_supply_risk(purchases, suppliers, metrics):
     _CONC = {0: 50.0, 1: 35.0, 2: 22.0, 3: 12.0, 4: 5.0}
     c_conc = df["other_in_category"].map(lambda o: _CONC.get(int(o), 0.0)).astype(float)
     # 2. cost premium (0-25): period-scoped, benchmarked vs item spend-weighted avg.
-    prem_map = _cost_premium_points(purchases)
+    #    Benchmarked at LINE grain (lock C) — the PO-grain EnrichedPurchase view
+    #    carries no per-item price, so read the window's PoLine frame, scoped to the
+    #    POs in THIS call's `purchases` subset. Falls back to the PO-grain frame only
+    #    if the line frame was never loaded (e.g. a direct unit-test call).
+    if _PO_LINES is not None and "poId" in purchases.columns:
+        po_ids = set(purchases["poId"].tolist())
+        cost_input = _PO_LINES[_PO_LINES["poId"].isin(po_ids)]
+    else:
+        cost_input = purchases
+    prem_map = _cost_premium_points(cost_input)
     c_premium = df["supplierExternalId"].map(prem_map).fillna(0.0).astype(float)
     # 3. import friction (0/8/16/25): Indonesia trade-agreement coverage.
     c_friction = df["country"].apply(_import_friction_points).astype(float)
@@ -1482,6 +1520,11 @@ def main():
         global _LIVE_COMPOSITE_MAP
         _LIVE_COMPOSITE_MAP = build_live_composite_map(purchases, suppliers, metrics)
         log(f"Live composite map: {len(_LIVE_COMPOSITE_MAP)} suppliers (from filtered POs)")
+
+        # Window PoLine frame for the line-grain cost_premium term (lock C).
+        global _PO_LINES
+        _PO_LINES = load_po_lines(conn, start_ts, end_ts)
+        log(f"Loaded {len(_PO_LINES)} PO lines (for cost-premium benchmarking)")
 
         results = {}
         for name, fn in ANALYSES:

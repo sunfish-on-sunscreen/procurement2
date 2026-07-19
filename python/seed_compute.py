@@ -1,0 +1,167 @@
+"""Post-seed compute step — the DB-sourced replacement for what the (now disabled)
+upload route used to do: regenerate the SupplierMetric rows + all AnalysisResult
+rows from the seeded normalized data.
+
+Pipeline:
+  1. Read the Supplier master + the derived EnrichedPurchase view.
+  2. For each ORDER-YEAR period, score per-supplier metrics via the proven-exact
+     scores.build_window_metrics (period dimension = the view's `period` column) and
+     write SupplierMetric rows (delete-then-insert per period).
+  3. Run compute_analyses.py --period-id for every period (Mode A → AnalysisResult
+     + the kraljic risk/quadrant writeback onto SupplierMetric).
+  4. Clear the range cache (AnalysisResult rows with periodId IS NULL).
+
+Idempotent; safe to re-run after any reseed. Order-year bucketing (per the migration
+decision) — NOT payment-year — so SupplierMetric membership converges with the
+PurchaseOrder.period column and compute_analyses' poDate filter.
+
+Run:  python/.venv/Scripts/python seed_compute.py
+"""
+import os
+import subprocess
+import sys
+
+import pandas as pd
+import psycopg2
+from psycopg2.extras import execute_values
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import scores  # noqa: E402
+
+
+def get_database_url() -> str:
+    """DATABASE_URL from the project .env (carries a UTF-8 BOM → utf-8-sig). Also
+    exported to os.environ so the compute_analyses subprocess inherits it."""
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    env_path = os.path.join(HERE, "..", ".env")
+    with open(env_path, encoding="utf-8-sig") as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith("DATABASE_URL"):
+                url = line.split("=", 1)[1].strip().strip('"').strip("'")
+                os.environ["DATABASE_URL"] = url
+                return url
+    raise RuntimeError("DATABASE_URL not found in environment or ../.env")
+
+
+def _df(conn, query):
+    with conn.cursor() as cur:
+        cur.execute(query)
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=cols)
+
+
+# SupplierMetric columns written here (kraljic denorm fields left NULL — the Mode A
+# compute_analyses writeback fills supplyRiskScore/kraljicQuadrant/categoryCompetition).
+_METRIC_INSERT_COLS = [
+    "id", "supplierExternalId", "supplierName", "category",
+    "totalSpendUsd", "numPos", "avgPoValueUsd", "avgLeadTimeDays",
+    "avgCycleTimeDays", "onTimeDeliveryPct", "threeWayMatchPct",
+    "qualityScore", "deliveryScore", "processScore", "riskScore",
+    "compositeScore", "periodId",
+]
+
+
+def write_supplier_metrics(conn):
+    """Score + write per-order-year SupplierMetric rows from the normalized data."""
+    suppliers = _df(conn, 'SELECT id AS supplier_id, "supplierName" AS supplier_name, '
+                          'country, category FROM "Supplier"')
+    enriched = _df(conn, 'SELECT * FROM "EnrichedPurchase"')
+    if len(enriched) == 0:
+        raise RuntimeError("EnrichedPurchase view returned 0 rows — did the seed run?")
+
+    # camelCase view -> snake_case engine columns (period + poId stay as-is).
+    pur = scores.rename_purchase_columns(enriched)
+    roster = scores.roster_category_counts(suppliers)
+
+    periods = _df(conn, 'SELECT id, name FROM "ReportingPeriod"')
+    pid_by_name = {str(n): pid for pid, n in zip(periods["id"], periods["name"])}
+
+    total = 0
+    for year in sorted(pur["period"].astype(str).unique()):
+        pid = pid_by_name.get(year)
+        if pid is None:
+            print(f"  WARN: no ReportingPeriod for order-year {year}; skipping")
+            continue
+        window = pur[pur["period"].astype(str) == year]
+        wm = scores.build_window_metrics(suppliers, window, roster)
+
+        records = []
+        for _, r in wm.iterrows():
+            sid = str(r["supplier_id"])
+            records.append((
+                f"sm-{pid}-{sid}", sid, str(r["supplier_name"]), str(r["category"]),
+                float(r["total_spend_usd"]), int(r["num_pos"]), float(r["avg_po_value_usd"]),
+                float(r["avg_lead_time_days"]), float(r["avg_cycle_time_days"]),
+                float(r["on_time_delivery_pct"]), float(r["three_way_match_pct"]),
+                float(r["quality_score"]), float(r["delivery_score"]),
+                float(r["process_score"]), float(r["risk_score"]),
+                float(r["composite_score"]), pid,
+            ))
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM "SupplierMetric" WHERE "periodId" = %s', (pid,))
+            execute_values(
+                cur,
+                f'INSERT INTO "SupplierMetric" ({", ".join(chr(34)+c+chr(34) for c in _METRIC_INSERT_COLS)}) VALUES %s',
+                records,
+            )
+        conn.commit()
+        total += len(records)
+        print(f"  period {year} (pid {pid[:8]}…): {len(records)} SupplierMetric rows")
+    print(f"  SupplierMetric total: {total}")
+    return list(pid_by_name.items())
+
+
+def run_analyses(period_ids):
+    """compute_analyses.py --period-id for each period (Mode A)."""
+    compute_py = os.path.join(HERE, "compute_analyses.py")
+    for name, pid in period_ids:
+        print(f"  compute_analyses period {name} …", flush=True)
+        res = subprocess.run(
+            [sys.executable, compute_py, "--period-id", pid],
+            env=os.environ, capture_output=True, text=True,
+        )
+        if res.returncode != 0:
+            print(res.stdout)
+            print(res.stderr, file=sys.stderr)
+            raise RuntimeError(f"compute_analyses failed for period {name} (exit {res.returncode})")
+    print(f"  analyses computed for {len(period_ids)} periods")
+
+
+def clear_range_cache(conn):
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL')
+        n = cur.rowcount
+    conn.commit()
+    print(f"  cleared {n} range-cache AnalysisResult rows")
+
+
+def main():
+    url = get_database_url().split("?")[0]
+    conn = psycopg2.connect(url)
+    try:
+        print("1) SupplierMetric (order-year):")
+        period_ids = write_supplier_metrics(conn)
+        print("2) AnalysisResult per period:")
+        run_analyses(period_ids)
+        print("3) Range cache:")
+        clear_range_cache(conn)
+        # Summary
+        sm = _df(conn, 'SELECT COUNT(*) AS n FROM "SupplierMetric"')["n"][0]
+        ar = _df(conn, 'SELECT COUNT(*) AS n FROM "AnalysisResult"')["n"][0]
+        ps = _df(conn, 'SELECT MIN("processScore") AS mn, MAX("processScore") AS mx, '
+                       'ROUND(AVG("processScore")::numeric,2) AS avg, '
+                       'COUNT(DISTINCT "processScore") AS distinct_vals FROM "SupplierMetric"')
+        print(f"\nDONE. SupplierMetric={sm}  AnalysisResult={ar}")
+        print(f"processScore across suppliers: min={ps['mn'][0]} max={ps['mx'][0]} "
+              f"avg={ps['avg'][0]} distinct_values={ps['distinct_vals'][0]} "
+              f"(should be >1 distinct — NOT flat 100)")
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()

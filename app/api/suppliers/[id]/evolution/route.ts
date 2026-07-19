@@ -7,6 +7,7 @@ import {
   type KraljicResult,
   type PerformanceSpendResult,
 } from "@/lib/analysis-types";
+import { getPoLines } from "@/lib/po-lines";
 import type { SupplierEvolution } from "@/lib/spend-overview-types";
 
 export const runtime = "nodejs";
@@ -30,21 +31,14 @@ export async function GET(
   }
   const { id } = await params;
 
-  const [periods, purchases, metricRows] = await Promise.all([
+  const [periods, lines, metricRows, supplier] = await Promise.all([
     prisma.reportingPeriod.findMany({
       orderBy: { startDate: "asc" },
       select: { id: true, name: true, startDate: true, endDate: true },
     }),
-    prisma.purchase.findMany({
-      where: { supplierExternalId: id },
-      select: {
-        itemName: true,
-        totalValueUsd: true,
-        paymentDate: true,
-        prDate: true,
-        supplierName: true,
-      },
-    }),
+    // The supplier's LINE rows (all years), carrying the order-year `period` for
+    // bucketing + item detail for the product-mix (lock C).
+    getPoLines({ supplierExternalId: id }),
     // Per-period sub-scores (P2) for the sub-score trajectory cards.
     prisma.supplierMetric.findMany({
       where: { supplierExternalId: id },
@@ -57,9 +51,13 @@ export async function GET(
         riskScore: true,
       },
     }),
+    prisma.supplier.findUnique({
+      where: { id },
+      select: { supplierName: true },
+    }),
   ]);
 
-  if (purchases.length === 0) {
+  if (lines.length === 0 && !supplier) {
     return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
   }
 
@@ -91,21 +89,21 @@ export async function GET(
 
   const periodsOut: SupplierEvolution["periods"] = analysesByPeriod.map(
     ({ period, abc, kraljic, perf }) => {
-      const inPeriod = purchases.filter((pu) => {
-        const d = pu.paymentDate ?? pu.prDate;
-        return d != null && d >= period.startDate && d <= period.endDate;
-      });
+      // Order-year membership: the line's own `period` (== PurchaseOrder.period).
+      const inPeriod = lines.filter((l) => l.period === period.name);
       let spend = 0;
-      const itemMap = new Map<string, { spend: number; count: number }>();
-      for (const pu of inPeriod) {
-        spend += pu.totalValueUsd;
-        const cur = itemMap.get(pu.itemName) ?? { spend: 0, count: 0 };
-        cur.spend += pu.totalValueUsd;
-        cur.count += 1;
-        itemMap.set(pu.itemName, cur);
+      const poIds = new Set<string>();
+      const itemMap = new Map<string, { spend: number; pos: Set<string> }>();
+      for (const l of inPeriod) {
+        spend += l.lineValueUsd;
+        poIds.add(l.poId);
+        const cur = itemMap.get(l.itemName) ?? { spend: 0, pos: new Set<string>() };
+        cur.spend += l.lineValueUsd;
+        cur.pos.add(l.poId);
+        itemMap.set(l.itemName, cur);
       }
       const topItems = [...itemMap.entries()]
-        .map(([itemName, v]) => ({ itemName, ...v }))
+        .map(([itemName, v]) => ({ itemName, spend: v.spend, count: v.pos.size }))
         .sort((a, b) => b.spend - a.spend)
         .slice(0, 5);
 
@@ -113,7 +111,7 @@ export async function GET(
         year: period.name,
         periodLabel: period.name,
         spend,
-        invoiceCount: inPeriod.length,
+        invoiceCount: poIds.size,
         abcClass:
           abc?.classifications.find((c) => c.supplier_id === id)?.abc_class ??
           null,
@@ -159,7 +157,7 @@ export async function GET(
   }
 
   const evolution: SupplierEvolution = {
-    supplier: { id, name: metric?.supplierName ?? purchases[0].supplierName },
+    supplier: { id, name: supplier?.supplierName ?? metric?.supplierName ?? id },
     periods: periodsOut,
     insights,
   };

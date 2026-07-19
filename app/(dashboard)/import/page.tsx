@@ -1,10 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { ImportForm } from "@/components/ImportForm";
-import { SupplierRosterTable } from "@/components/SupplierRosterTable";
-import { PurchaseRosterTable, type PurchaseRow } from "@/components/PurchaseRosterTable";
-import { nextSupplierId } from "@/lib/supplier-import";
-import { nextPoId } from "@/lib/purchase-import";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -29,110 +24,90 @@ function formatDate(value: Date | null): string {
   return new Date(value).toLocaleString();
 }
 
-/** DateTime -> YYYY-MM-DD (UTC, matching how the dates were stored/parsed). */
-const iso = (d: Date): string => d.toISOString().slice(0, 10);
-
+/**
+ * Admin data page — READ-ONLY in the normalized-data-model build.
+ *
+ * The old add/edit/delete/upload flows assumed the flat single-table schema and
+ * are disabled (their API routes return 501). Data is loaded via the seed
+ * (`prisma db seed`) + the post-seed compute (`python/seed_compute.py`). This page
+ * now just surfaces the current roster + recent imports for reference.
+ */
 export default async function ImportPage() {
   await requireAdmin();
 
-  // The supplier roster (one row per supplier) drives the roster table below and
-  // the add-supplier card's id preview + category options. Re-derived on every
-  // router.refresh(), so a just-added supplier appears immediately.
-  const [imports, suppliers, purchaseRows] = await Promise.all([
+  const [suppliers, supplierCount, poCount, lineCount, imports] = await Promise.all([
+    prisma.supplier.findMany({
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        supplierName: true,
+        country: true,
+        category: true,
+        status: true,
+        isMiningService: true,
+      },
+    }),
+    prisma.supplier.count(),
+    prisma.purchaseOrder.count(),
+    prisma.poLine.count(),
     prisma.import.findMany({
       take: 20,
       orderBy: { uploadedAt: "desc" },
       include: { period: true },
     }),
-    prisma.supplier.findMany({
-      select: { externalId: true, supplierName: true, country: true, category: true },
-      distinct: ["externalId"],
-      orderBy: { externalId: "asc" },
-    }),
-    // All purchases (full field set — display uses a subset, the edit card uses
-    // the rest). Client-side filtered + paginated in PurchaseRosterTable.
-    prisma.purchase.findMany({
-      orderBy: { poId: "asc" },
-      select: {
-        poId: true, supplierExternalId: true, supplierName: true, category: true,
-        itemName: true, unit: true, quantity: true, unitPriceUsd: true, totalValueUsd: true,
-        defectCount: true, complaintCount: true, onTimeDelivery: true, threeWayMatchPass: true,
-        prDate: true, poDate: true, deliveryDate: true, invoiceDate: true, paymentDate: true,
-      },
-    }),
   ]);
-
-  const purchases: PurchaseRow[] = purchaseRows.map((p) => ({
-    poId: p.poId,
-    supplierExternalId: p.supplierExternalId,
-    supplierName: p.supplierName,
-    category: p.category,
-    itemName: p.itemName,
-    unit: p.unit,
-    quantity: p.quantity,
-    unitPriceUsd: p.unitPriceUsd,
-    totalValueUsd: p.totalValueUsd,
-    defectCount: p.defectCount,
-    complaintCount: p.complaintCount,
-    onTimeDelivery: p.onTimeDelivery,
-    threeWayMatchPass: p.threeWayMatchPass,
-    prDate: iso(p.prDate),
-    poDate: iso(p.poDate),
-    deliveryDate: iso(p.deliveryDate),
-    invoiceDate: iso(p.invoiceDate),
-    paymentDate: iso(p.paymentDate),
-  }));
-
-  const nextId = nextSupplierId(suppliers.map((s) => s.externalId));
-  const categories = [...new Set(suppliers.map((s) => s.category))].sort((a, b) =>
-    a.localeCompare(b),
-  );
-  const nextPurchaseId = nextPoId(purchases.map((p) => p.poId));
-  const supplierPicks = suppliers.map((s) => ({ id: s.externalId, name: s.supplierName }));
-  const units = [...new Set(purchases.map((p) => p.unit))].sort((a, b) => a.localeCompare(b));
-  const purchasePicks = purchases.map((p) => ({
-    poId: p.poId,
-    supplierExternalId: p.supplierExternalId,
-    supplierName: p.supplierName,
-    itemName: p.itemName,
-  }));
-  // supplierExternalId -> distinct existing item names (scopes the purchase card's
-  // Item combobox suggestions to the selected supplier).
-  const itemsBySupplier = new Map<string, Set<string>>();
-  for (const p of purchases) {
-    let set = itemsBySupplier.get(p.supplierExternalId);
-    if (!set) {
-      set = new Set();
-      itemsBySupplier.set(p.supplierExternalId, set);
-    }
-    set.add(p.itemName);
-  }
-  const supplierItems: Record<string, string[]> = {};
-  for (const [sid, set] of itemsBySupplier) {
-    supplierItems[sid] = [...set].sort((a, b) => a.localeCompare(b));
-  }
 
   return (
     <div className="flex flex-col gap-6">
-      <ImportForm
-        nextSupplierId={nextId}
-        categories={categories}
-        nextPoId={nextPurchaseId}
-        suppliers={supplierPicks}
-        units={units}
-        purchases={purchasePicks}
-        supplierItems={supplierItems}
-      />
+      <div className="rounded-lg border border-border bg-muted/40 p-4">
+        <h1 className="text-lg font-semibold">Data management</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This build uses the normalized document data model. Manual add / edit /
+          delete / Excel upload are disabled — data is loaded from the seed
+          dataset. The roster below is read-only.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm">
+          <span><span className="font-semibold">{supplierCount}</span> suppliers</span>
+          <span><span className="font-semibold">{poCount}</span> purchase orders</span>
+          <span><span className="font-semibold">{lineCount}</span> order lines</span>
+        </div>
+      </div>
 
-      <SupplierRosterTable suppliers={suppliers} />
-
-      <PurchaseRosterTable purchases={purchases} />
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Supplier roster</h2>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Country</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Mining service</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {suppliers.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell className="font-medium">{s.id}</TableCell>
+                  <TableCell>{s.supplierName}</TableCell>
+                  <TableCell>{s.country}</TableCell>
+                  <TableCell>{s.category}</TableCell>
+                  <TableCell>{s.status}</TableCell>
+                  <TableCell>{s.isMiningService ? "Yes" : "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Recent Imports</h2>
         {imports.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No imports yet. Upload your first Excel file above.
+            No import records. Data is loaded via the seed in this build.
           </p>
         ) : (
           <Table>
