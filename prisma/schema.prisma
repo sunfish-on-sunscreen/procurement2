@@ -39,97 +39,259 @@ model Session {
 }
 
 // ============= REPORTING PERIODS =============
+//
+// Period membership is by ORDER YEAR (PurchaseOrder.period, a plain string) — there
+// is intentionally NO relation between ReportingPeriod and the transaction tables.
+// The compute layer matches by name / calendar-year bounds. Kept relations point only
+// at the compute OUTPUT + audit tables.
 
 model ReportingPeriod {
   id        String   @id @default(cuid())
-  name      String   @unique // "Q1 2024", "FY 2024", etc.
+  name      String   @unique // "2024", "2025", "2026"
   startDate DateTime
   endDate   DateTime
   isLocked  Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  suppliers          Supplier[]
-  purchases          Purchase[]
   metrics            SupplierMetric[]
   imports            Import[]
   analysisResults    AnalysisResult[]
   executiveSummaries ExecutiveSummary[]
 }
 
-// ============= DATA =============
+// ============= NORMALIZED DOCUMENT MODEL =============
+//
+// Raw facts only — NO derived values are stored (no *_days, no three_way_match_pass,
+// no quantity_accepted, no line_amount, no scores). Derived PO-grain data is
+// reconstructed by the "EnrichedPurchase" VIEW (added in the derivation phase);
+// line-level detail is read straight from PoLine. Supplier is a clean master (no
+// period-scoping). All PKs are the dataset's natural String ids (e.g. "S0001").
 
 model Supplier {
-  id                 String          @id @default(cuid())
-  externalId         String // S001, S002, etc.
-  supplierName       String
-  country            String
-  category           String
-  periodId           String
-  period             ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  id              String    @id // supplier_id, e.g. "S0001"
+  supplierName    String
+  country         String
+  category        String
+  status          String
+  isMiningService Boolean
+  iujpNo          String?
+  iujpValidUntil  DateTime?
 
-  @@unique([externalId, periodId])
-  @@index([periodId])
+  frameworks       Framework[]
+  responses        Response[]
+  purchaseOrders   PurchaseOrder[]
+  invoices         Invoice[]
+  awardedSourcings SourcingEvent[] // events this supplier won (SourcingEvent.awardedSupplierId)
+
   @@index([category])
 }
 
-model Purchase {
-  id                    String          @id @default(cuid())
-  poId                  String
-  supplierExternalId    String
-  supplierName          String
-  category              String
-  itemName              String
-  unit                  String
-  quantity              Float
-  unitPriceUsd          Float
-  totalValueUsd         Float
-  prDate                DateTime
-  poDate                DateTime
-  deliveryDate          DateTime
-  invoiceDate           DateTime
-  paymentDate           DateTime
-  prToPoDays            Int
-  poToDeliveryDays      Int
-  deliveryToInvoiceDays Int
-  invoiceToPaymentDays  Int
-  totalCycleDays        Int
-  onTimeDelivery        Boolean
-  threeWayMatchPass     Boolean
-  defectCount           Int
-  complaintCount        Int
-  periodId              String
-  period                ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+model Framework {
+  id         String   @id // framework_id
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  title      String
+  category   String
+  startDate  DateTime
+  endDate    DateTime
+  status     String
 
-  @@unique([poId, periodId])
-  @@index([periodId])
-  @@index([supplierExternalId, periodId])
+  purchaseOrders PurchaseOrder[]
+
+  @@index([supplierId])
 }
 
-model SupplierMetric {
-  id                   String          @id @default(cuid())
-  supplierExternalId   String
-  supplierName         String
-  category             String
-  totalSpendUsd        Float
-  numPos               Int
-  avgPoValueUsd        Float
-  avgLeadTimeDays      Float
-  avgCycleTimeDays     Float
-  onTimeDeliveryPct    Float
-  threeWayMatchPct     Float
-  qualityScore         Float
-  deliveryScore        Float
-  processScore         Float
-  riskScore            Float
-  compositeScore       Float
+model Requisition {
+  id                String   @id // pr_id
+  prDate            DateTime
+  requester         String
+  department        String
+  category          String
+  needByDate        DateTime
+  estimatedValueUsd Float
+  status            String
 
-  // Phase 11A: Kraljic matrix data layer (computed post-import, nullable until run)
+  sourcingEvents SourcingEvent[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model SourcingEvent {
+  id                  String      @id // sourcing_event_id
+  prId                String
+  requisition         Requisition @relation(fields: [prId], references: [id])
+  issueDate           DateTime
+  closeDate           DateTime
+  numSuppliersInvited Int
+  awardedSupplierId   String?
+  awardedSupplier     Supplier?   @relation(fields: [awardedSupplierId], references: [id])
+  awardedResponseId   String?
+
+  responses      Response[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([prId])
+  @@index([awardedSupplierId])
+}
+
+model Response {
+  id                 String        @id // response_id
+  sourcingEventId    String
+  sourcingEvent      SourcingEvent @relation(fields: [sourcingEventId], references: [id])
+  supplierId         String
+  supplier           Supplier      @relation(fields: [supplierId], references: [id])
+  quotedUnitPriceUsd Float
+  quotedLeadTimeDays Int
+  submittedDate      DateTime
+  isAwarded          Boolean
+
+  @@index([sourcingEventId])
+  @@index([supplierId])
+}
+
+model PurchaseOrder {
+  id                   String         @id // po_id
+  prId                 String
+  requisition          Requisition    @relation(fields: [prId], references: [id])
+  sourcingEventId      String?
+  sourcingEvent        SourcingEvent? @relation(fields: [sourcingEventId], references: [id])
+  supplierId           String
+  supplier             Supplier       @relation(fields: [supplierId], references: [id])
+  buyingMethod         String // rfq | spot_buy | call_off | direct
+  frameworkId          String?
+  framework            Framework?     @relation(fields: [frameworkId], references: [id])
+  justification        String?
+  poDate               DateTime
+  promisedDeliveryDate DateTime
+  paymentTerms         String
+  complaintCount       Int
+  status               String
+  period               String // order-year: "2024" | "2025" | "2026"
+
+  poLines       PoLine[]
+  goodsReceipts GoodsReceipt[]
+  invoices      Invoice[]
+
+  @@index([prId])
+  @@index([sourcingEventId])
+  @@index([supplierId])
+  @@index([frameworkId])
+  @@index([period])
+}
+
+model PoLine {
+  id              String        @id // po_line_id
+  poId            String
+  po              PurchaseOrder @relation(fields: [poId], references: [id])
+  itemName        String
+  category        String
+  unit            String
+  quantityOrdered Float
+  unitPriceUsd    Float
+  needByDate      DateTime
+
+  grnLines     GrnLine[]
+  invoiceLines InvoiceLine[]
+
+  @@index([poId])
+}
+
+model GoodsReceipt {
+  id          String        @id // grn_id
+  poId        String
+  po          PurchaseOrder @relation(fields: [poId], references: [id])
+  receiptDate DateTime
+  receivedBy  String
+  site        String
+  status      String
+
+  grnLines GrnLine[]
+
+  @@index([poId])
+}
+
+model GrnLine {
+  id               String       @id // grn_line_id
+  grnId            String
+  goodsReceipt     GoodsReceipt @relation(fields: [grnId], references: [id])
+  poLineId         String
+  poLine           PoLine       @relation(fields: [poLineId], references: [id])
+  quantityReceived Float
+  quantityRejected Float
+  defectCount      Int
+
+  @@index([grnId])
+  @@index([poLineId])
+}
+
+model Invoice {
+  id                String        @id // invoice_id
+  poId              String
+  po                PurchaseOrder @relation(fields: [poId], references: [id])
+  supplierId        String
+  supplier          Supplier      @relation(fields: [supplierId], references: [id])
+  supplierInvoiceNo String
+  invoiceDate       DateTime
+  totalAmountUsd    Float
+  status            String
+
+  invoiceLines InvoiceLine[]
+  payments     Payment[]
+
+  @@index([poId])
+  @@index([supplierId])
+}
+
+model InvoiceLine {
+  id             String  @id // invoice_line_id
+  invoiceId      String
+  invoice        Invoice @relation(fields: [invoiceId], references: [id])
+  poLineId       String
+  poLine         PoLine  @relation(fields: [poLineId], references: [id])
+  quantityBilled Float
+  unitPriceUsd   Float
+
+  @@index([invoiceId])
+  @@index([poLineId])
+}
+
+model Payment {
+  id            String   @id // payment_id
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+  paymentDate   DateTime
+  amountPaidUsd Float
+  method        String
+
+  @@index([invoiceId])
+}
+
+// ============= COMPUTE OUTPUT (regenerated by the compute layer) =============
+
+model SupplierMetric {
+  id                 String @id @default(cuid())
+  supplierExternalId String
+  supplierName       String
+  category           String
+  totalSpendUsd      Float
+  numPos             Int
+  avgPoValueUsd      Float
+  avgLeadTimeDays    Float
+  avgCycleTimeDays   Float
+  onTimeDeliveryPct  Float
+  threeWayMatchPct   Float
+  qualityScore       Float
+  deliveryScore      Float
+  processScore       Float
+  riskScore          Float
+  compositeScore     Float
+
+  // Kraljic matrix data layer (computed post-import, nullable until run)
   supplyRiskScore     Float?  @db.Real // 0-100 supply-risk index
   kraljicQuadrant     String? @db.VarChar(30) // Strategic | Leverage | Bottleneck | Routine
   categoryCompetition Int? // count of OTHER suppliers in the same category
 
-  periodId             String
-  period               ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  periodId String
+  period   ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
   @@unique([supplierExternalId, periodId])
   @@index([periodId])
