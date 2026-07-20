@@ -43,11 +43,12 @@ migration; all are live again:
 - **Dataset import** — three modes: replace-all, append suppliers (upsert), append
   transactions (insert-only complete chains), plus a generated template download.
   See "Data flow for imports".
-- **Transaction create** — records a COMPLETE document chain (PR -> PO + lines -> GRN +
-  lines -> invoice + lines -> payment) in one atomic transaction. ⚠️ **No open POs, by
-  design**: the view COALESCEs a PO with no invoice lines to `threeWayMatchPass = TRUE`,
-  so an open PO would count as a match PASS while contributing to no other rate
-  denominator. Supporting them would require changing a rate denominator.
+- **Transaction create** — records a COMPLETE document chain (PR -> PO + lines -> ONE OR
+  MORE GRNs + lines -> invoice + lines -> payment) in one atomic transaction. ⚠️ **No
+  open POs, by design**: the view COALESCEs a PO with no invoice lines to
+  `threeWayMatchPass = TRUE`, so an open PO would count as a match PASS while
+  contributing to no other rate denominator. Supporting them would require changing a
+  rate denominator. See "RECORD-PURCHASE FORM" below for the request shape.
 - **Corrections** — posted transactional records are IMMUTABLE (Postgres BEFORE UPDATE
   triggers on the 10 document tables reject any edit). A mistake is fixed by APPENDING a
   signed correction line linked via `correctsLineId`, with a `Correction` audit header.
@@ -91,6 +92,54 @@ migration; all are live again:
   changed): analytics reads NEITHER `buying_method` NOR the sourcing documents —
   `python/` has zero references, the view never joins `SourcingEvent`, and zero of the
   18 `AnalysisResult` payloads mention either.
+
+**RECORD-PURCHASE FORM (`RecordPurchaseCard` + `CreateTransactionBody`).** Group A,
+2026-07-20. Form paths only — no analytics, compute, schema or migration change.
+
+- ⚠️ **RECEIVING IS PER RECEIPT, not per PO.** `site` / `received_by` / `receipt_date`
+  are NOT top-level: the request carries a **`receipts[]`** array, each entry with its
+  own date, site, receiver and the subset of order lines it delivered
+  (`{line_index, quantity_received, quantity_rejected, defect_count}`). `lines[]` keeps
+  ordering + BILLING only (`quantity_billed`, `invoice_unit_price_usd`), which stay
+  PO-level because there is one invoice. Matches the data: 28% of orders have two
+  receipts, 136 of those at DIFFERENT sites, 315/322 lines split by partial quantity.
+  GRN sequences are allocated **per year**, so a delivery straddling a year boundary
+  still gets a correct id. Billed defaults to accepted summed ACROSS receipts.
+  - Validation: ≥1 receipt · every order line covered by ≥1 receipt · no receipt before
+    `po_date` · none after `invoice_date` (it IS the view's `deliveryDate`) · received
+    across receipts ≤ ordered · rejected ≤ received. **Under-receipt stays legal** — a
+    correctly-billed partial delivery passes the three-way match by design.
+  - ⚠️ **Blank-quantity convention differs by mode:** with ONE receipt a blank quantity
+    means the WHOLE line arrived (preserves the earlier ergonomics); with SEVERAL it
+    means ZERO, because "the rest" is ambiguous once split.
+- ⚠️ **GRN STATUS = CUMULATIVE ARRIVAL.** A receipt is `complete` once everything
+  received up to and INCLUDING it has reached the ordered quantity on every line, else
+  `partial`. Verified against all 829 seeded receipts — 647/182 separate PERFECTLY on
+  that rule, and a two-receipt order reads partial then complete. **Rejections do NOT
+  make a receipt partial** (25 seeded `complete` receipts carry rejected quantity); the
+  old single-receipt code additionally required zero rejections, which was WRONG and is
+  corrected. Inert: `GoodsReceipt.status` is read by neither the view nor `python/`.
+- **Name validators** (`personName` / `orgName` in `lib/transaction-create.ts`; zod is
+  authoritative, mirrored client-side by the shared `nameError` helper). `min(1)` alone
+  let "12" and "da12" become the requester of a posted, immutable document.
+  **requester + received_by → `personName`** (a PERSON: ANY digit rejected — no seeded
+  value has one). **department + site → `orgName`** (a place/function: only digit-ONLY
+  rejected, so "Warehouse 2" passes; "HSE" and "Drill & Blast" pass — no min-length, no
+  two-word rule). Both require a letter; letters match `\p{L}`, so a non-ASCII name is
+  not rejected for being non-English.
+- **Framework picker (call-off).** ⚠️ The supplier filter is CORRECT domain logic, not a
+  bug — every call-off references a framework owned by its own supplier. Only 21 of 55
+  suppliers HAVE one, so an empty list is the common legitimate case: the field is
+  `disabled` until a supplier is chosen, the empty message NAMES the supplier and the
+  reason, and the condition is surfaced on the Call-off button so the dead end is
+  visible BEFORE selection. ⚠️ The framework DATE WINDOW is deliberately NOT enforced —
+  15 existing call-offs fall outside theirs. ⚠️ Known: the picker filters
+  `status: "active"`, so an EXPIRED framework would vanish silently.
+- **Item field** is a per-supplier creatable dropdown (each supplier has 2-5 items).
+  Picking a known item AUTO-FILLS category + unit — both are strictly 1:1 with the item
+  (0 items span two categories, 0 span two units). **Category is
+  DERIVED-WITH-OVERRIDE, not read-only**, so a new item in a new category is possible; a
+  created name matches nothing, so category/unit stay as typed.
 
 ⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
 because proven byte-identical on existing data AND semantically required under
