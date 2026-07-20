@@ -24,6 +24,7 @@ model User {
   imports           Import[]
   reports           ExecutiveSummary[]
   supplierChanges   SupplierChangeLog[]
+  corrections       Correction[]
 }
 
 enum Role {
@@ -195,6 +196,7 @@ model PurchaseOrder {
   poLines       PoLine[]
   goodsReceipts GoodsReceipt[]
   invoices      Invoice[]
+  correctionsPosted Correction[]
 
   @@index([prId])
   @@index([sourcingEventId])
@@ -203,10 +205,43 @@ model PurchaseOrder {
   @@index([period])
 }
 
+/// Audit header for ONE logical correction. It records who/why/when and groups the
+/// signed rows a correction produces across PoLine / GrnLine / InvoiceLine.
+///
+/// ⚠️ This is METADATA ONLY — the EnrichedPurchase view never reads it. Netting is
+/// done purely by the signed line rows themselves, so the correction mechanism does
+/// not depend on this table existing. Original rows are never mutated.
+model Correction {
+  id        String   @id @default(cuid())
+  kind      String // quantity | price | defect
+  poId      String
+  po        PurchaseOrder @relation(fields: [poId], references: [id])
+  reason    String
+  createdBy String
+  user      User     @relation(fields: [createdBy], references: [id])
+  createdAt DateTime @default(now())
+
+  poLines      PoLine[]
+  grnLines     GrnLine[]
+  invoiceLines InvoiceLine[]
+
+  @@index([poId])
+  @@index([createdAt])
+}
+
 model PoLine {
   id              String        @id // po_line_id
   poId            String
   po              PurchaseOrder @relation(fields: [poId], references: [id])
+
+  /// Set on a CORRECTION row: the original line this reverses/adjusts. Signed
+  /// quantities net against the original; item identity folds to the original so
+  /// breakdowns never show a phantom negative-quantity item.
+  correctsLineId String?
+  correctsLine   PoLine?  @relation("PoLineCorrection", fields: [correctsLineId], references: [id])
+  corrections    PoLine[] @relation("PoLineCorrection")
+  correctionId   String?
+  correction     Correction? @relation(fields: [correctionId], references: [id])
   itemName        String
   category        String
   unit            String
@@ -244,6 +279,13 @@ model GrnLine {
   quantityRejected Float
   defectCount      Int
 
+  /// Correction row: signed quantities/defects that net against the original.
+  correctsLineId String?
+  correctsLine   GrnLine?    @relation("GrnLineCorrection", fields: [correctsLineId], references: [id])
+  corrections    GrnLine[]   @relation("GrnLineCorrection")
+  correctionId   String?
+  correction     Correction? @relation(fields: [correctionId], references: [id])
+
   @@index([grnId])
   @@index([poLineId])
 }
@@ -274,6 +316,15 @@ model InvoiceLine {
   poLine         PoLine  @relation(fields: [poLineId], references: [id])
   quantityBilled Float
   unitPriceUsd   Float
+
+  /// Correction row: a signed billing adjustment (credit / re-bill) against the
+  /// original invoice line. The view nets the quantity and takes the
+  /// value-weighted effective price, so a corrected invoice matches again.
+  correctsLineId String?
+  correctsLine   InvoiceLine?  @relation("InvoiceLineCorrection", fields: [correctsLineId], references: [id])
+  corrections    InvoiceLine[] @relation("InvoiceLineCorrection")
+  correctionId   String?
+  correction     Correction?   @relation(fields: [correctionId], references: [id])
 
   @@index([invoiceId])
   @@index([poLineId])

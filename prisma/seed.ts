@@ -81,11 +81,19 @@ async function main() {
     await seedPeriods();
 
     console.log("Clearing transaction tables…");
+    // Posted transactional tables are immutable (BEFORE UPDATE triggers). DELETE is
+    // allowed, but the correction FKs use ON DELETE SET NULL and referential actions
+    // fire triggers, so the wipe below needs the sanctioned bulk-import escape hatch.
+    // Session-scoped here (the seed does not run inside one transaction).
+    await prisma.$executeRawUnsafe("SET app.bulk_import = 'on'");
     // The seed replaces the supplier master outright, so master-data audit history
     // from a previous dataset is discarded. (The admin re-import instead preserves
     // what still resolves — see app/api/imports/upload.) SupplierChangeLog FKs
     // Supplier with ON DELETE RESTRICT, so this must precede the supplier wipe.
     await prisma.supplierChangeLog.deleteMany();
+    // Correction FKs PurchaseOrder with RESTRICT, so correction headers must go
+    // before the transaction wipe. A re-seed replaces the very lines they correct.
+    await prisma.correction.deleteMany();
     await clearDataset(prisma);
 
     console.log("Inserting normalized transaction data (FK order):");

@@ -4,6 +4,7 @@ import { nextSupplierId } from "@/lib/supplier-import";
 import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
 import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
+import { CorrectionCard } from "@/components/CorrectionCard";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -84,6 +85,17 @@ export default async function ImportPage() {
     prisma.goodsReceipt.findMany({ select: { site: true, receivedBy: true }, distinct: ["site", "receivedBy"] }),
     prisma.requisition.findMany({ select: { department: true, requester: true }, distinct: ["department", "requester"] }),
   ]);
+
+  const corrections = await prisma.correction.findMany({
+    take: 25,
+    orderBy: { createdAt: "desc" },
+    include: {
+      user: { select: { email: true } },
+      poLines: { select: { id: true, quantityOrdered: true, unitPriceUsd: true } },
+      invoiceLines: { select: { id: true, quantityBilled: true, unitPriceUsd: true } },
+      grnLines: { select: { id: true, defectCount: true } },
+    },
+  });
   const uniqSorted = (xs: string[]) => [...new Set(xs)].filter(Boolean).sort();
 
   return (
@@ -117,6 +129,56 @@ export default async function ImportPage() {
         departments={uniqSorted(prFacets.map((p) => p.department))}
         requesters={uniqSorted(prFacets.map((p) => p.requester))}
       />
+
+      <CorrectionCard />
+
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Correction ledger</h2>
+        {corrections.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No corrections posted. Originals stay exactly as posted; a correction appends
+            a signed adjustment beside them.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Purchase order</TableHead>
+                <TableHead>Rows appended</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>By</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {corrections.map((c) => {
+                const rows = [
+                  ...c.poLines.map((l) => `${l.id} (qty ${l.quantityOrdered})`),
+                  ...c.invoiceLines.map((l) => `${l.id} (${l.quantityBilled} @ ${l.unitPriceUsd})`),
+                  ...c.grnLines.map((l) => `${l.id} (defects ${l.defectCount})`),
+                ];
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {formatDate(c.createdAt)}
+                    </TableCell>
+                    <TableCell className="capitalize">{c.kind}</TableCell>
+                    <TableCell className="font-mono text-xs">{c.poId}</TableCell>
+                    <TableCell className="font-mono text-[11px] text-muted-foreground">
+                      {rows.map((r) => (
+                        <div key={r}>{r}</div>
+                      ))}
+                    </TableCell>
+                    <TableCell className="max-w-[280px] text-xs">{c.reason}</TableCell>
+                    <TableCell className="text-muted-foreground">{c.user.email}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       <div className="overflow-x-auto">
         <SupplierAdminPanel

@@ -12,6 +12,7 @@ type Preflight = {
   supplierCount: number;
   poCount: number;
   changeLogCount: number;
+  correctionCount: number;
   manuallyAddedSuppliers: string[];
 };
 
@@ -152,6 +153,17 @@ export function DatasetImportCard() {
                 </li>
               )}
             </ul>
+            {(preflight?.correctionCount ?? 0) > 0 && (
+              <>
+                <p className="mt-2 font-medium">Corrections:</p>
+                <p className="text-destructive">
+                  {preflight!.correctionCount} posted correction
+                  {preflight!.correctionCount === 1 ? "" : "s"} will be deleted. A correction
+                  is a statement about specific posted lines — those lines are replaced by
+                  the file, so the correction cannot be reattached.
+                </p>
+              </>
+            )}
             <p className="mt-2 font-medium">Audit trail:</p>
             <p className="text-muted-foreground">
               {preflight?.changeLogCount ? (

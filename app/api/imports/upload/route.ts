@@ -42,10 +42,11 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [supplierCount, poCount, changeLogCount, manualCreates] = await Promise.all([
+  const [supplierCount, poCount, changeLogCount, correctionCount, manualCreates] = await Promise.all([
     prisma.supplier.count(),
     prisma.purchaseOrder.count(),
     prisma.supplierChangeLog.count(),
+    prisma.correction.count(),
     prisma.supplierChangeLog.findMany({
       where: { action: "create" },
       select: { supplierId: true },
@@ -57,6 +58,7 @@ export async function GET() {
     supplierCount,
     poCount,
     changeLogCount,
+    correctionCount,
     // A supplier is "manually added" iff it has a `create` entry in the audit log —
     // seeded suppliers have none.
     manuallyAddedSuppliers: manualCreates.map((m) => m.supplierId),
@@ -117,7 +119,13 @@ export async function POST(request: Request) {
   }
 
   // --- single transaction: wipe + insert ------------------------------------
-  let result: { counts: Record<SheetName, number>; auditKept: number; auditDropped: number; importId: string };
+  let result: {
+    counts: Record<SheetName, number>;
+    auditKept: number;
+    auditDropped: number;
+    correctionsDropped: number;
+    importId: string;
+  };
   try {
     result = await prisma.$transaction(
       async (tx) => {
@@ -127,8 +135,25 @@ export async function POST(request: Request) {
         // file still contains. History for suppliers that vanish is dropped (it
         // would dangle) and reported. The re-import itself is recorded as an
         // `Import` row — that table is the event log for imports.
+        // Posted transactional tables carry BEFORE UPDATE immutability triggers.
+        // DELETE is not blocked, but the correction FKs use ON DELETE SET NULL and a
+        // referential action fires triggers — so wiping a corrected line issues an
+        // UPDATE on its correction rows. This flag is the sanctioned escape hatch;
+        // SET LOCAL scopes it to this transaction only.
+        await tx.$executeRawUnsafe("SET LOCAL app.bulk_import = 'on'");
+
         const priorLog = await tx.supplierChangeLog.findMany();
         await tx.supplierChangeLog.deleteMany();
+
+        // Corrections are statements about SPECIFIC posted lines. A replace-all
+        // replaces those lines outright, so a correction against the old ledger has
+        // nothing left to correct — unlike supplier history, it cannot be
+        // meaningfully reattached, and its signed rows are deleted with the rest of
+        // PoLine/GrnLine/InvoiceLine anyway. Deleted here (before clearDataset,
+        // since Correction FKs PurchaseOrder with RESTRICT) and surfaced in the
+        // confirmation so the loss is never silent.
+        const correctionsDropped = await tx.correction.count();
+        await tx.correction.deleteMany();
 
         await clearDataset(tx);
 
@@ -179,6 +204,7 @@ export async function POST(request: Request) {
           counts,
           auditKept: keep.length,
           auditDropped: priorLog.length - keep.length,
+          correctionsDropped,
           importId: imp.id,
         };
       },
@@ -222,6 +248,7 @@ export async function POST(request: Request) {
     counts: result.counts,
     periods,
     audit: { preserved: result.auditKept, dropped: result.auditDropped },
+    correctionsDropped: result.correctionsDropped,
     recompute: recompute.summary,
   });
 }

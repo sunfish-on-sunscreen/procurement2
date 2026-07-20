@@ -188,12 +188,19 @@ _PO_LINES = None
 
 def load_po_lines(conn, start_ts, end_ts):
     """PoLine rows for the POs in the window (order-year filter on poDate). `quantity`
-    is the per-line quantity_ordered — the price×qty basis cost_premium expects."""
+    is the per-line quantity_ordered — the price×qty basis cost_premium expects.
+
+    Correction lines (signed quantity + correctsLineId) fold onto the ORIGINAL line's
+    itemName, so cost_premium benchmarks the corrected item rather than treating a
+    reversal as a separate product. The signed quantity then nets into that item's
+    spend-weighted average price. Formula unchanged."""
     return _df(
         conn,
         'SELECT po.id AS "poId", po."supplierId" AS "supplierExternalId", '
-        'pl."itemName", pl."unitPriceUsd", pl."quantityOrdered" AS "quantity" '
+        'COALESCE(orig."itemName", pl."itemName") AS "itemName", '
+        'pl."unitPriceUsd", pl."quantityOrdered" AS "quantity" '
         'FROM "PoLine" pl JOIN "PurchaseOrder" po ON po.id = pl."poId" '
+        'LEFT JOIN "PoLine" orig ON orig.id = pl."correctsLineId" '
         'WHERE po."poDate" >= %s AND po."poDate" <= %s',
         (start_ts, end_ts),
     )

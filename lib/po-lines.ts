@@ -8,6 +8,13 @@ import { Prisma } from "@/lib/generated/prisma/client";
  * view. Every item-level consumer (spend-by-item, evolution product-mix, report
  * supplier-brief item breakdown) reads it here, joined to its PurchaseOrder for the
  * order-year (`poDate`) filter + period. `lineValueUsd` = quantityOrdered × unitPrice.
+ *
+ * ⚠️ CORRECTIONS FOLD INTO THE CORRECTED ITEM. A correction is an appended line with
+ * a signed quantity and `correctsLineId` pointing at the original. Its own
+ * itemName/unit/category are NOT authoritative — a correction is a statement about
+ * the original transaction, not a new item — so the identity columns resolve to the
+ * ORIGINAL line. The signed quantity and value then net against that item instead of
+ * appearing as a phantom negative-quantity row in any breakdown.
  */
 export interface PoLineRow {
   poId: string;
@@ -42,9 +49,9 @@ export async function getPoLines(filter: PoLineFilter = {}): Promise<PoLineRow[]
     SELECT
       pl."poId"                                  AS "poId",
       po."supplierId"                            AS "supplierExternalId",
-      pl."itemName"                              AS "itemName",
-      pl."unit"                                  AS "unit",
-      pl."category"                              AS "category",
+      COALESCE(orig."itemName", pl."itemName")   AS "itemName",
+      COALESCE(orig."unit", pl."unit")           AS "unit",
+      COALESCE(orig."category", pl."category")   AS "category",
       pl."quantityOrdered"                       AS "quantity",
       pl."unitPriceUsd"                          AS "unitPriceUsd",
       (pl."quantityOrdered" * pl."unitPriceUsd") AS "lineValueUsd",
@@ -52,6 +59,7 @@ export async function getPoLines(filter: PoLineFilter = {}): Promise<PoLineRow[]
       po."period"                                AS "period"
     FROM "PoLine" pl
     JOIN "PurchaseOrder" po ON po.id = pl."poId"
+    LEFT JOIN "PoLine" orig ON orig.id = pl."correctsLineId"
     ${where}
   `);
 }
