@@ -20,9 +20,10 @@ model User {
   role         Role     @default(VIEWER)
   createdAt    DateTime @default(now())
 
-  sessions Session[]
-  imports  Import[]
-  reports  ExecutiveSummary[]
+  sessions          Session[]
+  imports           Import[]
+  reports           ExecutiveSummary[]
+  supplierChanges   SupplierChangeLog[]
 }
 
 enum Role {
@@ -82,8 +83,32 @@ model Supplier {
   purchaseOrders   PurchaseOrder[]
   invoices         Invoice[]
   awardedSourcings SourcingEvent[] // events this supplier won (SourcingEvent.awardedSupplierId)
+  changeLog        SupplierChangeLog[]
 
   @@index([category])
+}
+
+/// Append-only audit trail for supplier MASTER data (name/country/category/status/…).
+/// One row per FIELD changed, so an edit touching two fields writes two rows.
+///
+/// Master data uses this history-log pattern; posted TRANSACTIONAL documents
+/// (PO / GRN / invoice / payment) must never be mutated at all and instead take
+/// linked correction entries. Different guarantees, deliberately: a misspelled
+/// supplier name is not a posted financial document.
+model SupplierChangeLog {
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  action     String // create | update | deactivate | reactivate
+  field      String? // null for `create` (the whole row is new)
+  oldValue   String? // rendered as text; null on create or when previously unset
+  newValue   String?
+  changedBy  String
+  user       User     @relation(fields: [changedBy], references: [id])
+  changedAt  DateTime @default(now())
+
+  @@index([supplierId])
+  @@index([changedAt])
 }
 
 model Framework {

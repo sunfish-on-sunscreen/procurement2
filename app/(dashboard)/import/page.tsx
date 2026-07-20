@@ -1,5 +1,7 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { nextSupplierId } from "@/lib/supplier-import";
+import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -25,17 +27,17 @@ function formatDate(value: Date | null): string {
 }
 
 /**
- * Admin data page — READ-ONLY in the normalized-data-model build.
+ * Admin data page.
  *
- * The old add/edit/delete/upload flows assumed the flat single-table schema and
- * are disabled (their API routes return 501). Data is loaded via the seed
- * (`prisma db seed`) + the post-seed compute (`python/seed_compute.py`). This page
- * now just surfaces the current roster + recent imports for reference.
+ * Supplier MASTER DATA is editable here (add / edit / deactivate), each change
+ * recorded in SupplierChangeLog. Transactional data (POs and the document chain)
+ * and the Excel upload are still loaded via the seed + `python/seed_compute.py` —
+ * those write paths are rebuilt in later phases.
  */
 export default async function ImportPage() {
   await requireAdmin();
 
-  const [suppliers, supplierCount, poCount, lineCount, imports] = await Promise.all([
+  const [suppliers, supplierCount, poCount, lineCount, imports, changeLog] = await Promise.all([
     prisma.supplier.findMany({
       orderBy: { id: "asc" },
       select: {
@@ -55,16 +57,28 @@ export default async function ImportPage() {
       orderBy: { uploadedAt: "desc" },
       include: { period: true },
     }),
+    prisma.supplierChangeLog.findMany({
+      take: 25,
+      orderBy: { changedAt: "desc" },
+      include: {
+        user: { select: { email: true } },
+        supplier: { select: { supplierName: true } },
+      },
+    }),
   ]);
+
+  const nextId = nextSupplierId(suppliers.map((s) => s.id));
+  const categories = [...new Set(suppliers.map((s) => s.category))].sort();
 
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-lg border border-border bg-muted/40 p-4">
         <h1 className="text-lg font-semibold">Data management</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          This build uses the normalized document data model. Manual add / edit /
-          delete / Excel upload are disabled — data is loaded from the seed
-          dataset. The roster below is read-only.
+          Supplier master data is editable below — every change is recorded in the
+          audit trail. Transactional data (purchase orders and their receipt /
+          invoice / payment chain) and the Excel upload are still loaded from the
+          seed dataset.
         </p>
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
           <span><span className="font-semibold">{supplierCount}</span> suppliers</span>
@@ -73,34 +87,53 @@ export default async function ImportPage() {
         </div>
       </div>
 
+      <div className="overflow-x-auto">
+        <SupplierAdminPanel
+          suppliers={suppliers}
+          nextId={nextId}
+          categories={categories}
+        />
+      </div>
+
       <div className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Supplier roster</h2>
-        <div className="overflow-x-auto">
+        <h2 className="text-lg font-semibold">Master-data audit trail</h2>
+        {changeLog.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No supplier changes recorded yet.
+          </p>
+        ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
+                <TableHead>When</TableHead>
                 <TableHead>Supplier</TableHead>
-                <TableHead>Country</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Mining service</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Field</TableHead>
+                <TableHead>Before</TableHead>
+                <TableHead>After</TableHead>
+                <TableHead>By</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {suppliers.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">{s.id}</TableCell>
-                  <TableCell>{s.supplierName}</TableCell>
-                  <TableCell>{s.country}</TableCell>
-                  <TableCell>{s.category}</TableCell>
-                  <TableCell>{s.status}</TableCell>
-                  <TableCell>{s.isMiningService ? "Yes" : "—"}</TableCell>
+              {changeLog.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatDate(c.changedAt)}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {c.supplier.supplierName}
+                    <span className="text-muted-foreground"> · {c.supplierId}</span>
+                  </TableCell>
+                  <TableCell className="capitalize">{c.action}</TableCell>
+                  <TableCell className="font-mono text-xs">{c.field ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{c.oldValue ?? "—"}</TableCell>
+                  <TableCell>{c.newValue ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{c.user.email}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-3">

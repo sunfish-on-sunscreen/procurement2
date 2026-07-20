@@ -126,6 +126,10 @@ async function clearTransactionTables() {
   await prisma.sourcingEvent.deleteMany();
   await prisma.requisition.deleteMany();
   await prisma.framework.deleteMany();
+  // SupplierChangeLog FKs Supplier with ON DELETE RESTRICT, so its rows must go
+  // first or the supplier wipe below fails. A full re-seed replaces the supplier
+  // master outright, which makes the old master-data audit history meaningless.
+  await prisma.supplierChangeLog.deleteMany();
   await prisma.supplier.deleteMany();
 }
 

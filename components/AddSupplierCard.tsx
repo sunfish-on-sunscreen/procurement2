@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { TypeableCombobox, type ComboOption } from "@/components/ui/typeable-combobox";
 import { CountryFlag } from "@/components/CountryFlag";
 import { panelElevation } from "@/lib/utils";
+import { SUPPLIER_STATUSES, type SupplierStatus } from "@/lib/supplier-import";
 
 /** All ISO alpha-2 countries that country-flag-icons ships a flag for, named via
  *  Intl.DisplayNames (no extra dependency). Built once. */
@@ -58,6 +59,8 @@ export function AddSupplierCard({
   const [name, setName] = useState("");
   const [country, setCountry] = useState("");
   const [category, setCategory] = useState("");
+  const [status, setStatus] = useState<SupplierStatus>("active");
+  const [isMiningService, setIsMiningService] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -70,6 +73,8 @@ export function AddSupplierCard({
       setName("");
       setCountry("");
       setCategory("");
+      setStatus("active");
+      setIsMiningService(false);
       setError(null);
       setSaving(false);
     }
@@ -92,6 +97,8 @@ export function AddSupplierCard({
           supplier_name: name.trim(),
           country: country.trim(),
           category: category.trim(),
+          status,
+          is_mining_service: isMiningService,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -205,6 +212,50 @@ export function AddSupplierCard({
               creatable
               placeholder="Select or type a new category"
             />
+          </div>
+
+          {/* Status — required column, no DB default. */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="add-supplier-status">Status</Label>
+            <div className="flex gap-2" id="add-supplier-status" role="radiogroup">
+              {SUPPLIER_STATUSES.map((s) => (
+                <Button
+                  key={s}
+                  type="button"
+                  role="radio"
+                  aria-checked={status === s}
+                  variant={status === s ? "default" : "outline"}
+                  size="sm"
+                  className="capitalize"
+                  onClick={() => setStatus(s)}
+                >
+                  {s}
+                </Button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Master-data state only — suppliers are never deleted (posted documents
+              reference them), and status does not affect any analysis.
+            </p>
+          </div>
+
+          {/* Mining-service flag — required column, no DB default. */}
+          <div className="flex items-start gap-2">
+            <input
+              id="add-supplier-mining"
+              type="checkbox"
+              checked={isMiningService}
+              onChange={(e) => setIsMiningService(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+            />
+            <div className="flex flex-col">
+              <Label htmlFor="add-supplier-mining" className="cursor-pointer">
+                Mining-service provider
+              </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Contractor providing mining services (vs. a goods supplier).
+              </p>
+            </div>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
