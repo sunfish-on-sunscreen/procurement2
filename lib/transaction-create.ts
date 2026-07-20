@@ -25,9 +25,21 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
+/**
+ * Sourcing-event id prefix per solicitation type. The two types share one
+ * document table but get DISTINCT id namespaces and independent sequences, so an
+ * id never reads "RFQ-…" for a tender. Both are 4-digit, per-year sequences.
+ */
+export const SOURCING_ID_PREFIX: Record<SolicitationType, string> = {
+  rfq: "RFQ",
+  tender: "TND",
+};
+
 export const ID_FORMATS = {
   requisition: (year: number, seq: number) => `PR-${year}-${pad(seq, 5)}`,
-  sourcingEvent: (year: number, seq: number) => `RFQ-${year}-${pad(seq, 4)}`,
+  /** Prefixed by solicitation type — RFQ-<year>-0001 / TND-<year>-0001. */
+  sourcingEvent: (year: number, seq: number, type: SolicitationType = "rfq") =>
+    `${SOURCING_ID_PREFIX[type]}-${year}-${pad(seq, 4)}`,
   response: (sourcingEventId: string, n: number) => `${sourcingEventId}-Q${pad(n, 2)}`,
   purchaseOrder: (year: number, seq: number) => `PO-${year}-${pad(seq, 5)}`,
   poLine: (poId: string, index: number) => `${poId}-${pad((index + 1) * 10, 3)}`,
@@ -108,6 +120,12 @@ export const CreateTransactionBody = z
   .object({
     supplier_id: z.string().trim().min(1, "Supplier is required"),
     buying_method: z.enum(BUYING_METHODS),
+    /**
+     * Type of the sourcing document, meaningful only for a competitively sourced
+     * order (buying_method "rfq"). Defaults to rfq so an existing client that
+     * never sends it keeps working.
+     */
+    solicitation_type: z.enum(SOLICITATION_TYPES).default("rfq"),
     framework_id: z.string().trim().min(1).optional(),
     justification: z.string().trim().min(1).optional(),
     num_suppliers_invited: z.number().int().min(2).max(10).default(3),
@@ -143,6 +161,14 @@ export const CreateTransactionBody = z
   .refine((v) => v.buying_method === "call_off" || !v.framework_id, {
     message: "Only a call-off order may reference a framework agreement.",
     path: ["framework_id"],
+  })
+  // A solicitation type describes a sourcing document, and only a competitively
+  // sourced order has one. Non-competitive methods must leave it at the default
+  // — they create no sourcing event for it to live on.
+  .refine((v) => v.buying_method === "rfq" || v.solicitation_type === "rfq", {
+    message:
+      "Only a competitively sourced order can be a tender — spot buy, call-off and direct award create no sourcing event.",
+    path: ["solicitation_type"],
   })
   // The document chain must move forward in time; the view derives every *Days
   // column as a plain date difference, so out-of-order dates would yield negative
@@ -234,21 +260,30 @@ export async function createTransactionChain(
     },
   });
 
-  // 2. Sourcing event + awarded response (rfq only)
+  // 2. Sourcing event + awarded response — competitively sourced orders only
+  //    (buying_method "rfq"), whichever solicitation type they carry. RFQ and
+  //    tender share this document but have INDEPENDENT id sequences, so the scan
+  //    below is scoped to the prefix of this event's own type.
   let sourcingEventId: string | null = null;
   let responseId: string | null = null;
   if (input.buying_method === "rfq") {
-    const rfqRows = await tx.sourcingEvent.findMany({
-      where: { id: { startsWith: `RFQ-${prYear}-` } },
+    const prefix = SOURCING_ID_PREFIX[input.solicitation_type];
+    const eventRows = await tx.sourcingEvent.findMany({
+      where: { id: { startsWith: `${prefix}-${prYear}-` } },
       select: { id: true },
     });
-    sourcingEventId = ID_FORMATS.sourcingEvent(prYear, await nextSeq(rfqRows, "RFQ", prYear));
+    sourcingEventId = ID_FORMATS.sourcingEvent(
+      prYear,
+      await nextSeq(eventRows, prefix, prYear),
+      input.solicitation_type,
+    );
     responseId = ID_FORMATS.response(sourcingEventId, 1);
 
     await tx.sourcingEvent.create({
       data: {
         id: sourcingEventId,
         prId,
+        solicitationType: input.solicitation_type,
         issueDate: utc(input.pr_date),
         closeDate: utc(input.po_date),
         numSuppliersInvited: input.num_suppliers_invited,
