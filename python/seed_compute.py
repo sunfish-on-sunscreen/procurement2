@@ -84,8 +84,13 @@ _METRIC_INSERT_COLS = [
 def write_supplier_metrics(conn):
     """Score + write per-order-year SupplierMetric rows from the normalized data."""
     suppliers = _df(conn, 'SELECT id AS supplier_id, "supplierName" AS supplier_name, '
-                          'country, category FROM "Supplier"')
-    enriched = _df(conn, 'SELECT * FROM "EnrichedPurchase"')
+                          'country, category FROM "Supplier" ORDER BY id')
+    # ⚠️ ORDER BY is load-bearing, not cosmetic: float addition is not associative, so
+    # an unordered read makes per-supplier sums depend on physical row order. That is
+    # invisible in `total_spend_usd` (rounded straight to 2dp) but CAN flip
+    # `avg_po_value_usd`, which divides the UNROUNDED sum — e.g. S0018/2025 summed to
+    # 8250602.14 or 8250602.140000001 depending on order, rounding to .53 vs .54.
+    enriched = _df(conn, 'SELECT * FROM "EnrichedPurchase" ORDER BY "poId"')
     if len(enriched) == 0:
         raise RuntimeError("EnrichedPurchase view returned 0 rows — did the seed run?")
 

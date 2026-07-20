@@ -272,9 +272,180 @@ async function insertChunked<T>(
 }
 
 /**
- * Insert all 12 sheets in FK order. Assumes `clearDataset` already ran and that
- * `validateDataset` passed — the date coercions throw on a malformed cell, which
+ * Per-sheet row mappers: one raw sheet row -> the Prisma create payload.
+ *
+ * THE single definition of how a spreadsheet row becomes a database row, shared by
+ * the replace-all importer and the append paths so the two can never disagree about
+ * column meaning or coercion. The date coercions throw on a malformed cell, which
  * aborts the surrounding transaction.
+ */
+export const ROW_MAPPERS = {
+  suppliers: (r: Row) => ({
+    id: str(r.supplier_id),
+    supplierName: str(r.supplier_name),
+    country: str(r.country),
+    category: str(r.category),
+    status: str(r.status),
+    isMiningService: bool(r.is_mining_service),
+    iujpNo: s(r.iujp_no),
+    iujpValidUntil: date(r.iujp_valid_until),
+  }),
+  frameworks: (r: Row) => ({
+    id: str(r.framework_id),
+    supplierId: str(r.supplier_id),
+    title: str(r.title),
+    category: str(r.category),
+    startDate: reqDate(r.start_date, "frameworks.start_date"),
+    endDate: reqDate(r.end_date, "frameworks.end_date"),
+    status: str(r.status),
+  }),
+  requisitions: (r: Row) => ({
+    id: str(r.pr_id),
+    prDate: reqDate(r.pr_date, "requisitions.pr_date"),
+    requester: str(r.requester),
+    department: str(r.department),
+    category: str(r.category),
+    needByDate: reqDate(r.need_by_date, "requisitions.need_by_date"),
+    estimatedValueUsd: num(r.estimated_value_usd),
+    status: str(r.status),
+  }),
+  sourcing_events: (r: Row) => ({
+    id: str(r.sourcing_event_id),
+    prId: str(r.pr_id),
+    issueDate: reqDate(r.issue_date, "sourcing_events.issue_date"),
+    closeDate: reqDate(r.close_date, "sourcing_events.close_date"),
+    numSuppliersInvited: int(r.num_suppliers_invited),
+    awardedSupplierId: s(r.awarded_supplier_id),
+    awardedResponseId: s(r.awarded_response_id),
+  }),
+  responses: (r: Row) => ({
+    id: str(r.response_id),
+    sourcingEventId: str(r.sourcing_event_id),
+    supplierId: str(r.supplier_id),
+    quotedUnitPriceUsd: num(r.quoted_unit_price_usd),
+    quotedLeadTimeDays: int(r.quoted_lead_time_days),
+    submittedDate: reqDate(r.submitted_date, "responses.submitted_date"),
+    isAwarded: bool(r.is_awarded),
+  }),
+  purchase_orders: (r: Row) => ({
+    id: str(r.po_id),
+    prId: str(r.pr_id),
+    sourcingEventId: s(r.sourcing_event_id),
+    supplierId: str(r.supplier_id),
+    buyingMethod: str(r.buying_method),
+    frameworkId: s(r.framework_id),
+    justification: s(r.justification),
+    poDate: reqDate(r.po_date, "purchase_orders.po_date"),
+    promisedDeliveryDate: reqDate(
+      r.promised_delivery_date,
+      "purchase_orders.promised_delivery_date",
+    ),
+    paymentTerms: str(r.payment_terms),
+    complaintCount: int(r.complaint_count),
+    status: str(r.status),
+    period: str(r.period),
+  }),
+  po_lines: (r: Row) => ({
+    id: str(r.po_line_id),
+    poId: str(r.po_id),
+    itemName: str(r.item_name),
+    category: str(r.category),
+    unit: str(r.unit),
+    quantityOrdered: num(r.quantity_ordered),
+    unitPriceUsd: num(r.unit_price_usd),
+    needByDate: reqDate(r.need_by_date, "po_lines.need_by_date"),
+  }),
+  goods_receipts: (r: Row) => ({
+    id: str(r.grn_id),
+    poId: str(r.po_id),
+    receiptDate: reqDate(r.receipt_date, "goods_receipts.receipt_date"),
+    receivedBy: str(r.received_by),
+    site: str(r.site),
+    status: str(r.status),
+  }),
+  grn_lines: (r: Row) => ({
+    id: str(r.grn_line_id),
+    grnId: str(r.grn_id),
+    poLineId: str(r.po_line_id),
+    quantityReceived: num(r.quantity_received),
+    quantityRejected: num(r.quantity_rejected),
+    defectCount: int(r.defect_count),
+  }),
+  invoices: (r: Row) => ({
+    id: str(r.invoice_id),
+    poId: str(r.po_id),
+    supplierId: str(r.supplier_id),
+    supplierInvoiceNo: str(r.supplier_invoice_no),
+    invoiceDate: reqDate(r.invoice_date, "invoices.invoice_date"),
+    totalAmountUsd: num(r.total_amount_usd),
+    status: str(r.status),
+  }),
+  invoice_lines: (r: Row) => ({
+    id: str(r.invoice_line_id),
+    invoiceId: str(r.invoice_id),
+    poLineId: str(r.po_line_id),
+    quantityBilled: num(r.quantity_billed),
+    unitPriceUsd: num(r.unit_price_usd),
+  }),
+  payments: (r: Row) => ({
+    id: str(r.payment_id),
+    invoiceId: str(r.invoice_id),
+    paymentDate: reqDate(r.payment_date, "payments.payment_date"),
+    amountPaidUsd: num(r.amount_paid_usd),
+    method: str(r.method),
+  }),
+} as const;
+
+/**
+ * Per-sheet bulk insert, in FK order (SHEET_NAMES order). Kept as an explicit record
+ * rather than a generic loop so each call keeps its own Prisma delegate types.
+ */
+const SHEET_INSERTERS: Record<
+  SheetName,
+  (tx: DbClient, rows: Row[]) => Promise<number>
+> = {
+  suppliers: (tx, rows) =>
+    insertChunked(rows, (c) => tx.supplier.createMany({ data: c.map(ROW_MAPPERS.suppliers) })),
+  frameworks: (tx, rows) =>
+    insertChunked(rows, (c) => tx.framework.createMany({ data: c.map(ROW_MAPPERS.frameworks) })),
+  requisitions: (tx, rows) =>
+    insertChunked(rows, (c) => tx.requisition.createMany({ data: c.map(ROW_MAPPERS.requisitions) })),
+  sourcing_events: (tx, rows) =>
+    insertChunked(rows, (c) =>
+      tx.sourcingEvent.createMany({ data: c.map(ROW_MAPPERS.sourcing_events) }),
+    ),
+  responses: (tx, rows) =>
+    insertChunked(rows, (c) => tx.response.createMany({ data: c.map(ROW_MAPPERS.responses) })),
+  purchase_orders: (tx, rows) =>
+    insertChunked(rows, (c) =>
+      tx.purchaseOrder.createMany({ data: c.map(ROW_MAPPERS.purchase_orders) }),
+    ),
+  po_lines: (tx, rows) =>
+    insertChunked(rows, (c) => tx.poLine.createMany({ data: c.map(ROW_MAPPERS.po_lines) })),
+  goods_receipts: (tx, rows) =>
+    insertChunked(rows, (c) =>
+      tx.goodsReceipt.createMany({ data: c.map(ROW_MAPPERS.goods_receipts) }),
+    ),
+  grn_lines: (tx, rows) =>
+    insertChunked(rows, (c) => tx.grnLine.createMany({ data: c.map(ROW_MAPPERS.grn_lines) })),
+  invoices: (tx, rows) =>
+    insertChunked(rows, (c) => tx.invoice.createMany({ data: c.map(ROW_MAPPERS.invoices) })),
+  invoice_lines: (tx, rows) =>
+    insertChunked(rows, (c) =>
+      tx.invoiceLine.createMany({ data: c.map(ROW_MAPPERS.invoice_lines) }),
+    ),
+  payments: (tx, rows) =>
+    insertChunked(rows, (c) => tx.payment.createMany({ data: c.map(ROW_MAPPERS.payments) })),
+};
+
+/** Insert one sheet's rows. Exported so the append paths reuse the same mappers. */
+export function insertSheet(tx: DbClient, sheet: SheetName, rows: Row[]): Promise<number> {
+  return SHEET_INSERTERS[sheet](tx, rows);
+}
+
+/**
+ * Insert all 12 sheets in FK order. Assumes `clearDataset` already ran and that
+ * `validateDataset` passed.
  */
 export async function insertDataset(
   tx: DbClient,
@@ -282,220 +453,10 @@ export async function insertDataset(
   onProgress?: (sheet: SheetName, inserted: number) => void,
 ): Promise<Record<SheetName, number>> {
   const counts = {} as Record<SheetName, number>;
-  const done = (sheet: SheetName, n: number) => {
+  for (const sheet of SHEET_NAMES) {
+    const n = await insertSheet(tx, sheet, ds[sheet]);
     counts[sheet] = n;
     onProgress?.(sheet, n);
-  };
-
-  done(
-    "suppliers",
-    await insertChunked(ds.suppliers, (c) =>
-      tx.supplier.createMany({
-        data: c.map((r) => ({
-          id: str(r.supplier_id),
-          supplierName: str(r.supplier_name),
-          country: str(r.country),
-          category: str(r.category),
-          status: str(r.status),
-          isMiningService: bool(r.is_mining_service),
-          iujpNo: s(r.iujp_no),
-          iujpValidUntil: date(r.iujp_valid_until),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "frameworks",
-    await insertChunked(ds.frameworks, (c) =>
-      tx.framework.createMany({
-        data: c.map((r) => ({
-          id: str(r.framework_id),
-          supplierId: str(r.supplier_id),
-          title: str(r.title),
-          category: str(r.category),
-          startDate: reqDate(r.start_date, "frameworks.start_date"),
-          endDate: reqDate(r.end_date, "frameworks.end_date"),
-          status: str(r.status),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "requisitions",
-    await insertChunked(ds.requisitions, (c) =>
-      tx.requisition.createMany({
-        data: c.map((r) => ({
-          id: str(r.pr_id),
-          prDate: reqDate(r.pr_date, "requisitions.pr_date"),
-          requester: str(r.requester),
-          department: str(r.department),
-          category: str(r.category),
-          needByDate: reqDate(r.need_by_date, "requisitions.need_by_date"),
-          estimatedValueUsd: num(r.estimated_value_usd),
-          status: str(r.status),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "sourcing_events",
-    await insertChunked(ds.sourcing_events, (c) =>
-      tx.sourcingEvent.createMany({
-        data: c.map((r) => ({
-          id: str(r.sourcing_event_id),
-          prId: str(r.pr_id),
-          issueDate: reqDate(r.issue_date, "sourcing_events.issue_date"),
-          closeDate: reqDate(r.close_date, "sourcing_events.close_date"),
-          numSuppliersInvited: int(r.num_suppliers_invited),
-          awardedSupplierId: s(r.awarded_supplier_id),
-          awardedResponseId: s(r.awarded_response_id),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "responses",
-    await insertChunked(ds.responses, (c) =>
-      tx.response.createMany({
-        data: c.map((r) => ({
-          id: str(r.response_id),
-          sourcingEventId: str(r.sourcing_event_id),
-          supplierId: str(r.supplier_id),
-          quotedUnitPriceUsd: num(r.quoted_unit_price_usd),
-          quotedLeadTimeDays: int(r.quoted_lead_time_days),
-          submittedDate: reqDate(r.submitted_date, "responses.submitted_date"),
-          isAwarded: bool(r.is_awarded),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "purchase_orders",
-    await insertChunked(ds.purchase_orders, (c) =>
-      tx.purchaseOrder.createMany({
-        data: c.map((r) => ({
-          id: str(r.po_id),
-          prId: str(r.pr_id),
-          sourcingEventId: s(r.sourcing_event_id),
-          supplierId: str(r.supplier_id),
-          buyingMethod: str(r.buying_method),
-          frameworkId: s(r.framework_id),
-          justification: s(r.justification),
-          poDate: reqDate(r.po_date, "purchase_orders.po_date"),
-          promisedDeliveryDate: reqDate(
-            r.promised_delivery_date,
-            "purchase_orders.promised_delivery_date",
-          ),
-          paymentTerms: str(r.payment_terms),
-          complaintCount: int(r.complaint_count),
-          status: str(r.status),
-          period: str(r.period),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "po_lines",
-    await insertChunked(ds.po_lines, (c) =>
-      tx.poLine.createMany({
-        data: c.map((r) => ({
-          id: str(r.po_line_id),
-          poId: str(r.po_id),
-          itemName: str(r.item_name),
-          category: str(r.category),
-          unit: str(r.unit),
-          quantityOrdered: num(r.quantity_ordered),
-          unitPriceUsd: num(r.unit_price_usd),
-          needByDate: reqDate(r.need_by_date, "po_lines.need_by_date"),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "goods_receipts",
-    await insertChunked(ds.goods_receipts, (c) =>
-      tx.goodsReceipt.createMany({
-        data: c.map((r) => ({
-          id: str(r.grn_id),
-          poId: str(r.po_id),
-          receiptDate: reqDate(r.receipt_date, "goods_receipts.receipt_date"),
-          receivedBy: str(r.received_by),
-          site: str(r.site),
-          status: str(r.status),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "grn_lines",
-    await insertChunked(ds.grn_lines, (c) =>
-      tx.grnLine.createMany({
-        data: c.map((r) => ({
-          id: str(r.grn_line_id),
-          grnId: str(r.grn_id),
-          poLineId: str(r.po_line_id),
-          quantityReceived: num(r.quantity_received),
-          quantityRejected: num(r.quantity_rejected),
-          defectCount: int(r.defect_count),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "invoices",
-    await insertChunked(ds.invoices, (c) =>
-      tx.invoice.createMany({
-        data: c.map((r) => ({
-          id: str(r.invoice_id),
-          poId: str(r.po_id),
-          supplierId: str(r.supplier_id),
-          supplierInvoiceNo: str(r.supplier_invoice_no),
-          invoiceDate: reqDate(r.invoice_date, "invoices.invoice_date"),
-          totalAmountUsd: num(r.total_amount_usd),
-          status: str(r.status),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "invoice_lines",
-    await insertChunked(ds.invoice_lines, (c) =>
-      tx.invoiceLine.createMany({
-        data: c.map((r) => ({
-          id: str(r.invoice_line_id),
-          invoiceId: str(r.invoice_id),
-          poLineId: str(r.po_line_id),
-          quantityBilled: num(r.quantity_billed),
-          unitPriceUsd: num(r.unit_price_usd),
-        })),
-      }),
-    ),
-  );
-
-  done(
-    "payments",
-    await insertChunked(ds.payments, (c) =>
-      tx.payment.createMany({
-        data: c.map((r) => ({
-          id: str(r.payment_id),
-          invoiceId: str(r.invoice_id),
-          paymentDate: reqDate(r.payment_date, "payments.payment_date"),
-          amountPaidUsd: num(r.amount_paid_usd),
-          method: str(r.method),
-        })),
-      }),
-    ),
-  );
-
+  }
   return counts;
 }

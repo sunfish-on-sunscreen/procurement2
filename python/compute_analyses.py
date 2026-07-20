@@ -110,7 +110,10 @@ def load_frames(conn, start_ts, end_ts):
     purchases = _df(
         conn,
         'SELECT * FROM "EnrichedPurchase" '
-        'WHERE "poDate" >= %s AND "poDate" <= %s',
+        'WHERE "poDate" >= %s AND "poDate" <= %s '
+        # Deterministic order: float addition is not associative, so an unordered
+        # read would make the aggregates depend on physical row order.
+        'ORDER BY "poId"',
         (start_ts, end_ts),
     )
     # Supplier master columns needed downstream, aliased id -> externalId so the
@@ -201,7 +204,8 @@ def load_po_lines(conn, start_ts, end_ts):
         'pl."unitPriceUsd", pl."quantityOrdered" AS "quantity" '
         'FROM "PoLine" pl JOIN "PurchaseOrder" po ON po.id = pl."poId" '
         'LEFT JOIN "PoLine" orig ON orig.id = pl."correctsLineId" '
-        'WHERE po."poDate" >= %s AND po."poDate" <= %s',
+        'WHERE po."poDate" >= %s AND po."poDate" <= %s '
+        'ORDER BY pl.id',
         (start_ts, end_ts),
     )
 

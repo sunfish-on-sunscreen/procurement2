@@ -3,8 +3,8 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Upload, TriangleAlert } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Upload, TriangleAlert, Download } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { panelElevation } from "@/lib/utils";
 
@@ -85,10 +85,20 @@ export function DatasetImportCard() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Import dataset</h2>
-        <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
-          <Upload className="mr-1 h-4 w-4" />
-          Upload .xlsx
-        </Button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/imports/template"
+            download
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            <Download className="mr-1 h-4 w-4" />
+            Download template
+          </a>
+          <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
+            <Upload className="mr-1 h-4 w-4" />
+            Upload .xlsx
+          </Button>
+        </div>
         <input
           ref={inputRef}
           type="file"
@@ -100,7 +110,8 @@ export function DatasetImportCard() {
       <p className="text-sm text-muted-foreground">
         Replaces the entire dataset from a 12-sheet workbook (suppliers → payments).
         The file is fully validated before anything is written, and the whole import
-        is one transaction, so a bad file changes nothing.
+        is one transaction, so a bad file changes nothing. The template shows the
+        expected structure with one complete example chain.
       </p>
 
       {errors && (
