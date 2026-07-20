@@ -5,6 +5,7 @@ import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
 import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
 import { SupplierAppendCard } from "@/components/SupplierAppendCard";
+import { TransactionAppendCard } from "@/components/TransactionAppendCard";
 import { CorrectionCard } from "@/components/CorrectionCard";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -119,6 +120,8 @@ export default async function ImportPage() {
       <DatasetImportCard />
 
       <SupplierAppendCard />
+
+      <TransactionAppendCard />
 
       <RecordPurchaseCard
         suppliers={suppliers

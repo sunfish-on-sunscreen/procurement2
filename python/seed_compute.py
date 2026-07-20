@@ -103,8 +103,23 @@ def write_supplier_metrics(conn):
     periods = _df(conn, 'SELECT id, name FROM "ReportingPeriod" ORDER BY name')
     pid_by_name = {str(n): pid for pid, n in zip(periods["id"], periods["name"])}
 
+    years_with_data = set(pur["period"].astype(str).unique())
+
+    # A ReportingPeriod can outlive its data — an appended order-year creates one, and a
+    # later replace-all may not carry that year. compute_analyses exits non-zero on an
+    # empty window, so an orphaned period would fail EVERY subsequent recompute. Clear
+    # such a period's derived rows and leave it out of the analysis run.
+    for name, pid in pid_by_name.items():
+        if name in years_with_data:
+            continue
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM "SupplierMetric" WHERE "periodId" = %s', (pid,))
+            cur.execute('DELETE FROM "AnalysisResult" WHERE "periodId" = %s', (pid,))
+        conn.commit()
+        log(f"  period {name}: no purchase orders — cleared derived rows, skipping analyses")
+
     total = 0
-    for year in sorted(pur["period"].astype(str).unique()):
+    for year in sorted(years_with_data):
         pid = pid_by_name.get(year)
         if pid is None:
             log(f"  WARN: no ReportingPeriod for order-year {year}; skipping")
@@ -135,7 +150,8 @@ def write_supplier_metrics(conn):
         total += len(records)
         log(f"  period {year} (pid {pid[:8]}…): {len(records)} SupplierMetric rows")
     log(f"  SupplierMetric total: {total}")
-    return list(pid_by_name.items())
+    # Only periods that actually hold purchase orders go on to the analysis step.
+    return [(n, p) for n, p in pid_by_name.items() if n in years_with_data]
 
 
 def run_analyses(period_ids):

@@ -455,6 +455,41 @@ export function insertSheet(tx: DbClient, sheet: SheetName, rows: Row[]): Promis
   return SHEET_INSERTERS[sheet](tx, rows);
 }
 
+/** Which of these natural ids already exist in the database, per sheet. */
+const SHEET_ID_LOOKUPS: Record<
+  SheetName,
+  (tx: DbClient, ids: string[]) => Promise<{ id: string }[]>
+> = {
+  suppliers: (tx, ids) => tx.supplier.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  frameworks: (tx, ids) => tx.framework.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  requisitions: (tx, ids) => tx.requisition.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  sourcing_events: (tx, ids) => tx.sourcingEvent.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  responses: (tx, ids) => tx.response.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  purchase_orders: (tx, ids) => tx.purchaseOrder.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  po_lines: (tx, ids) => tx.poLine.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  goods_receipts: (tx, ids) => tx.goodsReceipt.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  grn_lines: (tx, ids) => tx.grnLine.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  invoices: (tx, ids) => tx.invoice.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  invoice_lines: (tx, ids) => tx.invoiceLine.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+  payments: (tx, ids) => tx.payment.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+};
+
+/**
+ * The subset of `ids` that already exist in the database for `sheet`. Used by the
+ * append paths for two different purposes: proving a posted-document id is FREE
+ * (a collision is rejected — those tables are immutable), and proving a master-data
+ * reference RESOLVES (supplier / framework must already exist).
+ */
+export async function findExistingIds(
+  tx: DbClient,
+  sheet: SheetName,
+  ids: string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const found = await SHEET_ID_LOOKUPS[sheet](tx, ids);
+  return new Set(found.map((r) => r.id));
+}
+
 /**
  * Insert all 12 sheets in FK order. Assumes `clearDataset` already ran and that
  * `validateDataset` passed.
