@@ -65,6 +65,7 @@ const EXAMPLE_ROWS: Record<SheetName, Row[]> = {
     {
       sourcing_event_id: "RFQ-2027-0001",
       pr_id: EX_PR,
+      solicitation_type: "rfq",
       issue_date: "2027-02-01",
       close_date: "2027-02-10",
       num_suppliers_invited: 3,
@@ -215,6 +216,10 @@ const README_ROWS: string[][] = [
   ["    payment_date."],
   ["  • buying_method: 'rfq' needs a sourcing_event, 'call_off' a framework_id,"],
   ["    'direct' a justification, 'spot_buy' none of them."],
+  ["  • solicitation_type (sourcing_events): 'rfq' or 'tender' — the type of the"],
+  ["    sourcing document. Tender is a competitive solicitation like an RFQ, so a"],
+  ["    tender-sourced PO still uses buying_method 'rfq'. Optional: omit the column"],
+  ["    and every event is treated as 'rfq'."],
   ["  • period = the order YEAR of po_date."],
   [],
   ["Dates may be real Excel dates or YYYY-MM-DD text. Booleans are TRUE/FALSE."],

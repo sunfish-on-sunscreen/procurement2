@@ -1,5 +1,6 @@
 import * as xlsx from "xlsx";
 import type { Prisma } from "@/lib/generated/prisma/client";
+import { SOLICITATION_TYPES, type SolicitationType } from "@/lib/transaction-create";
 
 /**
  * The 12-sheet normalized dataset: parse, validate, wipe, insert.
@@ -229,6 +230,20 @@ export function validateDataset(ds: Dataset): string[] {
     });
   }
 
+  // 4. Controlled vocabularies. The replace path historically checked none — a
+  //    misspelled value imported silently here while the append path rejected it.
+  //    solicitation_type is checked on both so the two agree. The column is
+  //    OPTIONAL (absent -> rfq, per the mapper and the database default), so only
+  //    a present-but-wrong value is an error.
+  ds.sourcing_events.forEach((row, i) => {
+    const t = s(row.solicitation_type);
+    if (t !== null && !SOLICITATION_TYPES.includes(t as SolicitationType)) {
+      push(
+        `Sheet "sourcing_events" row ${i + 2}: solicitation_type "${t}" is not one of ${SOLICITATION_TYPES.join(", ")}.`,
+      );
+    }
+  });
+
   return errors;
 }
 
@@ -324,6 +339,10 @@ export const ROW_MAPPERS = {
   sourcing_events: (r: Row) => ({
     id: str(r.sourcing_event_id),
     prId: str(r.pr_id),
+    // Optional column: a workbook predating the tender type omits it and every
+    // event lands on rfq, matching the database default. Validated (when
+    // present) by validateDataset.
+    solicitationType: s(r.solicitation_type) ?? "rfq",
     issueDate: reqDate(r.issue_date, "sourcing_events.issue_date"),
     closeDate: reqDate(r.close_date, "sourcing_events.close_date"),
     numSuppliersInvited: int(r.num_suppliers_invited),

@@ -12,7 +12,11 @@ import {
   type Row,
   type SheetName,
 } from "@/lib/dataset-import";
-import { BUYING_METHODS } from "@/lib/transaction-create";
+import {
+  BUYING_METHODS,
+  SOLICITATION_TYPES,
+  type SolicitationType,
+} from "@/lib/transaction-create";
 import {
   diffSupplier,
   changeLogRows,
@@ -552,6 +556,21 @@ export async function planTransactionAppend(
       push(`PO "${id}": period "${period}" does not match the order year of po_date (${orderYear}).`);
     }
     if (orderYear) periods.add(orderYear);
+  }
+
+  // 9. Solicitation type on the sourcing document. The column is OPTIONAL —
+  //    absent means rfq, matching the mapper and the database default — so only a
+  //    present-but-unknown value is an error. Checked identically on the
+  //    replace-all path (validateDataset) so the two cannot disagree.
+  //    ⚠️ NOT a buying-method conditional: a tender-sourced PO still carries
+  //    buying_method "rfq", so rule 6 above needs no widening for tender.
+  for (const [i, ev] of rowsOf("sourcing_events").entries()) {
+    const t = s(ev.solicitation_type);
+    if (t !== null && !SOLICITATION_TYPES.includes(t as SolicitationType)) {
+      push(
+        `Sourcing event "${str(ev.sourcing_event_id)}" (row ${i + 2}): solicitation_type "${t}" is not one of ${SOLICITATION_TYPES.join(", ")}.`,
+      );
+    }
   }
 
   return {

@@ -62,6 +62,25 @@ async function nextSeq(
 export const BUYING_METHODS = ["rfq", "spot_buy", "call_off", "direct"] as const;
 export const PAYMENT_TERMS = ["Net 14", "Net 30", "Net 45"] as const;
 
+/**
+ * Solicitation TYPE, carried by the sourcing document — the way SAP MM (RFQ
+ * document type) and Dynamics 365 (solicitation type) model it: ONE sourcing
+ * document with a type field, not a separate document per flavour. "Tender" is a
+ * value of that type, a synonym of bid/quotation, so sourcing_events + responses
+ * keep their structure for both.
+ *
+ * RFI is excluded on purpose: it produces no purchase order, and a complete
+ * chain is required here.
+ *
+ * ⚠️ This is NOT a fifth buying method. A tender-sourced PO still carries
+ * buyingMethod = "rfq" (read it as "competitively sourced" — the UI labels it
+ * "Competitive sourcing"), so BUYING_METHODS keeps its four values and the
+ * append rule "only buying_method 'rfq' may reference a sourcing event" stays
+ * correct unchanged.
+ */
+export const SOLICITATION_TYPES = ["rfq", "tender"] as const;
+export type SolicitationType = (typeof SOLICITATION_TYPES)[number];
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isoDate = z.string().regex(DATE_RE, "Dates must be YYYY-MM-DD");
 
