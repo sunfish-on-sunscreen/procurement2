@@ -235,11 +235,17 @@ export function validateDataset(ds: Dataset): string[] {
   //    rejected it. buying_method is the field that decides whether an order
   //    carries a sourcing event, so an unknown value is a silent structural
   //    error; both paths now check it against the same constant.
+  //    A BLANK value is rejected too, exactly as the append path rejects it: the
+  //    mapper would store "" verbatim, producing an order that is neither sourced
+  //    nor non-sourced and matches no conditional — so `str`, not `s`, which
+  //    collapses blank to "" rather than skipping it as absent.
   ds.purchase_orders.forEach((row, i) => {
-    const m = s(row.buying_method);
-    if (m !== null && !BUYING_METHODS.includes(m as (typeof BUYING_METHODS)[number])) {
+    const m = str(row.buying_method);
+    if (!BUYING_METHODS.includes(m as (typeof BUYING_METHODS)[number])) {
       push(
-        `Sheet "purchase_orders" row ${i + 2}: buying_method "${m}" is not one of ${BUYING_METHODS.join(", ")}.`,
+        m === ""
+          ? `Sheet "purchase_orders" row ${i + 2}: buying_method is missing; it must be one of ${BUYING_METHODS.join(", ")}.`
+          : `Sheet "purchase_orders" row ${i + 2}: buying_method "${m}" is not one of ${BUYING_METHODS.join(", ")}.`,
       );
     }
   });
