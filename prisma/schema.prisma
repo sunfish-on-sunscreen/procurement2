@@ -145,6 +145,12 @@ model SourcingEvent {
   id                  String      @id // sourcing_event_id
   prId                String
   requisition         Requisition @relation(fields: [prId], references: [id])
+  /// rfq | tender — the solicitation TYPE, modelled the way SAP MM (RFQ document
+  /// type) and D365 (solicitation type) do it: ONE sourcing document carrying a
+  /// type, not a separate document per flavour. Defaults to rfq so a workbook that
+  /// omits the column still imports. RFI is deliberately excluded — it produces no
+  /// PO, and every event here resolves to one.
+  solicitationType    String      @default("rfq")
   issueDate           DateTime
   closeDate           DateTime
   numSuppliersInvited Int
