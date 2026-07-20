@@ -17,22 +17,74 @@ export const SuppliersRow = z.object({
   supplier_name: z.string(),
   country: z.string(),
   category: z.string(),
+  status: z.string().optional(),
+  is_mining_service: z.union([z.boolean(), z.number(), z.string()]).optional(),
+  iujp_no: z.string().optional(),
+  iujp_valid_until: z.union([z.string(), z.date()]).optional(),
 });
 
 export type SupplierRowData = z.infer<typeof SuppliersRow>;
 
 /**
- * Body schema for a single-record supplier CREATE — used by POST /api/suppliers.
- * (There is no edit path: the PATCH handler was removed in the 2026-07-13 CRUD
- * rework — records are add-only + remove-only.) The id is never in the body; it
- * is server-assigned on create.
+ * The `Supplier.status` vocabulary. The seeded dataset only ever contains
+ * "active" (55/55), so "inactive" is the deliberate complement — chosen to match
+ * the lowercase single-word convention the other status columns already use
+ * (Framework.status "active", PurchaseOrder.status "closed", GoodsReceipt.status
+ * "complete" | "partial") rather than inventing a new one.
+ *
+ * ⚠️ Status is MASTER-DATA ONLY — the compute layer never filters on it, and
+ * `load_roster_category_counts` counts inactive suppliers on purpose (an
+ * inactive-but-qualified supplier is still an available alternative for the
+ * supply-concentration signal). Deactivating therefore changes no analytics number.
  */
+export const SUPPLIER_STATUSES = ["active", "inactive"] as const;
+export type SupplierStatus = (typeof SUPPLIER_STATUSES)[number];
+
+/** Fields an admin may set on create. The id is server-assigned, never in the body. */
 export const SupplierWriteBody = z.object({
   supplier_name: z.string().trim().min(1, "Supplier name is required"),
   country: z.string().trim().min(1, "Country is required"),
   category: z.string().trim().min(1, "Category is required"),
+  status: z.enum(SUPPLIER_STATUSES).default("active"),
+  is_mining_service: z.boolean().default(false),
+  iujp_no: z.string().trim().min(1).optional(),
+  iujp_valid_until: z.string().trim().min(1).optional(),
 });
 export type SupplierWriteInput = z.infer<typeof SupplierWriteBody>;
+
+/**
+ * Body schema for a supplier EDIT (PATCH /api/suppliers/[id]). Every field is
+ * optional — only what's present is changed, and each changed field is written to
+ * SupplierChangeLog. The id is immutable (it is the natural key the whole
+ * document graph FKs against).
+ *
+ * ⚠️ Declared field-by-field rather than as `SupplierWriteBody.partial()`: zod's
+ * `.partial()` does NOT strip `.default()`, so the create schema's defaults would
+ * be injected into every patch. A request changing only `country` would then also
+ * silently reset `is_mining_service` to false and — far worse — force `status`
+ * back to "active", reactivating a deactivated supplier. No defaults here.
+ */
+export const SupplierPatchBody = z.object({
+  supplier_name: z.string().trim().min(1, "Supplier name is required").optional(),
+  country: z.string().trim().min(1, "Country is required").optional(),
+  category: z.string().trim().min(1, "Category is required").optional(),
+  status: z.enum(SUPPLIER_STATUSES).optional(),
+  is_mining_service: z.boolean().optional(),
+  iujp_no: z.string().trim().nullable().optional(),
+  iujp_valid_until: z.string().trim().nullable().optional(),
+});
+export type SupplierPatchInput = z.infer<typeof SupplierPatchBody>;
+
+/** The editable master-data fields, mapped to their Prisma column names. */
+export const SUPPLIER_EDITABLE_FIELDS = {
+  supplier_name: "supplierName",
+  country: "country",
+  category: "category",
+  status: "status",
+  is_mining_service: "isMiningService",
+  iujp_no: "iujpNo",
+  iujp_valid_until: "iujpValidUntil",
+} as const;
 
 /** A supplier row after id resolution (own-identity id guaranteed present). */
 export type ResolvedSupplierRow = {
@@ -40,6 +92,10 @@ export type ResolvedSupplierRow = {
   supplier_name: string;
   country: string;
   category: string;
+  status?: string;
+  is_mining_service?: boolean;
+  iujp_no?: string | null;
+  iujp_valid_until?: Date | null;
 };
 
 /** Format a supplier external id from a sequence number: 56 -> "S0056". */
@@ -81,13 +137,23 @@ export function nextSupplierId(existing: (string | undefined)[]): string {
   return makeIdGen(existing, "S", 4, SUPPLIER_ID_RE)();
 }
 
-/** Map a resolved supplier row + period to a Prisma Supplier create object. */
-export function toSupplierCreateData(row: ResolvedSupplierRow, periodId: string) {
+/**
+ * Map a resolved supplier row to a Prisma Supplier create object.
+ *
+ * ⚠️ Normalized-model shape: the PK is the natural id (`id`, e.g. "S0056") — the
+ * old `externalId` column is gone — and Supplier is a period-free master, so
+ * there is no `periodId`. `status` + `isMiningService` are required columns with
+ * no DB default, hence the fallbacks here.
+ */
+export function toSupplierCreateData(row: ResolvedSupplierRow) {
   return {
-    externalId: row.supplier_id,
+    id: row.supplier_id,
     supplierName: row.supplier_name,
     country: row.country,
     category: row.category,
-    periodId,
+    status: row.status ?? "active",
+    isMiningService: row.is_mining_service ?? false,
+    iujpNo: row.iujp_no ?? null,
+    iujpValidUntil: row.iujp_valid_until ?? null,
   };
 }

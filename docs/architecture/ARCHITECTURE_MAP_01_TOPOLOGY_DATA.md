@@ -1,3 +1,30 @@
+> # ⚠️ STALE — PRE-MIGRATION DOCUMENT
+>
+> **This map describes the OLD flat-`Purchase` data model, which no longer exists.**
+> It was written before the normalized 12-table migration
+> (`8bc872e` → `eece0c0`, branch `feature/normalized-data-model`) and is retained as a
+> historical record of the pre-migration architecture, not as a description of the
+> system today.
+>
+> **What changed, in one paragraph:** the single flat `Purchase` table was replaced by a
+> 12-table document graph (Supplier / Framework / Requisition / SourcingEvent / Response
+> / PurchaseOrder / PoLine / GoodsReceipt / GrnLine / Invoice / InvoiceLine / Payment).
+> A plain Postgres VIEW, `EnrichedPurchase`, reconstructs a PO-grain row with
+> **byte-identical column names** to the old `Purchase`, so most read paths and the
+> entire Python compute layer were re-pointed without renaming anything. Item-level
+> columns (`itemName` / `unit` / `unitPriceUsd` / per-line quantity) are NOT on the view
+> and are read from `PoLine` via `lib/po-lines.ts`. Period membership moved from payment
+> year to **order year** (`poDate`). Write paths were disabled during the migration and
+> have since been restored: supplier CRUD with an audit log, a 12-sheet replace-all
+> importer, full-chain transaction creation, and append-only corrections against
+> immutable posted records.
+>
+> **Current source of truth:** `CLAUDE.md` → "CURRENT ARCHITECTURE" + `git log`.
+>
+> Anywhere below that says `prisma.purchase`, `Purchase` columns, the two-file
+> Suppliers/Purchases upload, `import_compute.py`, or `/api/sample-data`, read it as
+> history. Those code paths are deleted.
+
 # ARCHITECTURE MAP §0–§1 — Repo Topology & Data Layer
 
 > Evidence-backed. Every behavioural claim cites `path/file.ext:line` and quotes the real code.
@@ -462,7 +489,7 @@ Notable optional-field markers (backward compat for old cached rows): `SpendOver
 ## Divergences & flags (consolidated)
 
 1. **`runCycleCompare` does not exist** (task brief vs code): `lib/python.ts` exports only `runComputeAnalyses`/`runComputeRange`/`runImportCompute`. The cycle-compare spawn + route were deleted (CLAUDE.md `6fc1339`). [Verified by full read.]
-2. **`SupplierMetric.categoryCompetition` is write-only**: written by Python `compute_analyses.py:1383` but read by ZERO TS/TSX code (grep `categoryCompetition` → only schema, migration, python). Dead-ish column.
+2. ✅ **RESOLVED 2026-07-20 — column DROPPED.** **`SupplierMetric.categoryCompetition` was write-only**: written by Python `compute_analyses.py:1383` but read by ZERO TS/TSX code (grep `categoryCompetition` → only schema, migration, python). Dead-ish column.
 3. **`ReportPreset` fully orphaned**: `prisma.reportPreset` has 0 call-sites (grep "No matches found"). Model + table + `add_report_preset` migration all live; nothing reads/writes them. Matches CLAUDE.md KNOWN OPEN ITEMS.
 4. **`ReportingPeriod.isLocked` + `Session.expiresAt`** appear to have no runtime reader (no expiry sweep on `expiresAt` found). [INFERRED — would confirm with a repo-wide grep of `isLocked` / `expiresAt` outside auth.ts.]
 5. **eslint "set-state-in-effect ban" not local**: `eslint.config.mjs` declares no custom rules; the ban comes from the spread `eslint-config-next` presets, not this file. [INFERRED.]

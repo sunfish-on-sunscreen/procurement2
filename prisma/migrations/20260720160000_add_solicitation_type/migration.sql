@@ -1,0 +1,30 @@
+-- Solicitation TYPE on the sourcing document (rfq | tender).
+--
+-- Modelled the way SAP MM (RFQ document type) and Dynamics 365 (solicitation
+-- type) do it: ONE sourcing document carrying a type field, NOT a separate
+-- document per flavour. "Tender" is a value of that type, a synonym of
+-- bid/quotation — so sourcing_events + responses keep their existing structure
+-- (vendor-invited count + bid detail), exactly as both systems retain them.
+--
+-- RFI is deliberately excluded: it produces no purchase order, and every event
+-- in this dataset resolves to one.
+--
+-- PurchaseOrder.buyingMethod is UNCHANGED and stays 'rfq' for tender-sourced
+-- orders — the type lives on the sourcing document, so the PO-level vocabulary
+-- keeps its four values. Consequently the append validator's "only
+-- buying_method 'rfq' may reference a sourcing event" rule stays correct as
+-- written and needs no widening.
+--
+-- NOT NULL DEFAULT 'rfq' backfills all 226 existing events in one statement
+-- (Postgres 11+ does this without a table rewrite). The default is kept
+-- permanently so a workbook omitting the column still imports.
+--
+-- No CHECK constraint: this schema has none anywhere, and the vocabulary is
+-- enforced in zod on every write path (create, append, and full replace).
+--
+-- Analytics-inert: python/ never references sourcing events, responses or
+-- buying method, and the EnrichedPurchase view does not join SourcingEvent.
+-- Baseline is expected to stay byte-identical.
+
+-- AlterTable
+ALTER TABLE "SourcingEvent" ADD COLUMN     "solicitationType" TEXT NOT NULL DEFAULT 'rfq';

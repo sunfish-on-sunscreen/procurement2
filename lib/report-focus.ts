@@ -6,6 +6,7 @@ import {
   type KraljicResult,
   type PerformanceSpendResult,
 } from "@/lib/analysis-types";
+import { getPoLines } from "@/lib/po-lines";
 import type { SupplierFocusData } from "@/lib/report-focus-types";
 
 /**
@@ -31,46 +32,41 @@ export async function assembleSupplierFocus(
   endDate: string,
 ): Promise<SupplierFocusData> {
   // --- item breakdown (span-scoped) — mirrors spend-detail's byItem ----------
-  // paymentDate is non-null here, so filtering it matches the
-  // COALESCE(paymentDate, prDate) period tag the rest of the app uses. Bounds
-  // parsed exactly as the spend-detail route does (local T00:00:00 / T23:59:59).
-  const dateFilter = {
-    gte: new Date(`${startDate}T00:00:00`),
-    lte: new Date(`${endDate}T23:59:59`),
-  };
-  const spanPurchases = await prisma.purchase.findMany({
-    where: { supplierExternalId: supplierId, paymentDate: dateFilter },
-    select: { itemName: true, totalValueUsd: true },
+  // Line-grain (lock C): item detail lives on PoLine. Span membership is order-year
+  // (poDate), the same filter the rest of the app now uses. spend = Σ line value;
+  // poCount = DISTINCT POs including the item.
+  const spanLines = await getPoLines({
+    supplierExternalId: supplierId,
+    start: new Date(`${startDate}T00:00:00`),
+    end: new Date(`${endDate}T23:59:59`),
   });
 
   let totalSpend = 0;
-  const byItemMap = new Map<string, { poCount: number; totalSpend: number }>();
-  for (const p of spanPurchases) {
-    totalSpend += p.totalValueUsd;
-    const cur = byItemMap.get(p.itemName) ?? { poCount: 0, totalSpend: 0 };
-    cur.poCount += 1;
-    cur.totalSpend += p.totalValueUsd;
-    byItemMap.set(p.itemName, cur);
+  const spanPos = new Set<string>();
+  const byItemMap = new Map<string, { pos: Set<string>; totalSpend: number }>();
+  for (const l of spanLines) {
+    totalSpend += l.lineValueUsd;
+    spanPos.add(l.poId);
+    const cur = byItemMap.get(l.itemName) ?? { pos: new Set<string>(), totalSpend: 0 };
+    cur.pos.add(l.poId);
+    cur.totalSpend += l.lineValueUsd;
+    byItemMap.set(l.itemName, cur);
   }
   const itemBreakdown = [...byItemMap.entries()]
-    .map(([itemName, v]) => ({ itemName, ...v }))
+    .map(([itemName, v]) => ({ itemName, poCount: v.pos.size, totalSpend: v.totalSpend }))
     .sort((a, b) => b.totalSpend - a.totalSpend);
 
   // --- YoY trajectory — mirrors the evolution route (all periods) ------------
-  // Identity (name/category/country) comes from the Supplier master row (latest),
-  // the same source the spend-detail route uses for the panel header.
-  const [periods, allPurchases, supplier] = await Promise.all([
+  // Identity (name/category/country) comes from the Supplier master row; the
+  // all-year LINE rows carry the order-year `period` for bucketing.
+  const [periods, allLines, supplier] = await Promise.all([
     prisma.reportingPeriod.findMany({
       orderBy: { startDate: "asc" },
       select: { id: true, name: true, startDate: true, endDate: true },
     }),
-    prisma.purchase.findMany({
-      where: { supplierExternalId: supplierId },
-      select: { totalValueUsd: true, paymentDate: true, prDate: true },
-    }),
-    prisma.supplier.findFirst({
-      where: { externalId: supplierId },
-      orderBy: { periodId: "desc" },
+    getPoLines({ supplierExternalId: supplierId }),
+    prisma.supplier.findUnique({
+      where: { id: supplierId },
       select: { supplierName: true, category: true, country: true },
     }),
   ]);
@@ -87,15 +83,13 @@ export async function assembleSupplierFocus(
   );
 
   const trajectory = analysesByPeriod.map(({ period, abc, kraljic, perf }) => {
-    const inPeriod = allPurchases.filter((pu) => {
-      const d = pu.paymentDate ?? pu.prDate;
-      return d != null && d >= period.startDate && d <= period.endDate;
-    });
-    const spend = inPeriod.reduce((s, pu) => s + pu.totalValueUsd, 0);
+    // Order-year membership: the line's own `period` (== PurchaseOrder.period).
+    const inPeriod = allLines.filter((l) => l.period === period.name);
+    const spend = inPeriod.reduce((s, l) => s + l.lineValueUsd, 0);
     return {
       year: period.name,
       spend,
-      invoiceCount: inPeriod.length,
+      invoiceCount: new Set(inPeriod.map((l) => l.poId)).size,
       abcClass:
         abc?.classifications.find((c) => c.supplier_id === supplierId)?.abc_class ??
         null,
@@ -115,7 +109,7 @@ export async function assembleSupplierFocus(
     country: supplier?.country ?? null,
     itemBreakdown,
     totalSpend,
-    poCount: spanPurchases.length,
+    poCount: spanPos.size,
     trajectory,
   };
 }

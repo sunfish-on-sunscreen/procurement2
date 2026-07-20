@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { getSession } from "@/lib/auth";
 import {
   getAnalysisResult,
@@ -8,6 +9,8 @@ import {
   type PerformanceSpendResult,
 } from "@/lib/analysis-types";
 import { getRangeAnalyses } from "@/lib/range-analyses";
+import { getEnrichedPurchases } from "@/lib/enriched-purchase";
+import { getPoLines } from "@/lib/po-lines";
 import type { SpendDetail } from "@/lib/spend-overview-types";
 
 export const runtime = "nodejs";
@@ -75,9 +78,8 @@ export async function GET(
         compositeScore: true,
       },
     }),
-    prisma.supplier.findFirst({
-      where: { externalId: id },
-      orderBy: { periodId: "desc" },
+    prisma.supplier.findUnique({
+      where: { id },
       select: { supplierName: true, country: true, category: true },
     }),
     prisma.reportingPeriod.findMany({
@@ -105,24 +107,26 @@ export async function GET(
       : null;
   const metric = latestMetric;
 
-  const purchases = await prisma.purchase.findMany({
-    where: {
-      supplierExternalId: id,
-      ...(dateFilter ? { paymentDate: dateFilter } : {}),
-    },
-    select: {
-      poId: true,
-      supplierName: true,
-      itemName: true,
-      unit: true,
-      quantity: true,
-      unitPriceUsd: true,
-      totalValueUsd: true,
-      prDate: true,
-      invoiceDate: true,
-      paymentDate: true,
-    },
-  });
+  // PO-grain rows (from the view) for stats + the "All invoices" (per-PO) tab, and
+  // the supplier's LINE rows (from PoLine, lock C) for the spend-by-item cut. Both
+  // scoped to the same supplier + order-year (poDate) span.
+  const span = dateFilter
+    ? { start: dateFilter.gte, end: dateFilter.lte }
+    : {};
+  const [purchases, lines] = await Promise.all([
+    getEnrichedPurchases({ supplierExternalId: id, ...span }),
+    getPoLines({ supplierExternalId: id, ...span }),
+  ]);
+
+  // Dominant (highest-value) line per PO → the representative item label the
+  // per-PO "All invoices" table + chart show (a PO can now hold several lines).
+  const dominantByPo = new Map<string, { itemName: string; unit: string; value: number }>();
+  for (const l of lines) {
+    const cur = dominantByPo.get(l.poId);
+    if (!cur || l.lineValueUsd > cur.value) {
+      dominantByPo.set(l.poId, { itemName: l.itemName, unit: l.unit, value: l.lineValueUsd });
+    }
+  }
 
   // ABC + Kraljic scoped to the SELECTED period (same source as the ranking).
   // With no span, fall back to the latest period's analysis (backward compat).
@@ -163,38 +167,48 @@ export async function GET(
     }
   }
 
-  // Stats + spend-by-item, aggregated over the in-span POs (0 POs → zeros).
+  // Stats over the in-span POs (0 POs → zeros).
   let totalSpend = 0;
   let earliest: Date | null = null;
   let latest: Date | null = null;
-  const byItemMap = new Map<string, { poCount: number; totalSpend: number }>();
   for (const p of purchases) {
     totalSpend += p.totalValueUsd;
     const d = p.invoiceDate ?? p.prDate;
     if (d && (!earliest || d < earliest)) earliest = d;
     if (d && (!latest || d > latest)) latest = d;
-    const cur = byItemMap.get(p.itemName) ?? { poCount: 0, totalSpend: 0 };
-    cur.poCount += 1;
-    cur.totalSpend += p.totalValueUsd;
-    byItemMap.set(p.itemName, cur);
   }
 
+  // Spend-by-item over the supplier's LINES (line-grain, lock C): spend = Σ line
+  // value; poCount = number of DISTINCT POs that include the item.
+  const byItemMap = new Map<string, { pos: Set<string>; totalSpend: number }>();
+  for (const l of lines) {
+    const cur = byItemMap.get(l.itemName) ?? { pos: new Set<string>(), totalSpend: 0 };
+    cur.pos.add(l.poId);
+    cur.totalSpend += l.lineValueUsd;
+    byItemMap.set(l.itemName, cur);
+  }
   const byItem = [...byItemMap.entries()]
-    .map(([itemName, v]) => ({ itemName, ...v }))
+    .map(([itemName, v]) => ({ itemName, poCount: v.pos.size, totalSpend: v.totalSpend }))
     .sort((a, b) => b.totalSpend - a.totalSpend);
 
+  // One row per PO (= per invoice) for the "All invoices" tab; the item column
+  // shows the PO's dominant line. quantity/unit are PO-grain; unitPriceUsd is not
+  // meaningful across multiple lines (unused by the panel).
   const pos = purchases
-    .map((p) => ({
-      poId: p.poId,
-      itemName: p.itemName,
-      prDate: iso(p.prDate),
-      invoiceDate: iso(p.invoiceDate),
-      paymentDate: iso(p.paymentDate),
-      quantity: p.quantity,
-      unit: p.unit,
-      unitPriceUsd: p.unitPriceUsd,
-      totalValueUsd: p.totalValueUsd,
-    }))
+    .map((p) => {
+      const dom = dominantByPo.get(p.poId);
+      return {
+        poId: p.poId,
+        itemName: dom?.itemName ?? "—",
+        prDate: iso(p.prDate),
+        invoiceDate: iso(p.invoiceDate),
+        paymentDate: iso(p.paymentDate),
+        quantity: p.quantity,
+        unit: dom?.unit ?? "",
+        unitPriceUsd: 0,
+        totalValueUsd: p.totalValueUsd,
+      };
+    })
     .sort((a, b) =>
       (b.paymentDate ?? b.prDate ?? "").localeCompare(
         a.paymentDate ?? a.prDate ?? "",
@@ -268,15 +282,21 @@ export async function GET(
   // of the period total, and active-supplier count — one grouped aggregate over
   // the same span. A supplier absent from the span isn't in the groups, so its
   // rank/percent are null.
-  const spendBySupplier = await prisma.purchase.groupBy({
-    by: ["supplierExternalId"],
-    where: dateFilter ? { paymentDate: dateFilter } : {},
-    _sum: { totalValueUsd: true },
-  });
+  const poDateWhere = dateFilter
+    ? Prisma.sql`WHERE "poDate" >= ${dateFilter.gte} AND "poDate" <= ${dateFilter.lte}`
+    : Prisma.empty;
+  const spendBySupplier = await prisma.$queryRaw<
+    { id: string; spend: number }[]
+  >(Prisma.sql`
+    SELECT "supplierExternalId" AS id, SUM("totalValueUsd")::float8 AS spend
+    FROM "EnrichedPurchase"
+    ${poDateWhere}
+    GROUP BY "supplierExternalId"
+  `);
   const activeSupplierCount = spendBySupplier.length;
-  const periodTotal = spendBySupplier.reduce((acc, r) => acc + (r._sum.totalValueUsd ?? 0), 0);
+  const periodTotal = spendBySupplier.reduce((acc, r) => acc + (Number(r.spend) || 0), 0);
   const rankIdx = spendBySupplier
-    .map((r) => ({ id: r.supplierExternalId, spend: r._sum.totalValueUsd ?? 0 }))
+    .map((r) => ({ id: r.id, spend: Number(r.spend) || 0 }))
     .sort((a, b) => b.spend - a.spend)
     .findIndex((r) => r.id === id);
   const rank = rankIdx >= 0 && totalSpend > 0 ? rankIdx + 1 : null;

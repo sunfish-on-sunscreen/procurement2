@@ -1,10 +1,12 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { ImportForm } from "@/components/ImportForm";
-import { SupplierRosterTable } from "@/components/SupplierRosterTable";
-import { PurchaseRosterTable, type PurchaseRow } from "@/components/PurchaseRosterTable";
 import { nextSupplierId } from "@/lib/supplier-import";
-import { nextPoId } from "@/lib/purchase-import";
+import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
+import { DatasetImportCard } from "@/components/DatasetImportCard";
+import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
+import { SupplierAppendCard } from "@/components/SupplierAppendCard";
+import { TransactionAppendCard } from "@/components/TransactionAppendCard";
+import { CorrectionCard } from "@/components/CorrectionCard";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -29,110 +31,239 @@ function formatDate(value: Date | null): string {
   return new Date(value).toLocaleString();
 }
 
-/** DateTime -> YYYY-MM-DD (UTC, matching how the dates were stored/parsed). */
-const iso = (d: Date): string => d.toISOString().slice(0, 10);
-
+/**
+ * Admin data page.
+ *
+ * Supplier MASTER DATA is editable here (add / edit / deactivate), each change
+ * recorded in SupplierChangeLog. Transactional data (POs and the document chain)
+ * and the Excel upload are still loaded via the seed + `python/seed_compute.py` —
+ * those write paths are rebuilt in later phases.
+ */
 export default async function ImportPage() {
   await requireAdmin();
 
-  // The supplier roster (one row per supplier) drives the roster table below and
-  // the add-supplier card's id preview + category options. Re-derived on every
-  // router.refresh(), so a just-added supplier appears immediately.
-  const [imports, suppliers, purchaseRows] = await Promise.all([
+  const [suppliers, supplierCount, poCount, lineCount, imports, changeLog] = await Promise.all([
+    prisma.supplier.findMany({
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        supplierName: true,
+        country: true,
+        category: true,
+        status: true,
+        isMiningService: true,
+      },
+    }),
+    prisma.supplier.count(),
+    prisma.purchaseOrder.count(),
+    prisma.poLine.count(),
     prisma.import.findMany({
       take: 20,
       orderBy: { uploadedAt: "desc" },
       include: { period: true },
     }),
-    prisma.supplier.findMany({
-      select: { externalId: true, supplierName: true, country: true, category: true },
-      distinct: ["externalId"],
-      orderBy: { externalId: "asc" },
-    }),
-    // All purchases (full field set — display uses a subset, the edit card uses
-    // the rest). Client-side filtered + paginated in PurchaseRosterTable.
-    prisma.purchase.findMany({
-      orderBy: { poId: "asc" },
-      select: {
-        poId: true, supplierExternalId: true, supplierName: true, category: true,
-        itemName: true, unit: true, quantity: true, unitPriceUsd: true, totalValueUsd: true,
-        defectCount: true, complaintCount: true, onTimeDelivery: true, threeWayMatchPass: true,
-        prDate: true, poDate: true, deliveryDate: true, invoiceDate: true, paymentDate: true,
+    prisma.supplierChangeLog.findMany({
+      take: 25,
+      orderBy: { changedAt: "desc" },
+      include: {
+        user: { select: { email: true } },
+        supplier: { select: { supplierName: true } },
       },
     }),
   ]);
 
-  const purchases: PurchaseRow[] = purchaseRows.map((p) => ({
-    poId: p.poId,
-    supplierExternalId: p.supplierExternalId,
-    supplierName: p.supplierName,
-    category: p.category,
-    itemName: p.itemName,
-    unit: p.unit,
-    quantity: p.quantity,
-    unitPriceUsd: p.unitPriceUsd,
-    totalValueUsd: p.totalValueUsd,
-    defectCount: p.defectCount,
-    complaintCount: p.complaintCount,
-    onTimeDelivery: p.onTimeDelivery,
-    threeWayMatchPass: p.threeWayMatchPass,
-    prDate: iso(p.prDate),
-    poDate: iso(p.poDate),
-    deliveryDate: iso(p.deliveryDate),
-    invoiceDate: iso(p.invoiceDate),
-    paymentDate: iso(p.paymentDate),
-  }));
+  const nextId = nextSupplierId(suppliers.map((s) => s.id));
+  const categories = [...new Set(suppliers.map((s) => s.category))].sort();
 
-  const nextId = nextSupplierId(suppliers.map((s) => s.externalId));
-  const categories = [...new Set(suppliers.map((s) => s.category))].sort((a, b) =>
-    a.localeCompare(b),
-  );
-  const nextPurchaseId = nextPoId(purchases.map((p) => p.poId));
-  const supplierPicks = suppliers.map((s) => ({ id: s.externalId, name: s.supplierName }));
-  const units = [...new Set(purchases.map((p) => p.unit))].sort((a, b) => a.localeCompare(b));
-  const purchasePicks = purchases.map((p) => ({
-    poId: p.poId,
-    supplierExternalId: p.supplierExternalId,
-    supplierName: p.supplierName,
-    itemName: p.itemName,
-  }));
-  // supplierExternalId -> distinct existing item names (scopes the purchase card's
-  // Item combobox suggestions to the selected supplier).
-  const itemsBySupplier = new Map<string, Set<string>>();
-  for (const p of purchases) {
-    let set = itemsBySupplier.get(p.supplierExternalId);
-    if (!set) {
-      set = new Set();
-      itemsBySupplier.set(p.supplierExternalId, set);
-    }
-    set.add(p.itemName);
+  // Vocabularies for the record-purchase form, sourced from the existing data so
+  // new transactions reuse the established values rather than inventing new ones.
+  const [frameworks, lineFacets, grnFacets, prFacets, itemRows] = await Promise.all([
+    prisma.framework.findMany({
+      where: { status: "active" },
+      select: { id: true, supplierId: true, title: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.poLine.findMany({ select: { category: true, unit: true }, distinct: ["category", "unit"] }),
+    prisma.goodsReceipt.findMany({ select: { site: true, receivedBy: true }, distinct: ["site", "receivedBy"] }),
+    prisma.requisition.findMany({ select: { department: true, requester: true }, distinct: ["department", "requester"] }),
+    // Item vocabulary for the record-purchase form, carrying each item's supplier(s).
+    // Item -> category and item -> unit are both strictly 1:1 in the data, so picking
+    // an item determines both; the form auto-fills them.
+    prisma.poLine.findMany({
+      select: { itemName: true, category: true, unit: true, po: { select: { supplierId: true } } },
+    }),
+  ]);
+
+  // Collapse the line rows to one entry per item, with the set of suppliers that have
+  // actually supplied it (2-5 each) so the form can scope the picker per supplier.
+  const itemMap = new Map<string, { name: string; category: string; unit: string; supplierIds: Set<string> }>();
+  for (const l of itemRows) {
+    const e = itemMap.get(l.itemName) ?? {
+      name: l.itemName,
+      category: l.category,
+      unit: l.unit,
+      supplierIds: new Set<string>(),
+    };
+    e.supplierIds.add(l.po.supplierId);
+    itemMap.set(l.itemName, e);
   }
-  const supplierItems: Record<string, string[]> = {};
-  for (const [sid, set] of itemsBySupplier) {
-    supplierItems[sid] = [...set].sort((a, b) => a.localeCompare(b));
-  }
+  const items = [...itemMap.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((i) => ({ name: i.name, category: i.category, unit: i.unit, supplierIds: [...i.supplierIds] }));
+
+  const corrections = await prisma.correction.findMany({
+    take: 25,
+    orderBy: { createdAt: "desc" },
+    include: {
+      user: { select: { email: true } },
+      poLines: { select: { id: true, quantityOrdered: true, unitPriceUsd: true } },
+      invoiceLines: { select: { id: true, quantityBilled: true, unitPriceUsd: true } },
+      grnLines: { select: { id: true, defectCount: true } },
+    },
+  });
+  const uniqSorted = (xs: string[]) => [...new Set(xs)].filter(Boolean).sort();
 
   return (
     <div className="flex flex-col gap-6">
-      <ImportForm
-        nextSupplierId={nextId}
-        categories={categories}
-        nextPoId={nextPurchaseId}
-        suppliers={supplierPicks}
-        units={units}
-        purchases={purchasePicks}
-        supplierItems={supplierItems}
+      <div className="rounded-lg border border-border bg-muted/40 p-4">
+        <h1 className="text-lg font-semibold">Data management</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Supplier master data is editable below — every change is recorded in the
+          audit trail. Purchases are recorded as a complete document chain, and the
+          full 12-sheet dataset can be re-imported from Excel — which replaces all
+          transactional data.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm">
+          <span><span className="font-semibold">{supplierCount}</span> suppliers</span>
+          <span><span className="font-semibold">{poCount}</span> purchase orders</span>
+          <span><span className="font-semibold">{lineCount}</span> order lines</span>
+        </div>
+      </div>
+
+      <DatasetImportCard />
+
+      <SupplierAppendCard />
+
+      <TransactionAppendCard />
+
+      <RecordPurchaseCard
+        suppliers={suppliers
+          .filter((s) => s.status === "active")
+          .map((s) => ({ id: s.id, name: s.supplierName, category: s.category }))}
+        frameworks={frameworks}
+        items={items}
+        categories={uniqSorted(lineFacets.map((l) => l.category))}
+        units={uniqSorted(lineFacets.map((l) => l.unit))}
+        sites={uniqSorted(grnFacets.map((g) => g.site))}
+        receivers={uniqSorted(grnFacets.map((g) => g.receivedBy))}
+        departments={uniqSorted(prFacets.map((p) => p.department))}
+        requesters={uniqSorted(prFacets.map((p) => p.requester))}
       />
 
-      <SupplierRosterTable suppliers={suppliers} />
+      <CorrectionCard />
 
-      <PurchaseRosterTable purchases={purchases} />
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Correction ledger</h2>
+        {corrections.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No corrections posted. Originals stay exactly as posted; a correction appends
+            a signed adjustment beside them.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Purchase order</TableHead>
+                <TableHead>Rows appended</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>By</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {corrections.map((c) => {
+                const rows = [
+                  ...c.poLines.map((l) => `${l.id} (qty ${l.quantityOrdered})`),
+                  ...c.invoiceLines.map((l) => `${l.id} (${l.quantityBilled} @ ${l.unitPriceUsd})`),
+                  ...c.grnLines.map((l) => `${l.id} (defects ${l.defectCount})`),
+                ];
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {formatDate(c.createdAt)}
+                    </TableCell>
+                    <TableCell className="capitalize">{c.kind}</TableCell>
+                    <TableCell className="font-mono text-xs">{c.poId}</TableCell>
+                    <TableCell className="font-mono text-[11px] text-muted-foreground">
+                      {rows.map((r) => (
+                        <div key={r}>{r}</div>
+                      ))}
+                    </TableCell>
+                    <TableCell className="max-w-[280px] text-xs">{c.reason}</TableCell>
+                    <TableCell className="text-muted-foreground">{c.user.email}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <SupplierAdminPanel
+          suppliers={suppliers}
+          nextId={nextId}
+          categories={categories}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Master-data audit trail</h2>
+        {changeLog.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No supplier changes recorded yet.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Field</TableHead>
+                <TableHead>Before</TableHead>
+                <TableHead>After</TableHead>
+                <TableHead>By</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {changeLog.map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatDate(c.changedAt)}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {c.supplier.supplierName}
+                    <span className="text-muted-foreground"> · {c.supplierId}</span>
+                  </TableCell>
+                  <TableCell className="capitalize">{c.action}</TableCell>
+                  <TableCell className="font-mono text-xs">{c.field ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{c.oldValue ?? "—"}</TableCell>
+                  <TableCell>{c.newValue ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{c.user.email}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Recent Imports</h2>
         {imports.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No imports yet. Upload your first Excel file above.
+            No import records. Data is loaded via the seed in this build.
           </p>
         ) : (
           <Table>

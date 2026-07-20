@@ -20,9 +20,11 @@ model User {
   role         Role     @default(VIEWER)
   createdAt    DateTime @default(now())
 
-  sessions Session[]
-  imports  Import[]
-  reports  ExecutiveSummary[]
+  sessions          Session[]
+  imports           Import[]
+  reports           ExecutiveSummary[]
+  supplierChanges   SupplierChangeLog[]
+  corrections       Correction[]
 }
 
 enum Role {
@@ -39,97 +41,331 @@ model Session {
 }
 
 // ============= REPORTING PERIODS =============
+//
+// Period membership is by ORDER YEAR (PurchaseOrder.period, a plain string) — there
+// is intentionally NO relation between ReportingPeriod and the transaction tables.
+// The compute layer matches by name / calendar-year bounds. Kept relations point only
+// at the compute OUTPUT + audit tables.
 
 model ReportingPeriod {
   id        String   @id @default(cuid())
-  name      String   @unique // "Q1 2024", "FY 2024", etc.
+  name      String   @unique // "2024", "2025", "2026"
   startDate DateTime
   endDate   DateTime
   isLocked  Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  suppliers          Supplier[]
-  purchases          Purchase[]
   metrics            SupplierMetric[]
   imports            Import[]
   analysisResults    AnalysisResult[]
   executiveSummaries ExecutiveSummary[]
 }
 
-// ============= DATA =============
+// ============= NORMALIZED DOCUMENT MODEL =============
+//
+// Raw facts only — NO derived values are stored (no *_days, no three_way_match_pass,
+// no quantity_accepted, no line_amount, no scores). Derived PO-grain data is
+// reconstructed by the "EnrichedPurchase" VIEW (added in the derivation phase);
+// line-level detail is read straight from PoLine. Supplier is a clean master (no
+// period-scoping). All PKs are the dataset's natural String ids (e.g. "S0001").
 
 model Supplier {
-  id                 String          @id @default(cuid())
-  externalId         String // S001, S002, etc.
-  supplierName       String
-  country            String
-  category           String
-  periodId           String
-  period             ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  id              String    @id // supplier_id, e.g. "S0001"
+  supplierName    String
+  country         String
+  category        String
+  status          String
+  isMiningService Boolean
+  iujpNo          String?
+  iujpValidUntil  DateTime?
 
-  @@unique([externalId, periodId])
-  @@index([periodId])
+  frameworks       Framework[]
+  responses        Response[]
+  purchaseOrders   PurchaseOrder[]
+  invoices         Invoice[]
+  awardedSourcings SourcingEvent[] // events this supplier won (SourcingEvent.awardedSupplierId)
+  changeLog        SupplierChangeLog[]
+
   @@index([category])
 }
 
-model Purchase {
-  id                    String          @id @default(cuid())
-  poId                  String
-  supplierExternalId    String
-  supplierName          String
-  category              String
-  itemName              String
-  unit                  String
-  quantity              Float
-  unitPriceUsd          Float
-  totalValueUsd         Float
-  prDate                DateTime
-  poDate                DateTime
-  deliveryDate          DateTime
-  invoiceDate           DateTime
-  paymentDate           DateTime
-  prToPoDays            Int
-  poToDeliveryDays      Int
-  deliveryToInvoiceDays Int
-  invoiceToPaymentDays  Int
-  totalCycleDays        Int
-  onTimeDelivery        Boolean
-  threeWayMatchPass     Boolean
-  defectCount           Int
-  complaintCount        Int
-  periodId              String
-  period                ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+/// Append-only audit trail for supplier MASTER data (name/country/category/status/…).
+/// One row per FIELD changed, so an edit touching two fields writes two rows.
+///
+/// Master data uses this history-log pattern; posted TRANSACTIONAL documents
+/// (PO / GRN / invoice / payment) must never be mutated at all and instead take
+/// linked correction entries. Different guarantees, deliberately: a misspelled
+/// supplier name is not a posted financial document.
+model SupplierChangeLog {
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  action     String // create | update | deactivate | reactivate
+  field      String? // null for `create` (the whole row is new)
+  oldValue   String? // rendered as text; null on create or when previously unset
+  newValue   String?
+  changedBy  String
+  user       User     @relation(fields: [changedBy], references: [id])
+  changedAt  DateTime @default(now())
 
-  @@unique([poId, periodId])
-  @@index([periodId])
-  @@index([supplierExternalId, periodId])
+  @@index([supplierId])
+  @@index([changedAt])
 }
 
+model Framework {
+  id         String   @id // framework_id
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  title      String
+  category   String
+  startDate  DateTime
+  endDate    DateTime
+  status     String
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([supplierId])
+}
+
+model Requisition {
+  id                String   @id // pr_id
+  prDate            DateTime
+  requester         String
+  department        String
+  category          String
+  needByDate        DateTime
+  estimatedValueUsd Float
+  status            String
+
+  sourcingEvents SourcingEvent[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model SourcingEvent {
+  id                  String      @id // sourcing_event_id
+  prId                String
+  requisition         Requisition @relation(fields: [prId], references: [id])
+  issueDate           DateTime
+  closeDate           DateTime
+  numSuppliersInvited Int
+  awardedSupplierId   String?
+  awardedSupplier     Supplier?   @relation(fields: [awardedSupplierId], references: [id])
+  awardedResponseId   String?
+
+  responses      Response[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([prId])
+  @@index([awardedSupplierId])
+}
+
+model Response {
+  id                 String        @id // response_id
+  sourcingEventId    String
+  sourcingEvent      SourcingEvent @relation(fields: [sourcingEventId], references: [id])
+  supplierId         String
+  supplier           Supplier      @relation(fields: [supplierId], references: [id])
+  quotedUnitPriceUsd Float
+  quotedLeadTimeDays Int
+  submittedDate      DateTime
+  isAwarded          Boolean
+
+  @@index([sourcingEventId])
+  @@index([supplierId])
+}
+
+model PurchaseOrder {
+  id                   String         @id // po_id
+  prId                 String
+  requisition          Requisition    @relation(fields: [prId], references: [id])
+  sourcingEventId      String?
+  sourcingEvent        SourcingEvent? @relation(fields: [sourcingEventId], references: [id])
+  supplierId           String
+  supplier             Supplier       @relation(fields: [supplierId], references: [id])
+  /// rfq | tender | spot_buy | call_off | direct. rfq and tender are the
+  /// COMPETITIVE methods — each order carries its own SourcingEvent, responses
+  /// and award (see SOURCED_METHODS in lib/transaction-create.ts); the other
+  /// three carry none.
+  buyingMethod         String
+  frameworkId          String?
+  framework            Framework?     @relation(fields: [frameworkId], references: [id])
+  justification        String?
+  poDate               DateTime
+  promisedDeliveryDate DateTime
+  paymentTerms         String
+  complaintCount       Int
+  status               String
+  period               String // order-year: "2024" | "2025" | "2026"
+
+  poLines       PoLine[]
+  goodsReceipts GoodsReceipt[]
+  invoices      Invoice[]
+  correctionsPosted Correction[]
+
+  @@index([prId])
+  @@index([sourcingEventId])
+  @@index([supplierId])
+  @@index([frameworkId])
+  @@index([period])
+}
+
+/// Audit header for ONE logical correction. It records who/why/when and groups the
+/// signed rows a correction produces across PoLine / GrnLine / InvoiceLine.
+///
+/// ⚠️ This is METADATA ONLY — the EnrichedPurchase view never reads it. Netting is
+/// done purely by the signed line rows themselves, so the correction mechanism does
+/// not depend on this table existing. Original rows are never mutated.
+model Correction {
+  id        String   @id @default(cuid())
+  kind      String // quantity | price | defect
+  poId      String
+  po        PurchaseOrder @relation(fields: [poId], references: [id])
+  reason    String
+  createdBy String
+  user      User     @relation(fields: [createdBy], references: [id])
+  createdAt DateTime @default(now())
+
+  poLines      PoLine[]
+  grnLines     GrnLine[]
+  invoiceLines InvoiceLine[]
+
+  @@index([poId])
+  @@index([createdAt])
+}
+
+model PoLine {
+  id              String        @id // po_line_id
+  poId            String
+  po              PurchaseOrder @relation(fields: [poId], references: [id])
+
+  /// Set on a CORRECTION row: the original line this reverses/adjusts. Signed
+  /// quantities net against the original; item identity folds to the original so
+  /// breakdowns never show a phantom negative-quantity item.
+  correctsLineId String?
+  correctsLine   PoLine?  @relation("PoLineCorrection", fields: [correctsLineId], references: [id])
+  corrections    PoLine[] @relation("PoLineCorrection")
+  correctionId   String?
+  correction     Correction? @relation(fields: [correctionId], references: [id])
+  itemName        String
+  category        String
+  unit            String
+  quantityOrdered Float
+  unitPriceUsd    Float
+  needByDate      DateTime
+
+  grnLines     GrnLine[]
+  invoiceLines InvoiceLine[]
+
+  @@index([poId])
+}
+
+model GoodsReceipt {
+  id          String        @id // grn_id
+  poId        String
+  po          PurchaseOrder @relation(fields: [poId], references: [id])
+  receiptDate DateTime
+  receivedBy  String
+  site        String
+  status      String
+
+  grnLines GrnLine[]
+
+  @@index([poId])
+}
+
+model GrnLine {
+  id               String       @id // grn_line_id
+  grnId            String
+  goodsReceipt     GoodsReceipt @relation(fields: [grnId], references: [id])
+  poLineId         String
+  poLine           PoLine       @relation(fields: [poLineId], references: [id])
+  quantityReceived Float
+  quantityRejected Float
+  defectCount      Int
+
+  /// Correction row: signed quantities/defects that net against the original.
+  correctsLineId String?
+  correctsLine   GrnLine?    @relation("GrnLineCorrection", fields: [correctsLineId], references: [id])
+  corrections    GrnLine[]   @relation("GrnLineCorrection")
+  correctionId   String?
+  correction     Correction? @relation(fields: [correctionId], references: [id])
+
+  @@index([grnId])
+  @@index([poLineId])
+}
+
+model Invoice {
+  id                String        @id // invoice_id
+  poId              String
+  po                PurchaseOrder @relation(fields: [poId], references: [id])
+  supplierId        String
+  supplier          Supplier      @relation(fields: [supplierId], references: [id])
+  supplierInvoiceNo String
+  invoiceDate       DateTime
+  totalAmountUsd    Float
+  status            String
+
+  invoiceLines InvoiceLine[]
+  payments     Payment[]
+
+  @@index([poId])
+  @@index([supplierId])
+}
+
+model InvoiceLine {
+  id             String  @id // invoice_line_id
+  invoiceId      String
+  invoice        Invoice @relation(fields: [invoiceId], references: [id])
+  poLineId       String
+  poLine         PoLine  @relation(fields: [poLineId], references: [id])
+  quantityBilled Float
+  unitPriceUsd   Float
+
+  /// Correction row: a signed billing adjustment (credit / re-bill) against the
+  /// original invoice line. The view nets the quantity and takes the
+  /// value-weighted effective price, so a corrected invoice matches again.
+  correctsLineId String?
+  correctsLine   InvoiceLine?  @relation("InvoiceLineCorrection", fields: [correctsLineId], references: [id])
+  corrections    InvoiceLine[] @relation("InvoiceLineCorrection")
+  correctionId   String?
+  correction     Correction?   @relation(fields: [correctionId], references: [id])
+
+  @@index([invoiceId])
+  @@index([poLineId])
+}
+
+model Payment {
+  id            String   @id // payment_id
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+  paymentDate   DateTime
+  amountPaidUsd Float
+  method        String
+
+  @@index([invoiceId])
+}
+
+// ============= COMPUTE OUTPUT (regenerated by the compute layer) =============
+
 model SupplierMetric {
-  id                   String          @id @default(cuid())
-  supplierExternalId   String
-  supplierName         String
-  category             String
-  totalSpendUsd        Float
-  numPos               Int
-  avgPoValueUsd        Float
-  avgLeadTimeDays      Float
-  avgCycleTimeDays     Float
-  onTimeDeliveryPct    Float
-  threeWayMatchPct     Float
-  qualityScore         Float
-  deliveryScore        Float
-  processScore         Float
-  riskScore            Float
-  compositeScore       Float
-
-  // Phase 11A: Kraljic matrix data layer (computed post-import, nullable until run)
-  supplyRiskScore     Float?  @db.Real // 0-100 supply-risk index
-  kraljicQuadrant     String? @db.VarChar(30) // Strategic | Leverage | Bottleneck | Routine
-  categoryCompetition Int? // count of OTHER suppliers in the same category
-
-  periodId             String
-  period               ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  id                 String @id @default(cuid())
+  supplierExternalId String
+  supplierName       String
+  category           String
+  totalSpendUsd      Float
+  numPos             Int
+  avgPoValueUsd      Float
+  avgLeadTimeDays    Float
+  avgCycleTimeDays   Float
+  onTimeDeliveryPct  Float
+  threeWayMatchPct   Float
+  qualityScore       Float
+  deliveryScore      Float
+  processScore       Float
+  riskScore          Float
+  compositeScore     Float
+  periodId String
+  period   ReportingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
   @@unique([supplierExternalId, periodId])
   @@index([periodId])

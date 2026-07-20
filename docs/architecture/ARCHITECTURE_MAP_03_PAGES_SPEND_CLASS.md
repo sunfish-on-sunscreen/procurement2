@@ -1,3 +1,30 @@
+> # ⚠️ STALE — PRE-MIGRATION DOCUMENT
+>
+> **This map describes the OLD flat-`Purchase` data model, which no longer exists.**
+> It was written before the normalized 12-table migration
+> (`8bc872e` → `eece0c0`, branch `feature/normalized-data-model`) and is retained as a
+> historical record of the pre-migration architecture, not as a description of the
+> system today.
+>
+> **What changed, in one paragraph:** the single flat `Purchase` table was replaced by a
+> 12-table document graph (Supplier / Framework / Requisition / SourcingEvent / Response
+> / PurchaseOrder / PoLine / GoodsReceipt / GrnLine / Invoice / InvoiceLine / Payment).
+> A plain Postgres VIEW, `EnrichedPurchase`, reconstructs a PO-grain row with
+> **byte-identical column names** to the old `Purchase`, so most read paths and the
+> entire Python compute layer were re-pointed without renaming anything. Item-level
+> columns (`itemName` / `unit` / `unitPriceUsd` / per-line quantity) are NOT on the view
+> and are read from `PoLine` via `lib/po-lines.ts`. Period membership moved from payment
+> year to **order year** (`poDate`). Write paths were disabled during the migration and
+> have since been restored: supplier CRUD with an audit log, a 12-sheet replace-all
+> importer, full-chain transaction creation, and append-only corrections against
+> immutable posted records.
+>
+> **Current source of truth:** `CLAUDE.md` → "CURRENT ARCHITECTURE" + `git log`.
+>
+> Anywhere below that says `prisma.purchase`, `Purchase` columns, the two-file
+> Suppliers/Purchases upload, `import_compute.py`, or `/api/sample-data`, read it as
+> history. Those code paths are deleted.
+
 # ARCHITECTURE MAP 03 — Pages: Spend Overview & Supplier Classification
 
 Scope: two analytical dashboard pages and their entire client/API/chart/lib surface (34 assigned files). Every claim below cites `path:line` and quotes the actual code. Python emitter lines are cited for values that ORIGINATE in `python/compute_analyses.py`; the canonical deep formula derivation lives in `_06` (compute substrate) — here we cite the emitter line + the `AnalysisResult` key + the display hop, and write "deep formula: see _06".

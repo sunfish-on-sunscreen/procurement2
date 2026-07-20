@@ -3,6 +3,167 @@
 A full-stack Next.js web app for presenting mining procurement analytics from synthetic 
 data. Multi-user with auth, single organization, fixed analyses (no parameter tweaking).
 
+## CURRENT ARCHITECTURE (2026-07-20) — READ THIS FIRST
+
+> ⚠️ **This block supersedes everything below it.** The sections after "Current Work"
+> are dated SESSION HISTORY from the pre-migration flat-`Purchase` era and describe a
+> data model that NO LONGER EXISTS. They are kept as history. For current state, this
+> block + `git log` are the source of truth.
+
+**Data model = NORMALIZED, 12 tables.** The flat `Purchase` table is GONE. The document
+graph is Supplier / Framework / Requisition / SourcingEvent / Response / PurchaseOrder /
+PoLine / GoodsReceipt / GrnLine / Invoice / InvoiceLine / Payment.
+
+- **`EnrichedPurchase` is a plain Postgres VIEW** reconstructing a PO-grain row whose
+  column names are BYTE-IDENTICAL to the old flat `Purchase` (spend = `totalValueUsd`,
+  supplier = `supplierExternalId`, camelCase dates, `*Days`, `onTimeDelivery`,
+  `threeWayMatchPass`, `defectCount`). Both Python `load_frames` and the TS read routes
+  consume it, so the analyses needed no rename. **Item-level detail is NOT on the view**
+  (it is PO grain) — line consumers read `PoLine` via `lib/po-lines.ts`.
+- **Period = ORDER YEAR.** `PurchaseOrder.period` and the compute date filter are both
+  `poDate` (was payment-year in the flat era — the one deliberate plumbing change).
+- **Analytics math is UNCHANGED** by the migration: composite 0.30Q/0.30D/0.22P/0.18R,
+  supply-risk = concentration + cost premium + import friction, ABC 80/95, cycle z>2.
+- **three-way match** tests INVOICE vs PO+receipt (no overpay), NOT that everything
+  ordered arrived: per line, billed == accepted (accepted = received − rejected) AND
+  invoice price == PO price. A correctly-billed partial delivery PASSES.
+
+**Write paths are RESTORED (Phases 1-6, 2026-07-20).** They were 501-stubbed during the
+migration; all are live again:
+- **Recompute** — `lib/recompute.ts` -> `python/seed_compute.py --json`. THE single
+  sanctioned path after ANY data change. Full recompute (~6s): rewrites SupplierMetric,
+  runs `compute_analyses` per period, clears the range cache. Serialized via a promise
+  chain (concurrent recomputes would interleave writes). Incremental is NOT possible —
+  roster concentration is global and the ABC/Kraljic/zone splits are population medians.
+- **Supplier CRUD** — add / edit / deactivate. Master data uses an append-only
+  **history log** (`SupplierChangeLog`: who / when / field / before -> after). Suppliers
+  are never deleted (5 RESTRICT FKs); retirement is `status` active <-> inactive.
+  ⚠️ Status is master-data ONLY — the compute layer never filters on it and counts
+  inactive suppliers deliberately, so deactivating changes NO analytics number.
+- **Dataset import** — three modes: replace-all, append suppliers (upsert), append
+  transactions (insert-only complete chains), plus a generated template download.
+  See "Data flow for imports".
+- **Transaction create** — records a COMPLETE document chain (PR -> PO + lines -> ONE OR
+  MORE GRNs + lines -> invoice + lines -> payment) in one atomic transaction. ⚠️ **No
+  open POs, by design**: the view COALESCEs a PO with no invoice lines to
+  `threeWayMatchPass = TRUE`, so an open PO would count as a match PASS while
+  contributing to no other rate denominator. Supporting them would require changing a
+  rate denominator. See "RECORD-PURCHASE FORM" below for the request shape.
+- **Corrections** — posted transactional records are IMMUTABLE (Postgres BEFORE UPDATE
+  triggers on the 10 document tables reject any edit). A mistake is fixed by APPENDING a
+  signed correction line linked via `correctsLineId`, with a `Correction` audit header.
+  Three kinds: quantity, price (credit + re-bill), defect.
+  - ⚠️ The triggers block **UPDATE only**. DELETE stays open for the importer, and
+    `SET LOCAL app.bulk_import = 'on'` is the sanctioned escape hatch — load-bearing,
+    because the correction FKs use `ON DELETE SET NULL` and referential actions fire
+    triggers. Set by both the importer transaction and the seed.
+  - ⚠️ **Corrections FOLD into the corrected item** in every line-level read
+    (`lib/po-lines.ts`, Python `load_po_lines`) so no breakdown shows a phantom
+    negative-quantity item.
+
+**BUYING METHODS — FIVE, two of them competitively sourced** (`BUYING_METHODS`,
+`lib/transaction-create.ts`): `rfq | tender | spot_buy | call_off | direct`.
+- **rfq and tender are PEER competitive methods** — each order carries its OWN
+  `SourcingEvent` + `Response` rows + award. They are two methods, NOT one method
+  with a type: tender differs in scope, sealed bids, public bid opening and
+  formality. `spot_buy` / `call_off` / `direct` carry NO sourcing.
+- ⚠️ **`SOURCED_METHODS = ["rfq","tender"]` + `isSourcedMethod()` is THE single
+  definition** of "does this order have sourcing". SIX sites once tested
+  `method === "rfq"` for it (the chain's sourcing gate, three append-validator rules,
+  two form conditionals); missing one yields a form that renders fine but posts an
+  incomplete payload, or a validator that rejects a legitimate tender. **Never
+  re-inline the literal — ask the predicate.**
+- **Sourcing-event ids are prefixed per method** (`SOURCING_ID_PREFIX`):
+  `RFQ-<year>-0001` / `TND-<year>-0001`, on INDEPENDENT per-year sequences. Response
+  ids derive from the event id (`<eventId>-Q01`), so they inherit the prefix.
+- **Both import paths validate the vocabulary** — replace-all and append each reject
+  an unknown OR blank `buying_method` (a blank would be neither sourced nor
+  non-sourced and would satisfy no conditional).
+- ⚠️ **`solicitation_type` NO LONGER EXISTS.** Tender was first modelled the SAP MM /
+  D365 way — ONE sourcing document carrying a type — as `SourcingEvent.solicitationType`
+  (migration `20260720160000_add_solicitation_type`), then REVERSED and dropped
+  (`20260720170000_drop_solicitation_type`) when tender was promoted to a full buying
+  method. Both migrations stay in history (forward-only, so an already-migrated DB
+  stays consistent); the column is gone. Commits `7468c51`→`af95e35` are that arc.
+- **Dataset:** 75 tender POs — the former TOP-VALUE rfq POs (avg $1.21M vs rfq's
+  $0.57M) — on `TND-` events, 2024×28 / 2025×24 / 2026×23. Distribution: rfq 151 ·
+  tender 75 · spot_buy 194 · call_off 129 · direct 98 = 647.
+  ⚠️ **The conversion left the BASELINE byte-identical** (no PO added, no line value
+  changed): analytics reads NEITHER `buying_method` NOR the sourcing documents —
+  `python/` has zero references, the view never joins `SourcingEvent`, and zero of the
+  18 `AnalysisResult` payloads mention either.
+
+**RECORD-PURCHASE FORM (`RecordPurchaseCard` + `CreateTransactionBody`).** Group A,
+2026-07-20. Form paths only — no analytics, compute, schema or migration change.
+
+- ⚠️ **RECEIVING IS PER RECEIPT, not per PO.** `site` / `received_by` / `receipt_date`
+  are NOT top-level: the request carries a **`receipts[]`** array, each entry with its
+  own date, site, receiver and the subset of order lines it delivered
+  (`{line_index, quantity_received, quantity_rejected, defect_count}`). `lines[]` keeps
+  ordering + BILLING only (`quantity_billed`, `invoice_unit_price_usd`), which stay
+  PO-level because there is one invoice. Matches the data: 28% of orders have two
+  receipts, 136 of those at DIFFERENT sites, 315/322 lines split by partial quantity.
+  GRN sequences are allocated **per year**, so a delivery straddling a year boundary
+  still gets a correct id. Billed defaults to accepted summed ACROSS receipts.
+  - Validation: ≥1 receipt · every order line covered by ≥1 receipt · no receipt before
+    `po_date` · none after `invoice_date` (it IS the view's `deliveryDate`) · received
+    across receipts ≤ ordered · rejected ≤ received. **Under-receipt stays legal** — a
+    correctly-billed partial delivery passes the three-way match by design.
+  - ⚠️ **Blank-quantity convention differs by mode:** with ONE receipt a blank quantity
+    means the WHOLE line arrived (preserves the earlier ergonomics); with SEVERAL it
+    means ZERO, because "the rest" is ambiguous once split.
+- ⚠️ **GRN STATUS = CUMULATIVE ARRIVAL.** A receipt is `complete` once everything
+  received up to and INCLUDING it has reached the ordered quantity on every line, else
+  `partial`. Verified against all 829 seeded receipts — 647/182 separate PERFECTLY on
+  that rule, and a two-receipt order reads partial then complete. **Rejections do NOT
+  make a receipt partial** (25 seeded `complete` receipts carry rejected quantity); the
+  old single-receipt code additionally required zero rejections, which was WRONG and is
+  corrected. Inert: `GoodsReceipt.status` is read by neither the view nor `python/`.
+- **Name validators** (`personName` / `orgName` in `lib/transaction-create.ts`; zod is
+  authoritative, mirrored client-side by the shared `nameError` helper). `min(1)` alone
+  let "12" and "da12" become the requester of a posted, immutable document.
+  **requester + received_by → `personName`** (a PERSON: ANY digit rejected — no seeded
+  value has one). **department + site → `orgName`** (a place/function: only digit-ONLY
+  rejected, so "Warehouse 2" passes; "HSE" and "Drill & Blast" pass — no min-length, no
+  two-word rule). Both require a letter; letters match `\p{L}`, so a non-ASCII name is
+  not rejected for being non-English.
+- **Framework picker (call-off).** ⚠️ The supplier filter is CORRECT domain logic, not a
+  bug — every call-off references a framework owned by its own supplier. Only 21 of 55
+  suppliers HAVE one, so an empty list is the common legitimate case: the field is
+  `disabled` until a supplier is chosen, the empty message NAMES the supplier and the
+  reason, and the condition is surfaced on the Call-off button so the dead end is
+  visible BEFORE selection. ⚠️ The framework DATE WINDOW is deliberately NOT enforced —
+  15 existing call-offs fall outside theirs. ⚠️ Known: the picker filters
+  `status: "active"`, so an EXPIRED framework would vanish silently.
+- **Item field** is a per-supplier creatable dropdown (each supplier has 2-5 items).
+  Picking a known item AUTO-FILLS category + unit — both are strictly 1:1 with the item
+  (0 items span two categories, 0 span two units). **Category is
+  DERIVED-WITH-OVERRIDE, not read-only**, so a new item in a new category is possible; a
+  created name matches nothing, so category/unit stay as typed.
+
+⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
+because proven byte-identical on existing data AND semantically required under
+corrections: `dom_cat` now aggregates per category then takes the argmax (a reversed line
+used to still sort as the highest single row, so a PO could report a category with zero
+net spend); `line_bill` uses the value-weighted effective billed price instead of
+`MAX(unitPrice)` (which returned the pre-correction price, so a correctly-credited
+invoice still failed the match). Verified inert across the whole view, dom_cat for every
+PO, every processScore, all AnalysisResult payloads and zones before shipping.
+
+**BASELINE — verify any change against this:** $707,687,316.20 · 647 POs (240/250/157) ·
+55 suppliers · 14 categories · 566 three-way-match pass / 81 fail · $82,253,733.40
+control exposure · SupplierMetric 151 rows · processScore min 0 / max 100 / avg 87.67.
+
+**Restore recipe:** `npx prisma db seed`, then
+`cd python && .venv/Scripts/python seed_compute.py`.
+
+**Removed 2026-07-20 as dead:** `ImportForm`, `AddPurchaseCard`, `RemoveSupplierCard`,
+`RemovePurchaseCard`, `PurchaseRosterTable`, `lib/purchase-import.ts`,
+`python/import_compute.py` (+ its test), `runImportCompute`, `/api/sample-data`, and the
+three write-only `SupplierMetric` kraljic columns (`categoryCompetition` /
+`kraljicQuadrant` / `supplyRiskScore`) — the latter were rewritten on every recompute,
+read by nothing, and the sole source of a cross-run non-determinism.
+
 ## Current Work
 
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
@@ -2173,34 +2334,100 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - Use cuid() for IDs (not uuid)
 
 ## Data flow for imports
-1. Admin uploads **TWO separate `.xlsx` files** via /import page: a **Suppliers file**
-   and a **Purchases file** (each a SINGLE sheet — "Suppliers" / "Purchases"). ⚠️ There
-   is **NO SupplierMetrics sheet** — per-supplier metrics + the composite/sub-scores are
-   computed server-side from the raw rows, not uploaded.
-2. Next.js API (`app/api/imports/upload/route.ts`) parses BOTH workbooks with the `xlsx`
-   library and validates each sheet with zod **before any DB write** (fail-fast)
-3. Compute derived scores server-side FIRST via `python/import_compute.py` (raw rows in →
-   per-period `SupplierMetric` rows out); a Python failure aborts with **NO partial state**
-4. Atomic `$transaction`: per affected period, delete-then-insert Supplier / Purchase /
-   SupplierMetric (periods auto-created from the purchase **payment year**, PR-year fallback)
-5. After the write, spawn `compute_analyses.py` per period (Mode A) to compute the analyses
-6. Python writes AnalysisResult rows back to Postgres (6 types: spend_overview, abc, performance_spend, kraljic, recommendations, cycle_time)
-7. Clear the range cache (`AnalysisResult` rows with `periodId IS NULL`)
-8. Frontend pages read AnalysisResult and display via Recharts
+
+THREE upload modes, all validated fully BEFORE any write, each one transaction, each
+followed by `recomputeAllPeriods()`. A template is downloadable at
+`GET /api/imports/template` (generated from `REQUIRED_COLUMNS`, so it cannot go stale).
+
+| mode | route | sheets | semantics |
+|---|---|---|---|
+| Replace all | `POST /api/imports/upload` | all 12 | wipes and rebuilds the whole dataset |
+| Append suppliers | `POST /api/imports/suppliers` | `suppliers` | UPSERT by `supplier_id` |
+| Append transactions | `POST /api/imports/transactions` | 8 document sheets (+ `sourcing_events`/`responses` iff any PO uses a SOURCED method — `rfq` or `tender`) | INSERT-only, complete chains |
+
+Both append routes accept `mode=preview` in the form data: validate and return the
+plan WITHOUT writing, which is what the UI shows before you commit.
+
+**Replace-all** (`lib/dataset-import.ts`): validate all 12 sheets (required columns,
+non-empty core sheets, PK uniqueness, FK closure across all 18 relation edges, and the
+`buying_method` vocabulary — unknown OR blank is rejected, matching append) →
+single `$transaction` (wipe reverse-FK, insert FK order, upsert missing
+`ReportingPeriod`) → recompute. ⚠️ Destructive: deletes manually-added suppliers and
+ALL posted corrections. Supplier change-history is PRESERVED for suppliers the new
+file still contains. The confirmation names every loss with live counts.
+
+**Append rules** (`lib/dataset-append.ts`) — how append differs from replace-all:
+1. FK closure widens from "within the file" to **file ∪ database**.
+2. PKs must be unique in the file AND checked against the database.
+3. What a database collision MEANS depends on the table, and this is not a style choice:
+   - **Supplier is master data with no immutability trigger → UPSERT.** Each changed
+     field is written to `SupplierChangeLog` exactly as a hand edit would be.
+   - **The ten posted document tables carry BEFORE UPDATE triggers → collision is
+     REJECTED.** Upserting a posted document would be an in-place edit, which those
+     triggers forbid; a correction must be posted instead.
+4. For a transactions file, **chain references must resolve INSIDE the file** while
+   **master-data references (supplier, framework) must resolve in the DATABASE**. A
+   child document pointing at a parent that exists only in the database means the
+   upload is extending a posted chain — an edit — and is rejected with that wording.
+   Suppliers are never created by a transactions file; upload them first.
+5. **Complete chains only** (same rule as transaction-create): per PO ≥1 po_line, ≥1
+   GRN, exactly 1 invoice; per po_line ≥1 grn_line and exactly 1 invoice_line; per
+   invoice exactly 1 payment. Plus the buying-method conditionals, forward date
+   ordering, and `period` == order year of `poDate`. ⚠️ An invoice-less PO is refused
+   because the view COALESCEs it to `threeWayMatchPass = TRUE` while it contributes to
+   no other rate denominator — it would silently inflate processScore.
+
+A supplier append **skips the recompute entirely when nothing changed** (a file
+matching the roster returns in ~0.2s instead of ~6s).
+
+⚠️ **EMPTY REPORTING PERIODS ARE AUTO-REMOVED.** Appending a transaction in a new
+order-year creates a `ReportingPeriod`; if that year's data later disappears (a
+replace-all or reseed without it), `seed_compute` clears the period's derived rows and
+DROPS the period. Rationale: it would otherwise stay selectable with nothing behind it,
+and `compute_analyses` exits non-zero on an empty window — an orphaned period failed
+EVERY subsequent recompute. Guarantees: only periods with ZERO purchase orders are ever
+considered, so a period holding data can never be dropped (2024/2025/2026 always
+survive); it runs BEFORE the analysis step, so it cannot race a recompute; a period
+carrying a saved `ExecutiveSummary` is cleared but KEPT (user work); `Import` rows are
+re-pointed to a surviving period (their period tag is arbitrary for a dataset-wide
+file). A stale UI selection is already safe — `getCurrentPeriodSelection()` validates
+every id against the live period set and falls back to latest/oldest.
 
 ## Excel file schema
-**TWO separate `.xlsx` files, each a single sheet.** ⚠️ There is NO SupplierMetrics
-sheet — the per-supplier metrics + composite/sub-scores (quality/delivery/process/risk/
-composite; **no `service_score`** — Service was removed from the model) are computed
-server-side by `python/import_compute.py` from the raw rows, then written to the
-`SupplierMetric` table.
-- **Suppliers file**, sheet "Suppliers": supplier_id, supplier_name, country, category, product_description  *(`tier` removed in `158849b`)*
-- **Purchases file**, sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
+**ONE workbook, 12 sheets** — `data/raw/procurement_dataset_full.xlsx`. Raw facts
+only: NO derived columns (no `*_days`, no `total_value_usd`, no `three_way_match_pass`,
+no scores). Everything derived is reconstructed by the `EnrichedPurchase` VIEW at read
+time; scores are computed by `python/seed_compute.py`.
 
-Sample data files: `data/raw/procurement_suppliers.xlsx` + `data/raw/procurement_purchases.xlsx`
-(served by `app/api/sample-data/route.ts?file=suppliers|purchases`)
+| sheet | key columns |
+|---|---|
+| suppliers | supplier_id, supplier_name, country, category, status, is_mining_service, iujp_no, iujp_valid_until |
+| frameworks | framework_id, supplier_id, title, category, start_date, end_date, status |
+| requisitions | pr_id, pr_date, requester, department, category, need_by_date, estimated_value_usd, status |
+| sourcing_events | sourcing_event_id, pr_id, issue_date, close_date, num_suppliers_invited, awarded_supplier_id, awarded_response_id |
+| responses | response_id, sourcing_event_id, supplier_id, quoted_unit_price_usd, quoted_lead_time_days, submitted_date, is_awarded |
+| purchase_orders | po_id, pr_id, sourcing_event_id, supplier_id, buying_method, framework_id, justification, po_date, promised_delivery_date, payment_terms, complaint_count, status, period |
+| po_lines | po_line_id, po_id, item_name, category, unit, quantity_ordered, unit_price_usd, need_by_date |
+| goods_receipts | grn_id, po_id, receipt_date, received_by, site, status |
+| grn_lines | grn_line_id, grn_id, po_line_id, quantity_received, quantity_rejected, defect_count |
+| invoices | invoice_id, po_id, supplier_id, supplier_invoice_no, invoice_date, total_amount_usd, status |
+| invoice_lines | invoice_line_id, invoice_id, po_line_id, quantity_billed, unit_price_usd |
+| payments | payment_id, invoice_id, payment_date, amount_paid_usd, method |
 
-See `dataset_type_explainer.md` for type definitions and provenance.
+⚠️ `purchase_orders.buying_method` is one of **`rfq | tender | spot_buy | call_off |
+direct`** (see "BUYING METHODS" at the top). Per-method conditionals: the two SOURCED
+methods (`rfq`, `tender`) each need their own `sourcing_events` row with `responses` and
+an award, and only they may carry a `sourcing_event_id`; `call_off` needs a
+`framework_id`; `direct` needs a `justification`; `spot_buy` needs none of them.
+⚠️ The exclusivity rules are ASYMMETRIC: `framework_id` is enforced BOTH ways (only a
+call-off may carry one), and `sourcing_event_id` likewise, but `justification` is only
+REQUIRED for `direct` — no rule forbids it on the other methods. ⚠️ `sourcing_events`
+has **no `solicitation_type` column** — that was explored and dropped; the distinction
+lives in `buying_method`.
+
+⚠️ `/api/sample-data` and the two old sample workbooks are GONE (deleted 2026-07-20).
+Use `GET /api/imports/template` instead — it generates the 12-sheet template plus a
+README sheet and ONE complete example chain, from `REQUIRED_COLUMNS`.
 
 ## When uncertain
 Default to the simpler implementation. Don't add features I didn't request.

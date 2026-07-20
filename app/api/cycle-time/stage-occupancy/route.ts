@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import type { StageOccupancy, StageOccupancyRow } from "@/lib/cycle-time-types";
 
 export const runtime = "nodejs";
@@ -25,8 +25,8 @@ type StageKey = "pr_active" | "po_active" | "delivery_active" | "invoice_active"
  * gap touches. A PO that moves through two stages in one month counts +1 in both,
  * so per-month totals across the stages can exceed the PO count (intended).
  * Payment is the terminal milestone (no next), so it is counted +1 in its own
- * payment month. Population = POs tagged to the window by paymentDate — the SAME
- * filter the breakdown route + the rest of the page use. Stage-months that fall
+ * payment month. Population = POs tagged to the window by order-year (poDate) —
+ * the SAME filter the breakdown route + the rest of the page use. Stage-months that fall
  * outside the window (e.g. a PO's PR stage in the prior December) are simply not
  * counted; the x-axis is not extended into the neighbouring year. Login required;
  * any role.
@@ -66,22 +66,11 @@ export async function GET(request: Request) {
     }
   }
 
-  // Population: POs tagged to the window by paymentDate — same filter the
-  // breakdown route + the rest of the page use.
-  const purchases = await prisma.purchase.findMany({
-    where: {
-      paymentDate: {
-        gte: new Date(`${start}T00:00:00`),
-        lte: new Date(`${end}T23:59:59`),
-      },
-    },
-    select: {
-      prDate: true,
-      poDate: true,
-      deliveryDate: true,
-      invoiceDate: true,
-      paymentDate: true,
-    },
+  // Population: POs tagged to the window by order-year (poDate) — same filter the
+  // breakdown route + the rest of the page use, via the EnrichedPurchase view.
+  const purchases = await getEnrichedPurchases({
+    start: new Date(`${start}T00:00:00`),
+    end: new Date(`${end}T23:59:59`),
   });
 
   const acc = months.map((mo) => ({

@@ -15,21 +15,22 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/CountryFlag";
 import { countryName } from "@/lib/countries";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import {
-  RowCheckbox,
-  usePagination,
-  PaginationFooter,
-  SelectionBar,
-  ROSTER_PAGE_SIZE,
-} from "@/components/ui/roster-table";
-import { panelElevation } from "@/lib/utils";
+import { usePagination, PaginationFooter, ROSTER_PAGE_SIZE } from "@/components/ui/roster-table";
 
+/**
+ * Supplier master roster.
+ *
+ * ⚠️ There is no delete. Every supplier is referenced by posted documents
+ * (Framework / Response / PurchaseOrder / Invoice / SourcingEvent), all RESTRICT
+ * FKs, so retirement is a STATUS FLIP — the row stays and its history stays
+ * readable. The old batch-delete UI was removed with the flat model.
+ */
 type Row = {
-  externalId: string;
+  id: string;
   supplierName: string;
   country: string;
   category: string;
+  status: string;
 };
 
 type Filters = { id: string; name: string; country: string; category: string };
@@ -38,15 +39,13 @@ const EMPTY_FILTERS: Filters = { id: "", name: "", country: "", category: "" };
 export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
   const router = useRouter();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const has = (v: string, q: string) => v.toLowerCase().includes(q.trim().toLowerCase());
     return suppliers.filter(
       (s) =>
-        has(s.externalId, filters.id) &&
+        has(s.id, filters.id) &&
         has(s.supplierName, filters.name) &&
         // country filter matches the name OR the code
         (has(s.country, filters.country) || has(countryName(s.country), filters.country)) &&
@@ -60,49 +59,28 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
     JSON.stringify(filters),
   );
 
-  function toggleOne(id: string, on: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
-
-  async function handleBatchDelete() {
-    const ids = [...selected];
-    setDeleting(true);
+  async function toggleStatus(row: Row) {
+    const reactivate = row.status !== "active";
+    setBusyId(row.id);
     try {
-      const res = await fetch("/api/suppliers/batch-delete", {
+      const res = await fetch(`/api/suppliers/${row.id}/deactivate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ reactivate }),
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        deleted?: number;
-      };
-      // A recompute failure returns a non-2xx error, so success means the analyses
-      // have actually refreshed.
-      if (res.ok && typeof data.deleted === "number") {
-        toast.success(`Removed ${data.deleted} supplier${data.deleted === 1 ? "" : "s"}.`);
-        setSelected(new Set());
-        setConfirmOpen(false);
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      if (res.ok && data.status) {
+        toast.success(`${row.supplierName} is now ${data.status}.`);
         router.refresh();
       } else {
-        // Block (some have purchases) or recompute failure — surface it.
-        toast.error(data.error || "Could not remove the selected suppliers.");
-        setConfirmOpen(false);
+        toast.error(data.error || "Could not change the supplier status.");
       }
     } catch {
-      toast.error("Could not remove the selected suppliers.");
-      setConfirmOpen(false);
+      toast.error("Could not change the supplier status.");
     } finally {
-      setDeleting(false);
+      setBusyId(null);
     }
   }
-
-  const selectedCount = selected.size;
 
   return (
     <div className="flex flex-col gap-3">
@@ -114,14 +92,6 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
         </span>
       </h2>
 
-      {selectedCount > 0 && (
-        <SelectionBar
-          count={selectedCount}
-          onClear={() => setSelected(new Set())}
-          onDelete={() => setConfirmOpen(true)}
-        />
-      )}
-
       {suppliers.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No suppliers yet. Import data or add one above.
@@ -130,14 +100,14 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-9" />
               <TableHead>ID</TableHead>
               <TableHead>Supplier</TableHead>
               <TableHead>Country</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-9" />
               <TableHead>
                 <Input
                   value={filters.id}
@@ -174,33 +144,23 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
                   aria-label="Filter by category"
                 />
               </TableHead>
+              <TableHead />
+              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No suppliers match the filters.
                 </TableCell>
               </TableRow>
             ) : (
               pageItems.map((s) => {
-                const isSel = selected.has(s.externalId);
+                const inactive = s.status !== "active";
                 return (
-                  <TableRow
-                    key={s.externalId}
-                    className={`group ${isSel ? "bg-muted/40" : ""}`}
-                  >
-                    <TableCell>
-                      <RowCheckbox
-                        ariaLabel={`Select ${s.externalId}`}
-                        checked={isSel}
-                        onChange={(on) => toggleOne(s.externalId, on)}
-                      />
-                    </TableCell>
-                    <TableCell className="font-mono text-muted-foreground">
-                      {s.externalId}
-                    </TableCell>
+                  <TableRow key={s.id} className={`group ${inactive ? "opacity-60" : ""}`}>
+                    <TableCell className="font-mono text-muted-foreground">{s.id}</TableCell>
                     <TableCell className="font-medium">{s.supplierName}</TableCell>
                     <TableCell>
                       {(() => {
@@ -217,6 +177,29 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
                       <CountryFlag code={s.country} />
                     </TableCell>
                     <TableCell>{s.category}</TableCell>
+                    <TableCell>
+                      <span
+                        className="rounded-md px-2 py-0.5 text-xs capitalize"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, var(${
+                            inactive ? "--muted-foreground" : "--zone-stars"
+                          }) 14%, transparent)`,
+                          color: `var(${inactive ? "--muted-foreground" : "--zone-stars"})`,
+                        }}
+                      >
+                        {s.status}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busyId === s.id}
+                        onClick={() => toggleStatus(s)}
+                      >
+                        {busyId === s.id ? "Saving…" : inactive ? "Reactivate" : "Deactivate"}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })
@@ -235,33 +218,6 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
           setPage={setPage}
         />
       )}
-
-      {/* Batch-delete confirmation. */}
-      <Dialog open={confirmOpen} onOpenChange={(o) => !deleting && setConfirmOpen(o)}>
-        <DialogContent
-          showCloseButton={false}
-          aria-label="Confirm delete"
-          className={`flex w-full flex-col gap-0 p-0 sm:max-w-[420px] ${panelElevation}`}
-        >
-          <div className="border-b p-4">
-            <DialogTitle className="font-heading text-base font-medium leading-snug">
-              Delete {selectedCount} supplier{selectedCount === 1 ? "" : "s"}?
-            </DialogTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              This can&rsquo;t be undone. Any supplier with purchases will block the
-              whole batch.
-            </p>
-          </div>
-          <footer className="flex items-center justify-end gap-2 border-t bg-muted/50 p-4">
-            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleBatchDelete} disabled={deleting}>
-              {deleting ? "Deleting…" : `Delete ${selectedCount}`}
-            </Button>
-          </footer>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

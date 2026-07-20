@@ -1,3 +1,30 @@
+> # ⚠️ STALE — PRE-MIGRATION DOCUMENT
+>
+> **This map describes the OLD flat-`Purchase` data model, which no longer exists.**
+> It was written before the normalized 12-table migration
+> (`8bc872e` → `eece0c0`, branch `feature/normalized-data-model`) and is retained as a
+> historical record of the pre-migration architecture, not as a description of the
+> system today.
+>
+> **What changed, in one paragraph:** the single flat `Purchase` table was replaced by a
+> 12-table document graph (Supplier / Framework / Requisition / SourcingEvent / Response
+> / PurchaseOrder / PoLine / GoodsReceipt / GrnLine / Invoice / InvoiceLine / Payment).
+> A plain Postgres VIEW, `EnrichedPurchase`, reconstructs a PO-grain row with
+> **byte-identical column names** to the old `Purchase`, so most read paths and the
+> entire Python compute layer were re-pointed without renaming anything. Item-level
+> columns (`itemName` / `unit` / `unitPriceUsd` / per-line quantity) are NOT on the view
+> and are read from `PoLine` via `lib/po-lines.ts`. Period membership moved from payment
+> year to **order year** (`poDate`). Write paths were disabled during the migration and
+> have since been restored: supplier CRUD with an audit log, a 12-sheet replace-all
+> importer, full-chain transaction creation, and append-only corrections against
+> immutable posted records.
+>
+> **Current source of truth:** `CLAUDE.md` → "CURRENT ARCHITECTURE" + `git log`.
+>
+> Anywhere below that says `prisma.purchase`, `Purchase` columns, the two-file
+> Suppliers/Purchases upload, `import_compute.py`, or `/api/sample-data`, read it as
+> history. Those code paths are deleted.
+
 # ARCHITECTURE MAP — 07: RECONCILIATION + COVERAGE PROOF (Phase C)
 
 > Capstone. §5 self-verifying reconciliation, §6 the coverage arithmetic that proves
@@ -124,7 +151,14 @@ proof-of-enumeration).
 
 **Dead / orphaned code:**
 - **V16** `ReportPreset` model + table + migration `add_report_preset` fully orphaned — `prisma.reportPreset` grep = 0 hits (CLAUDE.md's known open item, **confirmed**).
-- **V17** `SupplierMetric.categoryCompetition` is write-only — written `compute_analyses.py:1383`, read by zero TS.
+- **V17** ✅ **RESOLVED 2026-07-20.** `SupplierMetric.categoryCompetition` was indeed
+  write-only — and so were `kraljicQuadrant` and `supplyRiskScore`. All three were
+  DROPPED (migration `20260720160000_drop_dead_kraljic_denorm`) along with the
+  `writeback_supplier_metrics` function that wrote them. They were also the sole
+  source of a cross-run non-determinism: the writeback UPDATE carried no `periodId`
+  filter (all periods got the last-processed period's values) and the period order
+  came from an unordered `SELECT`. `seed_compute` now orders periods explicitly.
+  Kraljic values are read from the `kraljic` AnalysisResult payload, as they always were.
 - **V18** `PerformanceScoreCard.tsx` is dead — never imported (grep-verified).
 - **V19** `Import.fileType` schema comment still lists `'supplier_metrics'` (`schema.prisma:147`) though that sheet was dropped.
 - **V20** `lib/python.ts` has NO `runCycleCompare` (deleted; only 3 spawn wrappers remain) — the cycle-compare route/CLI path is gone.

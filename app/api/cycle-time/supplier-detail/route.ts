@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { getRangeAnalyses } from "@/lib/range-analyses";
 import {
   CYCLE_STAGES,
@@ -69,34 +70,15 @@ export async function GET(request: Request) {
     );
   }
 
-  const dateFilter = {
-    gte: new Date(`${start}T00:00:00`),
-    lte: new Date(`${end}T23:59:59`),
-  };
-
   // All in-span purchases (for the portfolio per-stage medians + the cycle
   // mean/std used by the anomaly flag) and the supplier identity, in parallel.
   const [allPurchases, supplier] = await Promise.all([
-    prisma.purchase.findMany({
-      where: { paymentDate: dateFilter },
-      select: {
-        poId: true,
-        supplierExternalId: true,
-        prDate: true,
-        poDate: true,
-        deliveryDate: true,
-        invoiceDate: true,
-        paymentDate: true,
-        prToPoDays: true,
-        poToDeliveryDays: true,
-        deliveryToInvoiceDays: true,
-        invoiceToPaymentDays: true,
-        totalCycleDays: true,
-      },
+    getEnrichedPurchases({
+      start: new Date(`${start}T00:00:00`),
+      end: new Date(`${end}T23:59:59`),
     }),
-    prisma.supplier.findFirst({
-      where: { externalId: supplierId },
-      orderBy: { periodId: "desc" },
+    prisma.supplier.findUnique({
+      where: { id: supplierId },
       select: { supplierName: true, category: true, country: true },
     }),
   ]);

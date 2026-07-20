@@ -1,3 +1,30 @@
+> # ⚠️ STALE — PRE-MIGRATION DOCUMENT
+>
+> **This map describes the OLD flat-`Purchase` data model, which no longer exists.**
+> It was written before the normalized 12-table migration
+> (`8bc872e` → `eece0c0`, branch `feature/normalized-data-model`) and is retained as a
+> historical record of the pre-migration architecture, not as a description of the
+> system today.
+>
+> **What changed, in one paragraph:** the single flat `Purchase` table was replaced by a
+> 12-table document graph (Supplier / Framework / Requisition / SourcingEvent / Response
+> / PurchaseOrder / PoLine / GoodsReceipt / GrnLine / Invoice / InvoiceLine / Payment).
+> A plain Postgres VIEW, `EnrichedPurchase`, reconstructs a PO-grain row with
+> **byte-identical column names** to the old `Purchase`, so most read paths and the
+> entire Python compute layer were re-pointed without renaming anything. Item-level
+> columns (`itemName` / `unit` / `unitPriceUsd` / per-line quantity) are NOT on the view
+> and are read from `PoLine` via `lib/po-lines.ts`. Period membership moved from payment
+> year to **order year** (`poDate`). Write paths were disabled during the migration and
+> have since been restored: supplier CRUD with an audit log, a 12-sheet replace-all
+> importer, full-chain transaction creation, and append-only corrections against
+> immutable posted records.
+>
+> **Current source of truth:** `CLAUDE.md` → "CURRENT ARCHITECTURE" + `git log`.
+>
+> Anywhere below that says `prisma.purchase`, `Purchase` columns, the two-file
+> Suppliers/Purchases upload, `import_compute.py`, or `/api/sample-data`, read it as
+> history. Those code paths are deleted.
+
 # Architecture Map §05 — Import, Reports, Methodology pages (+ Supplier/Purchase CRUD)
 
 Scope: three dashboard pages (**Import**, **Reports**, **Methodology**) and the supplier/purchase CRUD API surface. Every claim cites `path:line` with quoted code. READ-ONLY audit; no files were edited.
@@ -535,3 +562,35 @@ Guarantees one-to-one A3 coverage: each symbol below is defined at the cited lin
 | `toSupplierCreateData` | fn | `supplier-import.ts:85` |
 
 **Total distinct exports across this doc's files: 102.**
+
+---
+
+## ADDENDUM (2026-07-20) — the import surface as it exists today
+
+Everything above describes the pre-migration two-file upload and is history. The
+current import surface is:
+
+| route | purpose |
+|---|---|
+| `GET /api/imports/template` | 12-sheet template + README, generated from `REQUIRED_COLUMNS` |
+| `POST /api/imports/upload` | REPLACE-ALL, 12 sheets |
+| `POST /api/imports/suppliers` | APPEND suppliers, upsert by `supplier_id` |
+| `POST /api/imports/transactions` | APPEND complete purchase chains, insert-only |
+
+Shared libraries: `lib/dataset-import.ts` (parse / validate / `ROW_MAPPERS` /
+`insertSheet` / `findExistingIds`), `lib/dataset-append.ts` (the DB-aware append
+planners), `lib/dataset-template.ts` (template generation).
+
+Load-bearing rules, each with a reason rather than a convention:
+- Append FK closure spans **file ∪ database**; chain refs must resolve in-file,
+  master-data refs in-DB. A chain ref that resolves only in the DB is an edit of a
+  posted chain and is rejected.
+- A posted-document id collision is **rejected, never upserted** — those ten tables
+  carry BEFORE UPDATE immutability triggers. `Supplier` has none, so it upserts, and
+  every changed field is logged to `SupplierChangeLog`.
+- **Complete chains only.** An invoice-less PO would be COALESCEd to
+  `threeWayMatchPass = TRUE` by the view while contributing to no other rate
+  denominator, silently inflating processScore.
+- **Empty `ReportingPeriod` rows are auto-removed** during the recompute (only ones
+  with zero POs; a period with a saved report is kept; `Import` rows are re-pointed).
+  `getCurrentPeriodSelection()` already falls back when a selected id vanishes.
