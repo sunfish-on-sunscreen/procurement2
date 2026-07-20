@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { nextSupplierId } from "@/lib/supplier-import";
 import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
 import { DatasetImportCard } from "@/components/DatasetImportCard";
+import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -71,15 +72,29 @@ export default async function ImportPage() {
   const nextId = nextSupplierId(suppliers.map((s) => s.id));
   const categories = [...new Set(suppliers.map((s) => s.category))].sort();
 
+  // Vocabularies for the record-purchase form, sourced from the existing data so
+  // new transactions reuse the established values rather than inventing new ones.
+  const [frameworks, lineFacets, grnFacets, prFacets] = await Promise.all([
+    prisma.framework.findMany({
+      where: { status: "active" },
+      select: { id: true, supplierId: true, title: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.poLine.findMany({ select: { category: true, unit: true }, distinct: ["category", "unit"] }),
+    prisma.goodsReceipt.findMany({ select: { site: true, receivedBy: true }, distinct: ["site", "receivedBy"] }),
+    prisma.requisition.findMany({ select: { department: true, requester: true }, distinct: ["department", "requester"] }),
+  ]);
+  const uniqSorted = (xs: string[]) => [...new Set(xs)].filter(Boolean).sort();
+
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-lg border border-border bg-muted/40 p-4">
         <h1 className="text-lg font-semibold">Data management</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Supplier master data is editable below — every change is recorded in the
-          audit trail. The full 12-sheet dataset can be re-imported from Excel, which
-          replaces all transactional data. Creating individual transactions is not
-          yet available.
+          audit trail. Purchases are recorded as a complete document chain, and the
+          full 12-sheet dataset can be re-imported from Excel — which replaces all
+          transactional data.
         </p>
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
           <span><span className="font-semibold">{supplierCount}</span> suppliers</span>
@@ -89,6 +104,19 @@ export default async function ImportPage() {
       </div>
 
       <DatasetImportCard />
+
+      <RecordPurchaseCard
+        suppliers={suppliers
+          .filter((s) => s.status === "active")
+          .map((s) => ({ id: s.id, name: s.supplierName, category: s.category }))}
+        frameworks={frameworks}
+        categories={uniqSorted(lineFacets.map((l) => l.category))}
+        units={uniqSorted(lineFacets.map((l) => l.unit))}
+        sites={uniqSorted(grnFacets.map((g) => g.site))}
+        receivers={uniqSorted(grnFacets.map((g) => g.receivedBy))}
+        departments={uniqSorted(prFacets.map((p) => p.department))}
+        requesters={uniqSorted(prFacets.map((p) => p.requester))}
+      />
 
       <div className="overflow-x-auto">
         <SupplierAdminPanel
