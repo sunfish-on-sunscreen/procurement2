@@ -562,3 +562,35 @@ Guarantees one-to-one A3 coverage: each symbol below is defined at the cited lin
 | `toSupplierCreateData` | fn | `supplier-import.ts:85` |
 
 **Total distinct exports across this doc's files: 102.**
+
+---
+
+## ADDENDUM (2026-07-20) — the import surface as it exists today
+
+Everything above describes the pre-migration two-file upload and is history. The
+current import surface is:
+
+| route | purpose |
+|---|---|
+| `GET /api/imports/template` | 12-sheet template + README, generated from `REQUIRED_COLUMNS` |
+| `POST /api/imports/upload` | REPLACE-ALL, 12 sheets |
+| `POST /api/imports/suppliers` | APPEND suppliers, upsert by `supplier_id` |
+| `POST /api/imports/transactions` | APPEND complete purchase chains, insert-only |
+
+Shared libraries: `lib/dataset-import.ts` (parse / validate / `ROW_MAPPERS` /
+`insertSheet` / `findExistingIds`), `lib/dataset-append.ts` (the DB-aware append
+planners), `lib/dataset-template.ts` (template generation).
+
+Load-bearing rules, each with a reason rather than a convention:
+- Append FK closure spans **file ∪ database**; chain refs must resolve in-file,
+  master-data refs in-DB. A chain ref that resolves only in the DB is an edit of a
+  posted chain and is rejected.
+- A posted-document id collision is **rejected, never upserted** — those ten tables
+  carry BEFORE UPDATE immutability triggers. `Supplier` has none, so it upserts, and
+  every changed field is logged to `SupplierChangeLog`.
+- **Complete chains only.** An invoice-less PO would be COALESCEd to
+  `threeWayMatchPass = TRUE` by the view while contributing to no other rate
+  denominator, silently inflating processScore.
+- **Empty `ReportingPeriod` rows are auto-removed** during the recompute (only ones
+  with zero POs; a period with a saved report is kept; `Import` rows are re-pointed).
+  `getCurrentPeriodSelection()` already falls back when a selected id vanishes.

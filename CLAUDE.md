@@ -40,7 +40,9 @@ migration; all are live again:
   are never deleted (5 RESTRICT FKs); retirement is `status` active <-> inactive.
   ⚠️ Status is master-data ONLY — the compute layer never filters on it and counts
   inactive suppliers deliberately, so deactivating changes NO analytics number.
-- **Dataset import** — replace-all (see "Data flow for imports").
+- **Dataset import** — three modes: replace-all, append suppliers (upsert), append
+  transactions (insert-only complete chains), plus a generated template download.
+  See "Data flow for imports".
 - **Transaction create** — records a COMPLETE document chain (PR -> PO + lines -> GRN +
   lines -> invoice + lines -> payment) in one atomic transaction. ⚠️ **No open POs, by
   design**: the view COALESCEs a PO with no invoice lines to `threeWayMatchPass = TRUE`,
@@ -2251,23 +2253,63 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - Use cuid() for IDs (not uuid)
 
 ## Data flow for imports
-1. Admin uploads **ONE `.xlsx` workbook with 12 sheets** via /import (suppliers,
-   frameworks, requisitions, sourcing_events, responses, purchase_orders, po_lines,
-   goods_receipts, grn_lines, invoices, invoice_lines, payments). The old two-file
-   (Suppliers + Purchases) format is GONE.
-2. `lib/dataset-import.ts` parses + validates ALL 12 sheets **before any DB write**:
-   required columns, non-empty core sheets, primary-key uniqueness, and FK closure
-   across all 18 relation edges. Errors carry sheet + spreadsheet row number.
-3. **REPLACE-ALL**, in one `$transaction`: wipe in reverse-FK order, insert in FK
-   order, upsert any missing `ReportingPeriod`. A validation failure or any throw
-   rolls back with ZERO writes. The same library backs `prisma db seed`.
-4. Then `recomputeAllPeriods()` (`lib/recompute.ts` -> `python/seed_compute.py --json`)
-   regenerates SupplierMetric + all AnalysisResult rows and clears the range cache.
-5. Frontend pages read AnalysisResult and display via Recharts.
 
-⚠️ Replace-all is destructive: it deletes manually-added suppliers and ALL posted
-corrections. Supplier change-history IS preserved for suppliers the new file still
-contains. The confirmation dialog names each loss with live counts.
+THREE upload modes, all validated fully BEFORE any write, each one transaction, each
+followed by `recomputeAllPeriods()`. A template is downloadable at
+`GET /api/imports/template` (generated from `REQUIRED_COLUMNS`, so it cannot go stale).
+
+| mode | route | sheets | semantics |
+|---|---|---|---|
+| Replace all | `POST /api/imports/upload` | all 12 | wipes and rebuilds the whole dataset |
+| Append suppliers | `POST /api/imports/suppliers` | `suppliers` | UPSERT by `supplier_id` |
+| Append transactions | `POST /api/imports/transactions` | 8 document sheets (+ `sourcing_events`/`responses` iff any PO is `rfq`) | INSERT-only, complete chains |
+
+Both append routes accept `mode=preview` in the form data: validate and return the
+plan WITHOUT writing, which is what the UI shows before you commit.
+
+**Replace-all** (`lib/dataset-import.ts`): validate all 12 sheets (required columns,
+non-empty core sheets, PK uniqueness, FK closure across all 18 relation edges) →
+single `$transaction` (wipe reverse-FK, insert FK order, upsert missing
+`ReportingPeriod`) → recompute. ⚠️ Destructive: deletes manually-added suppliers and
+ALL posted corrections. Supplier change-history is PRESERVED for suppliers the new
+file still contains. The confirmation names every loss with live counts.
+
+**Append rules** (`lib/dataset-append.ts`) — how append differs from replace-all:
+1. FK closure widens from "within the file" to **file ∪ database**.
+2. PKs must be unique in the file AND checked against the database.
+3. What a database collision MEANS depends on the table, and this is not a style choice:
+   - **Supplier is master data with no immutability trigger → UPSERT.** Each changed
+     field is written to `SupplierChangeLog` exactly as a hand edit would be.
+   - **The ten posted document tables carry BEFORE UPDATE triggers → collision is
+     REJECTED.** Upserting a posted document would be an in-place edit, which those
+     triggers forbid; a correction must be posted instead.
+4. For a transactions file, **chain references must resolve INSIDE the file** while
+   **master-data references (supplier, framework) must resolve in the DATABASE**. A
+   child document pointing at a parent that exists only in the database means the
+   upload is extending a posted chain — an edit — and is rejected with that wording.
+   Suppliers are never created by a transactions file; upload them first.
+5. **Complete chains only** (same rule as transaction-create): per PO ≥1 po_line, ≥1
+   GRN, exactly 1 invoice; per po_line ≥1 grn_line and exactly 1 invoice_line; per
+   invoice exactly 1 payment. Plus the buying-method conditionals, forward date
+   ordering, and `period` == order year of `poDate`. ⚠️ An invoice-less PO is refused
+   because the view COALESCEs it to `threeWayMatchPass = TRUE` while it contributes to
+   no other rate denominator — it would silently inflate processScore.
+
+A supplier append **skips the recompute entirely when nothing changed** (a file
+matching the roster returns in ~0.2s instead of ~6s).
+
+⚠️ **EMPTY REPORTING PERIODS ARE AUTO-REMOVED.** Appending a transaction in a new
+order-year creates a `ReportingPeriod`; if that year's data later disappears (a
+replace-all or reseed without it), `seed_compute` clears the period's derived rows and
+DROPS the period. Rationale: it would otherwise stay selectable with nothing behind it,
+and `compute_analyses` exits non-zero on an empty window — an orphaned period failed
+EVERY subsequent recompute. Guarantees: only periods with ZERO purchase orders are ever
+considered, so a period holding data can never be dropped (2024/2025/2026 always
+survive); it runs BEFORE the analysis step, so it cannot race a recompute; a period
+carrying a saved `ExecutiveSummary` is cleared but KEPT (user work); `Import` rows are
+re-pointed to a surviving period (their period tag is arbitrary for a dataset-wide
+file). A stale UI selection is already safe — `getCurrentPeriodSelection()` validates
+every id against the live period set and falls back to latest/oldest.
 
 ## Excel file schema
 **ONE workbook, 12 sheets** — `data/raw/procurement_dataset_full.xlsx`. Raw facts
@@ -2291,6 +2333,8 @@ time; scores are computed by `python/seed_compute.py`.
 | payments | payment_id, invoice_id, payment_date, amount_paid_usd, method |
 
 ⚠️ `/api/sample-data` and the two old sample workbooks are GONE (deleted 2026-07-20).
+Use `GET /api/imports/template` instead — it generates the 12-sheet template plus a
+README sheet and ONE complete example chain, from `REQUIRED_COLUMNS`.
 
 ## When uncertain
 Default to the simpler implementation. Don't add features I didn't request.

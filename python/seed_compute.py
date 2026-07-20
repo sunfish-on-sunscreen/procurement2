@@ -106,17 +106,47 @@ def write_supplier_metrics(conn):
     years_with_data = set(pur["period"].astype(str).unique())
 
     # A ReportingPeriod can outlive its data — an appended order-year creates one, and a
-    # later replace-all may not carry that year. compute_analyses exits non-zero on an
-    # empty window, so an orphaned period would fail EVERY subsequent recompute. Clear
-    # such a period's derived rows and leave it out of the analysis run.
-    for name, pid in pid_by_name.items():
+    # later replace-all may not carry that year. Such a period is AUTO-REMOVED: it would
+    # otherwise stay selectable with nothing behind it, and compute_analyses exits
+    # non-zero on an empty window, which would fail EVERY subsequent recompute.
+    #
+    # Safety: only periods with ZERO purchase orders are ever considered, so a period
+    # holding data can never be dropped. This runs BEFORE the analysis step, so the
+    # removal cannot race a recompute. A stale UI selection is already handled —
+    # getCurrentPeriodSelection() validates every id against the live period set and
+    # falls back to the latest/oldest.
+    #
+    # SupplierMetric and AnalysisResult cascade on delete. Import and ExecutiveSummary
+    # are RESTRICT: a saved report is user work, so a period carrying one is KEPT
+    # (cleared but not dropped); import rows are an upload log whose period tag is
+    # arbitrary for a dataset-wide file, so they are re-pointed to a surviving period.
+    survivors = sorted(n for n in pid_by_name if n in years_with_data)
+    for name, pid in list(pid_by_name.items()):
         if name in years_with_data:
             continue
         with conn.cursor() as cur:
             cur.execute('DELETE FROM "SupplierMetric" WHERE "periodId" = %s', (pid,))
             cur.execute('DELETE FROM "AnalysisResult" WHERE "periodId" = %s', (pid,))
+            cur.execute('SELECT COUNT(*) FROM "ExecutiveSummary" WHERE "periodId" = %s', (pid,))
+            reports = cur.fetchone()[0]
+            if reports:
+                conn.commit()
+                log(f"  period {name}: no purchase orders, but {reports} saved report(s) — cleared, kept")
+                continue
+            if not survivors:
+                conn.commit()
+                log(f"  period {name}: no purchase orders — cleared (no surviving period to re-point to)")
+                continue
+            cur.execute(
+                'UPDATE "Import" SET "periodId" = %s WHERE "periodId" = %s',
+                (pid_by_name[survivors[-1]], pid),
+            )
+            moved = cur.rowcount
+            cur.execute('DELETE FROM "ReportingPeriod" WHERE id = %s', (pid,))
         conn.commit()
-        log(f"  period {name}: no purchase orders — cleared derived rows, skipping analyses")
+        pid_by_name.pop(name, None)
+        note = f" ({moved} import row(s) re-pointed to {survivors[-1]})" if moved else ""
+        log(f"  period {name}: no purchase orders — REMOVED{note}")
 
     total = 0
     for year in sorted(years_with_data):
