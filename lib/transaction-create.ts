@@ -3,7 +3,7 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 
 /**
  * Create ONE complete purchase document chain: requisition → (sourcing event +
- * awarded response, for rfq) → purchase order + lines → goods receipt + lines →
+ * awarded response, for rfq/tender) → purchase order + lines → goods receipt + lines →
  * invoice + lines → payment.
  *
  * ⚠️ COMPLETE-CHAIN ONLY — there is deliberately no "open PO" mode. The
@@ -16,8 +16,8 @@ import type { Prisma } from "@/lib/generated/prisma/client";
  */
 
 // --- id formats (read off the seeded data — do not invent) -----------------
-//   Requisition   PR-<year>-00001      SourcingEvent RFQ-<year>-0001
-//   Response      <rfqId>-Q01          PurchaseOrder PO-<year>-00001
+//   Requisition   PR-<year>-00001      SourcingEvent RFQ-/TND-<year>-0001
+//   Response      <eventId>-Q01        PurchaseOrder PO-<year>-00001
 //   PoLine        <poId>-010           GoodsReceipt  GRN-<year>-00001
 //   GrnLine       <grnId>-010          Invoice       AP-<year>-00001
 //   InvoiceLine   INV-<year>-00001-010 Payment       PAY-<year>-00001
@@ -26,20 +26,20 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
 /**
- * Sourcing-event id prefix per solicitation type. The two types share one
- * document table but get DISTINCT id namespaces and independent sequences, so an
- * id never reads "RFQ-…" for a tender. Both are 4-digit, per-year sequences.
+ * Sourcing-event id prefix per SOURCED buying method. Both methods share one
+ * document table but get DISTINCT id namespaces and independent per-year
+ * sequences, so an id never reads "RFQ-…" for a tender. Both are 4-digit.
  */
-export const SOURCING_ID_PREFIX: Record<SolicitationType, string> = {
+export const SOURCING_ID_PREFIX: Record<SourcedMethod, string> = {
   rfq: "RFQ",
   tender: "TND",
 };
 
 export const ID_FORMATS = {
   requisition: (year: number, seq: number) => `PR-${year}-${pad(seq, 5)}`,
-  /** Prefixed by solicitation type — RFQ-<year>-0001 / TND-<year>-0001. */
-  sourcingEvent: (year: number, seq: number, type: SolicitationType = "rfq") =>
-    `${SOURCING_ID_PREFIX[type]}-${year}-${pad(seq, 4)}`,
+  /** Prefixed by the sourced buying method — RFQ-<year>-0001 / TND-<year>-0001. */
+  sourcingEvent: (year: number, seq: number, method: SourcedMethod = "rfq") =>
+    `${SOURCING_ID_PREFIX[method]}-${year}-${pad(seq, 4)}`,
   response: (sourcingEventId: string, n: number) => `${sourcingEventId}-Q${pad(n, 2)}`,
   purchaseOrder: (year: number, seq: number) => `PO-${year}-${pad(seq, 5)}`,
   poLine: (poId: string, index: number) => `${poId}-${pad((index + 1) * 10, 3)}`,
@@ -71,26 +71,47 @@ async function nextSeq(
 
 // --- request shape ---------------------------------------------------------
 
-export const BUYING_METHODS = ["rfq", "spot_buy", "call_off", "direct"] as const;
-export const PAYMENT_TERMS = ["Net 14", "Net 30", "Net 45"] as const;
-
 /**
- * Solicitation TYPE, carried by the sourcing document — the way SAP MM (RFQ
- * document type) and Dynamics 365 (solicitation type) model it: ONE sourcing
- * document with a type field, not a separate document per flavour. "Tender" is a
- * value of that type, a synonym of bid/quotation, so sourcing_events + responses
- * keep their structure for both.
+ * RFQ and tender are PEER solicitation methods, not one method with a type: they
+ * differ in scope, sealed bidding, public bid opening and formality, so a buyer
+ * choosing between them is choosing a method. Both are competitive and each
+ * order carries its own sourcing event, responses and award.
  *
  * RFI is excluded on purpose: it produces no purchase order, and a complete
  * chain is required here.
+ */
+export const BUYING_METHODS = ["rfq", "tender", "spot_buy", "call_off", "direct"] as const;
+export type BuyingMethod = (typeof BUYING_METHODS)[number];
+export const PAYMENT_TERMS = ["Net 14", "Net 30", "Net 45"] as const;
+
+/**
+ * The COMPETITIVELY SOURCED methods — those whose orders carry a sourcing event
+ * with invited suppliers, bid responses and an award. Everything else (spot buy,
+ * call-off, direct award) has none.
  *
- * ⚠️ This is NOT a fifth buying method. A tender-sourced PO still carries
- * buyingMethod = "rfq" (read it as "competitively sourced" — the UI labels it
- * "Competitive sourcing"), so BUYING_METHODS keeps its four values and the
- * append rule "only buying_method 'rfq' may reference a sourcing event" stays
- * correct unchanged.
+ * ⚠️ THE single definition of that rule. Six separate sites used to test
+ * `method === "rfq"` for it — the chain's sourcing gate, three append-validator
+ * rules and two form conditionals. Missing any one of them produces a form that
+ * renders correctly but posts an incomplete payload, or a validator that rejects
+ * a legitimate tender. Always ask through `isSourcedMethod`, never re-inline the
+ * literal.
+ */
+export const SOURCED_METHODS = ["rfq", "tender"] as const;
+export type SourcedMethod = (typeof SOURCED_METHODS)[number];
+
+export function isSourcedMethod(method: string): method is SourcedMethod {
+  return (SOURCED_METHODS as readonly string[]).includes(method);
+}
+
+/**
+ * @deprecated Superseded by the tender buying method — the distinction now lives
+ * in BUYING_METHODS, not in a type on the sourcing document. Retained for one
+ * commit only so the import path still compiles; both it and its remaining
+ * consumers in dataset-import / dataset-append are removed in the next phase,
+ * along with the SourcingEvent.solicitationType column itself.
  */
 export const SOLICITATION_TYPES = ["rfq", "tender"] as const;
+/** @deprecated see {@link SOLICITATION_TYPES}. */
 export type SolicitationType = (typeof SOLICITATION_TYPES)[number];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -120,12 +141,6 @@ export const CreateTransactionBody = z
   .object({
     supplier_id: z.string().trim().min(1, "Supplier is required"),
     buying_method: z.enum(BUYING_METHODS),
-    /**
-     * Type of the sourcing document, meaningful only for a competitively sourced
-     * order (buying_method "rfq"). Defaults to rfq so an existing client that
-     * never sends it keeps working.
-     */
-    solicitation_type: z.enum(SOLICITATION_TYPES).default("rfq"),
     framework_id: z.string().trim().min(1).optional(),
     justification: z.string().trim().min(1).optional(),
     num_suppliers_invited: z.number().int().min(2).max(10).default(3),
@@ -147,9 +162,9 @@ export const CreateTransactionBody = z
 
     lines: z.array(LineInput).min(1, "At least one line is required"),
   })
-  // Buying-method conditionals, mirroring the seeded data exactly: rfq carries a
-  // sourcing event (created here), call_off a framework, direct a justification,
-  // spot_buy none of them.
+  // Buying-method conditionals, mirroring the seeded data exactly: the sourced
+  // methods (rfq, tender) each carry their own sourcing event (created here),
+  // call_off a framework, direct a justification, spot_buy none of them.
   .refine((v) => v.buying_method !== "call_off" || !!v.framework_id, {
     message: "A call-off order requires a framework agreement.",
     path: ["framework_id"],
@@ -161,14 +176,6 @@ export const CreateTransactionBody = z
   .refine((v) => v.buying_method === "call_off" || !v.framework_id, {
     message: "Only a call-off order may reference a framework agreement.",
     path: ["framework_id"],
-  })
-  // A solicitation type describes a sourcing document, and only a competitively
-  // sourced order has one. Non-competitive methods must leave it at the default
-  // — they create no sourcing event for it to live on.
-  .refine((v) => v.buying_method === "rfq" || v.solicitation_type === "rfq", {
-    message:
-      "Only a competitively sourced order can be a tender — spot buy, call-off and direct award create no sourcing event.",
-    path: ["solicitation_type"],
   })
   // The document chain must move forward in time; the view derives every *Days
   // column as a plain date difference, so out-of-order dates would yield negative
@@ -260,14 +267,13 @@ export async function createTransactionChain(
     },
   });
 
-  // 2. Sourcing event + awarded response — competitively sourced orders only
-  //    (buying_method "rfq"), whichever solicitation type they carry. RFQ and
-  //    tender share this document but have INDEPENDENT id sequences, so the scan
-  //    below is scoped to the prefix of this event's own type.
+  // 2. Sourcing event + awarded response — competitively sourced methods only
+  //    (rfq, tender). The two share this document but have INDEPENDENT id
+  //    sequences, so the scan below is scoped to this method's own prefix.
   let sourcingEventId: string | null = null;
   let responseId: string | null = null;
-  if (input.buying_method === "rfq") {
-    const prefix = SOURCING_ID_PREFIX[input.solicitation_type];
+  if (isSourcedMethod(input.buying_method)) {
+    const prefix = SOURCING_ID_PREFIX[input.buying_method];
     const eventRows = await tx.sourcingEvent.findMany({
       where: { id: { startsWith: `${prefix}-${prYear}-` } },
       select: { id: true },
@@ -275,7 +281,7 @@ export async function createTransactionChain(
     sourcingEventId = ID_FORMATS.sourcingEvent(
       prYear,
       await nextSeq(eventRows, prefix, prYear),
-      input.solicitation_type,
+      input.buying_method,
     );
     responseId = ID_FORMATS.response(sourcingEventId, 1);
 
@@ -283,7 +289,6 @@ export async function createTransactionChain(
       data: {
         id: sourcingEventId,
         prId,
-        solicitationType: input.solicitation_type,
         issueDate: utc(input.pr_date),
         closeDate: utc(input.po_date),
         numSuppliersInvited: input.num_suppliers_invited,

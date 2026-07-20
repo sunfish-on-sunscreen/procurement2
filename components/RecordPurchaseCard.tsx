@@ -10,12 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TypeableCombobox, type ComboOption } from "@/components/ui/typeable-combobox";
 import { panelElevation, formatCompactCurrency } from "@/lib/utils";
-import {
-  BUYING_METHODS,
-  PAYMENT_TERMS,
-  SOLICITATION_TYPES,
-  type SolicitationType,
-} from "@/lib/transaction-create";
+import { BUYING_METHODS, PAYMENT_TERMS, isSourcedMethod } from "@/lib/transaction-create";
 
 export type SupplierPick = { id: string; name: string; category: string };
 export type FrameworkPick = { id: string; supplierId: string; title: string };
@@ -49,21 +44,13 @@ const EMPTY_LINE: Line = {
 /**
  * Keyed to BUYING_METHODS, so a method added without a label is a type error
  * rather than a silently blank button.
- *
- * ⚠️ "rfq" is labelled "Competitive sourcing", not "RFQ": the stored value means
- * the order went through a competitive solicitation, and WHICH kind — RFQ or
- * tender — is the solicitation type on the sourcing document, chosen below.
  */
 const METHOD_LABEL: Record<(typeof BUYING_METHODS)[number], string> = {
-  rfq: "Competitive sourcing",
+  rfq: "RFQ",
+  tender: "Tender",
   spot_buy: "Spot buy",
   call_off: "Call-off",
   direct: "Direct award",
-};
-
-const SOLICITATION_LABEL: Record<SolicitationType, string> = {
-  rfq: "RFQ",
-  tender: "Tender",
 };
 
 const opts = (values: string[]): ComboOption[] => values.map((v) => ({ value: v, label: v }));
@@ -101,7 +88,6 @@ export function RecordPurchaseCard({
 
   const [supplierId, setSupplierId] = useState("");
   const [method, setMethod] = useState<(typeof BUYING_METHODS)[number]>("spot_buy");
-  const [solicitationType, setSolicitationType] = useState<SolicitationType>("rfq");
   const [frameworkId, setFrameworkId] = useState("");
   const [justification, setJustification] = useState("");
   const [invited, setInvited] = useState("3");
@@ -142,7 +128,6 @@ export function RecordPurchaseCard({
     if (open) {
       setSupplierId("");
       setMethod("spot_buy");
-      setSolicitationType("rfq");
       setFrameworkId("");
       setJustification("");
       setInvited("3");
@@ -180,12 +165,7 @@ export function RecordPurchaseCard({
         buying_method: method,
         ...(method === "call_off" ? { framework_id: frameworkId } : {}),
         ...(method === "direct" ? { justification } : {}),
-        ...(method === "rfq"
-          ? {
-              num_suppliers_invited: Number(invited) || 3,
-              solicitation_type: solicitationType,
-            }
-          : {}),
+        ...(isSourcedMethod(method) ? { num_suppliers_invited: Number(invited) || 3 } : {}),
         requester,
         department,
         payment_terms: terms,
@@ -343,41 +323,22 @@ export function RecordPurchaseCard({
                 />
               </div>
             )}
-            {method === "rfq" && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="rp-solicitation">Solicitation type</Label>
-                  <div className="flex gap-1.5" id="rp-solicitation" role="radiogroup">
-                    {SOLICITATION_TYPES.map((t) => (
-                      <Button
-                        key={t}
-                        type="button"
-                        role="radio"
-                        aria-checked={solicitationType === t}
-                        variant={solicitationType === t ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setSolicitationType(t)}
-                      >
-                        {SOLICITATION_LABEL[t]}
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    The type of the sourcing document. Both invite suppliers and
-                    collect bids; a tender is the formal, usually larger-value form.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-1.5 sm:max-w-[220px]">
-                  <Label htmlFor="rp-invited">Suppliers invited</Label>
-                  <Input
-                    id="rp-invited"
-                    type="number"
-                    min={2}
-                    max={10}
-                    value={invited}
-                    onChange={(e) => setInvited(e.target.value)}
-                  />
-                </div>
+            {isSourcedMethod(method) && (
+              <div className="flex flex-col gap-1.5 sm:max-w-[220px]">
+                <Label htmlFor="rp-invited">Suppliers invited</Label>
+                <Input
+                  id="rp-invited"
+                  type="number"
+                  min={2}
+                  max={10}
+                  value={invited}
+                  onChange={(e) => setInvited(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {method === "tender"
+                    ? "Bidders invited to the tender. A sourcing event, bid responses and the award are recorded."
+                    : "Suppliers invited to quote. A sourcing event, bid responses and the award are recorded."}
+                </p>
               </div>
             )}
 
