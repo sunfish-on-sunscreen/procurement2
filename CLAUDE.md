@@ -60,6 +60,38 @@ migration; all are live again:
     (`lib/po-lines.ts`, Python `load_po_lines`) so no breakdown shows a phantom
     negative-quantity item.
 
+**BUYING METHODS — FIVE, two of them competitively sourced** (`BUYING_METHODS`,
+`lib/transaction-create.ts`): `rfq | tender | spot_buy | call_off | direct`.
+- **rfq and tender are PEER competitive methods** — each order carries its OWN
+  `SourcingEvent` + `Response` rows + award. They are two methods, NOT one method
+  with a type: tender differs in scope, sealed bids, public bid opening and
+  formality. `spot_buy` / `call_off` / `direct` carry NO sourcing.
+- ⚠️ **`SOURCED_METHODS = ["rfq","tender"]` + `isSourcedMethod()` is THE single
+  definition** of "does this order have sourcing". SIX sites once tested
+  `method === "rfq"` for it (the chain's sourcing gate, three append-validator rules,
+  two form conditionals); missing one yields a form that renders fine but posts an
+  incomplete payload, or a validator that rejects a legitimate tender. **Never
+  re-inline the literal — ask the predicate.**
+- **Sourcing-event ids are prefixed per method** (`SOURCING_ID_PREFIX`):
+  `RFQ-<year>-0001` / `TND-<year>-0001`, on INDEPENDENT per-year sequences. Response
+  ids derive from the event id (`<eventId>-Q01`), so they inherit the prefix.
+- **Both import paths validate the vocabulary** — replace-all and append each reject
+  an unknown OR blank `buying_method` (a blank would be neither sourced nor
+  non-sourced and would satisfy no conditional).
+- ⚠️ **`solicitation_type` NO LONGER EXISTS.** Tender was first modelled the SAP MM /
+  D365 way — ONE sourcing document carrying a type — as `SourcingEvent.solicitationType`
+  (migration `20260720160000_add_solicitation_type`), then REVERSED and dropped
+  (`20260720170000_drop_solicitation_type`) when tender was promoted to a full buying
+  method. Both migrations stay in history (forward-only, so an already-migrated DB
+  stays consistent); the column is gone. Commits `7468c51`→`af95e35` are that arc.
+- **Dataset:** 75 tender POs — the former TOP-VALUE rfq POs (avg $1.21M vs rfq's
+  $0.57M) — on `TND-` events, 2024×28 / 2025×24 / 2026×23. Distribution: rfq 151 ·
+  tender 75 · spot_buy 194 · call_off 129 · direct 98 = 647.
+  ⚠️ **The conversion left the BASELINE byte-identical** (no PO added, no line value
+  changed): analytics reads NEITHER `buying_method` NOR the sourcing documents —
+  `python/` has zero references, the view never joins `SourcingEvent`, and zero of the
+  18 `AnalysisResult` payloads mention either.
+
 ⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
 because proven byte-identical on existing data AND semantically required under
 corrections: `dom_cat` now aggregates per category then takes the argmax (a reversed line
@@ -2262,13 +2294,14 @@ followed by `recomputeAllPeriods()`. A template is downloadable at
 |---|---|---|---|
 | Replace all | `POST /api/imports/upload` | all 12 | wipes and rebuilds the whole dataset |
 | Append suppliers | `POST /api/imports/suppliers` | `suppliers` | UPSERT by `supplier_id` |
-| Append transactions | `POST /api/imports/transactions` | 8 document sheets (+ `sourcing_events`/`responses` iff any PO is `rfq`) | INSERT-only, complete chains |
+| Append transactions | `POST /api/imports/transactions` | 8 document sheets (+ `sourcing_events`/`responses` iff any PO uses a SOURCED method — `rfq` or `tender`) | INSERT-only, complete chains |
 
 Both append routes accept `mode=preview` in the form data: validate and return the
 plan WITHOUT writing, which is what the UI shows before you commit.
 
 **Replace-all** (`lib/dataset-import.ts`): validate all 12 sheets (required columns,
-non-empty core sheets, PK uniqueness, FK closure across all 18 relation edges) →
+non-empty core sheets, PK uniqueness, FK closure across all 18 relation edges, and the
+`buying_method` vocabulary — unknown OR blank is rejected, matching append) →
 single `$transaction` (wipe reverse-FK, insert FK order, upsert missing
 `ReportingPeriod`) → recompute. ⚠️ Destructive: deletes manually-added suppliers and
 ALL posted corrections. Supplier change-history is PRESERVED for suppliers the new
@@ -2331,6 +2364,17 @@ time; scores are computed by `python/seed_compute.py`.
 | invoices | invoice_id, po_id, supplier_id, supplier_invoice_no, invoice_date, total_amount_usd, status |
 | invoice_lines | invoice_line_id, invoice_id, po_line_id, quantity_billed, unit_price_usd |
 | payments | payment_id, invoice_id, payment_date, amount_paid_usd, method |
+
+⚠️ `purchase_orders.buying_method` is one of **`rfq | tender | spot_buy | call_off |
+direct`** (see "BUYING METHODS" at the top). Per-method conditionals: the two SOURCED
+methods (`rfq`, `tender`) each need their own `sourcing_events` row with `responses` and
+an award, and only they may carry a `sourcing_event_id`; `call_off` needs a
+`framework_id`; `direct` needs a `justification`; `spot_buy` needs none of them.
+⚠️ The exclusivity rules are ASYMMETRIC: `framework_id` is enforced BOTH ways (only a
+call-off may carry one), and `sourcing_event_id` likewise, but `justification` is only
+REQUIRED for `direct` — no rule forbids it on the other methods. ⚠️ `sourcing_events`
+has **no `solicitation_type` column** — that was explored and dropped; the distinction
+lives in `buying_method`.
 
 ⚠️ `/api/sample-data` and the two old sample workbooks are GONE (deleted 2026-07-20).
 Use `GET /api/imports/template` instead — it generates the 12-sheet template plus a
