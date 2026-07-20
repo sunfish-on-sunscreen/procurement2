@@ -1,0 +1,27 @@
+-- Drop SourcingEvent.solicitationType — superseded by the tender buying method.
+--
+-- DECISION REVERSAL. Tender was first modelled as a solicitation_type on the
+-- sourcing document (SAP MM / D365 style: one document carrying a type),
+-- migration 20260720160000. It is now a PEER buying_method instead: in practice
+-- tender and RFQ are genuinely distinct solicitation methods — different scope,
+-- sealed bids, public bid opening, formality — so the choice between them is a
+-- choice of method, not a tag on a shared one. The distinction therefore lives
+-- in PurchaseOrder.buyingMethod, and this column is redundant.
+--
+-- LOSSLESS: every one of the 226 rows holds the default 'rfq' (no dataset with
+-- real tenders was ever loaded), so dropping it discards no information. This is
+-- deliberately sequenced BEFORE the dataset is regenerated with tender records —
+-- once real tenders exist the column would no longer be uniform, and dropping it
+-- would then lose data.
+--
+-- Forward-only, per this project's migration practice: the adding migration
+-- stays in history rather than being rewritten, so `migrate deploy` and
+-- `_prisma_migrations` remain consistent on any database that already applied it.
+--
+-- Nothing reads the column at this point: the chain writer, both import paths,
+-- the template and the form were cleared in the preceding two phases. It was
+-- never referenced by python/, and the EnrichedPurchase view does not join
+-- SourcingEvent — so the analytics baseline cannot move.
+
+-- AlterTable
+ALTER TABLE "SourcingEvent" DROP COLUMN "solicitationType";
