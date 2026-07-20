@@ -3,8 +3,8 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 
 /**
  * Create ONE complete purchase document chain: requisition → (sourcing event +
- * awarded response, for rfq/tender) → purchase order + lines → goods receipt + lines →
- * invoice + lines → payment.
+ * awarded response, for rfq/tender) → purchase order + lines → ONE OR MORE goods
+ * receipts + lines → invoice + lines → payment.
  *
  * ⚠️ COMPLETE-CHAIN ONLY — there is deliberately no "open PO" mode. The
  * EnrichedPurchase view LEFT JOINs receipts / invoices / payments and COALESCEs a
@@ -150,19 +150,60 @@ const LineInput = z.object({
   unit: z.string().trim().min(1, "Unit is required"),
   quantity_ordered: z.number().positive("Quantity must be greater than zero"),
   unit_price_usd: z.number().nonnegative("Unit price cannot be negative"),
-  /** Defaults to the ordered quantity (a fully-received line). */
-  quantity_received: z.number().nonnegative().optional(),
-  quantity_rejected: z.number().nonnegative().default(0),
-  defect_count: z.number().int().nonnegative().default(0),
   /**
-   * Billed quantity + invoice price default to the ACCEPTED quantity and the PO
-   * price, which is what a correct invoice looks like and passes the three-way
-   * match. Overriding either represents a genuine billing discrepancy — the same
-   * condition the dataset injects — and will fail the match, by design.
+   * Billed quantity + invoice price default to the ACCEPTED quantity (received −
+   * rejected, summed across every receipt) and the PO price, which is what a
+   * correct invoice looks like and passes the three-way match. Overriding either
+   * represents a genuine billing discrepancy — the same condition the dataset
+   * injects — and will fail the match, by design.
    */
   quantity_billed: z.number().nonnegative().optional(),
   invoice_unit_price_usd: z.number().nonnegative().optional(),
 });
+
+/** What ONE receipt recorded against ONE order line. */
+const ReceiptLineInput = z.object({
+  /** Index into `lines`. */
+  line_index: z.number().int().nonnegative(),
+  quantity_received: z.number().nonnegative(),
+  quantity_rejected: z.number().nonnegative().default(0),
+  defect_count: z.number().int().nonnegative().default(0),
+});
+
+/**
+ * ONE goods receipt: its own date, site and receiver, covering any subset of the
+ * order's lines. A PO may have several — 28% of the seeded orders do, 136 of them
+ * receiving at DIFFERENT sites, with most lines split by partial quantity across
+ * two receipts. The view takes `deliveryDate = MAX(receiptDate)`, so a split
+ * delivery is judged on-time by its FINAL receipt.
+ */
+const ReceiptInput = z.object({
+  receipt_date: isoDate,
+  site: orgName("Site"),
+  received_by: personName("Received by"),
+  lines: z.array(ReceiptLineInput).min(1, "A goods receipt must cover at least one line"),
+});
+
+/** Shape shared by the zod refinements and the chain writer, so both total the
+ *  same way. Structural (not the inferred zod type) so it applies pre-parse. */
+type ReceiptLike = {
+  lines: { line_index: number; quantity_received: number; quantity_rejected: number }[];
+};
+
+/** Total received for order line `i`, summed across every receipt. */
+function receivedFor(receipts: ReceiptLike[], i: number): number {
+  return receipts.reduce(
+    (sum, r) => sum + r.lines.filter((l) => l.line_index === i).reduce((s, l) => s + l.quantity_received, 0),
+    0,
+  );
+}
+/** Total rejected for order line `i`, summed across every receipt. */
+function rejectedFor(receipts: ReceiptLike[], i: number): number {
+  return receipts.reduce(
+    (sum, r) => sum + r.lines.filter((l) => l.line_index === i).reduce((s, l) => s + l.quantity_rejected, 0),
+    0,
+  );
+}
 
 export const CreateTransactionBody = z
   .object({
@@ -175,19 +216,17 @@ export const CreateTransactionBody = z
     requester: personName("Requester"),
     department: orgName("Department"),
     payment_terms: z.enum(PAYMENT_TERMS),
-    site: z.string().trim().min(1, "Site is required"),
-    received_by: z.string().trim().min(1, "Received by is required"),
     supplier_invoice_no: z.string().trim().min(1, "Supplier invoice number is required"),
     complaint_count: z.number().int().nonnegative().default(0),
 
     pr_date: isoDate,
     po_date: isoDate,
     promised_delivery_date: isoDate,
-    receipt_date: isoDate,
     invoice_date: isoDate,
     payment_date: isoDate,
 
     lines: z.array(LineInput).min(1, "At least one line is required"),
+    receipts: z.array(ReceiptInput).min(1, "At least one goods receipt is required"),
   })
   // Buying-method conditionals, mirroring the seeded data exactly: the sourced
   // methods (rfq, tender) each carry their own sourcing event (created here),
@@ -211,21 +250,47 @@ export const CreateTransactionBody = z
     message: "PO date cannot precede the requisition date.",
     path: ["po_date"],
   })
-  .refine((v) => v.po_date <= v.receipt_date, {
-    message: "Receipt date cannot precede the PO date.",
-    path: ["receipt_date"],
+  // With several receipts the chain bounds are the EARLIEST and LATEST of them:
+  // nothing may be received before the PO, and the invoice may not precede the
+  // final receipt — which is the date the view uses as deliveryDate.
+  .refine((v) => v.receipts.every((r) => v.po_date <= r.receipt_date), {
+    message: "A receipt date cannot precede the PO date.",
+    path: ["receipts"],
   })
-  .refine((v) => v.receipt_date <= v.invoice_date, {
-    message: "Invoice date cannot precede the receipt date.",
+  .refine((v) => v.receipts.every((r) => r.receipt_date <= v.invoice_date), {
+    message: "The invoice date cannot precede the last receipt date.",
     path: ["invoice_date"],
   })
   .refine((v) => v.invoice_date <= v.payment_date, {
     message: "Payment date cannot precede the invoice date.",
     path: ["payment_date"],
   })
-  .refine((v) => v.lines.every((l) => (l.quantity_received ?? l.quantity_ordered) >= l.quantity_rejected), {
+  // Every receipt line must point at a real order line.
+  .refine((v) => v.receipts.every((r) => r.lines.every((rl) => rl.line_index < v.lines.length)), {
+    message: "A receipt references an order line that does not exist.",
+    path: ["receipts"],
+  })
+  // Complete-chain rule, per line: nothing may be ordered and never received.
+  .refine(
+    (v) =>
+      v.lines.every((_, i) =>
+        v.receipts.some((r) => r.lines.some((rl) => rl.line_index === i)),
+      ),
+    {
+      message: "Every order line needs at least one goods receipt.",
+      path: ["receipts"],
+    },
+  )
+  // Quantities reconcile ACROSS receipts: a line cannot be over-received, and its
+  // rejections cannot exceed what actually arrived. Under-receipt is allowed — a
+  // correctly-billed partial delivery is a legitimate, match-passing order.
+  .refine((v) => v.lines.every((l, i) => receivedFor(v.receipts, i) <= l.quantity_ordered), {
+    message: "Received quantity cannot exceed the quantity ordered.",
+    path: ["receipts"],
+  })
+  .refine((v) => v.lines.every((_, i) => rejectedFor(v.receipts, i) <= receivedFor(v.receipts, i)), {
     message: "Rejected quantity cannot exceed the received quantity.",
-    path: ["lines"],
+    path: ["receipts"],
   });
 
 export type CreateTransactionInput = z.infer<typeof CreateTransactionBody>;
@@ -254,22 +319,46 @@ export async function createTransactionChain(
 ): Promise<CreatedChain> {
   const prYear = yearOf(input.pr_date);
   const poYear = yearOf(input.po_date);
-  const grnYear = yearOf(input.receipt_date);
   const invYear = yearOf(input.invoice_date);
   const payYear = yearOf(input.payment_date);
 
+  // Receipts are ordered by date: the sequence of receipt DATES is what makes a
+  // split delivery meaningful (the view reads MAX(receiptDate) as deliveryDate),
+  // and the "complete" status below depends on cumulative arrival in that order.
+  const receipts = [...input.receipts].sort((a, b) => a.receipt_date.localeCompare(b.receipt_date));
+  // Receipts may straddle a year boundary, so GRN sequences are allocated PER YEAR.
+  const grnYears = [...new Set(receipts.map((r) => yearOf(r.receipt_date)))];
+
   // Sequence heads. Scoped by the id prefix of the relevant year only.
-  const [prRows, poRows, grnRows, invRows, payRows] = await Promise.all([
+  const [prRows, poRows, grnRowsByYear, invRows, payRows] = await Promise.all([
     tx.requisition.findMany({ where: { id: { startsWith: `PR-${prYear}-` } }, select: { id: true } }),
     tx.purchaseOrder.findMany({ where: { id: { startsWith: `PO-${poYear}-` } }, select: { id: true } }),
-    tx.goodsReceipt.findMany({ where: { id: { startsWith: `GRN-${grnYear}-` } }, select: { id: true } }),
+    Promise.all(
+      grnYears.map(async (y) => ({
+        year: y,
+        rows: await tx.goodsReceipt.findMany({
+          where: { id: { startsWith: `GRN-${y}-` } },
+          select: { id: true },
+        }),
+      })),
+    ),
     tx.invoice.findMany({ where: { id: { startsWith: `AP-${invYear}-` } }, select: { id: true } }),
     tx.payment.findMany({ where: { id: { startsWith: `PAY-${payYear}-` } }, select: { id: true } }),
   ]);
 
   const prId = ID_FORMATS.requisition(prYear, await nextSeq(prRows, "PR", prYear));
   const poId = ID_FORMATS.purchaseOrder(poYear, await nextSeq(poRows, "PO", poYear));
-  const grnId = ID_FORMATS.goodsReceipt(grnYear, await nextSeq(grnRows, "GRN", grnYear));
+  // Next free GRN sequence per year, then handed out in receipt-date order.
+  const grnNext = new Map<number, number>();
+  for (const { year, rows } of grnRowsByYear) {
+    grnNext.set(year, await nextSeq(rows, "GRN", year));
+  }
+  const grnIds = receipts.map((r) => {
+    const y = yearOf(r.receipt_date);
+    const seq = grnNext.get(y)!;
+    grnNext.set(y, seq + 1);
+    return ID_FORMATS.goodsReceipt(y, seq);
+  });
   const invSeq = await nextSeq(invRows, "AP", invYear);
   const invoiceId = ID_FORMATS.invoice(invYear, invSeq);
   const paymentId = ID_FORMATS.payment(payYear, await nextSeq(payRows, "PAY", payYear));
@@ -377,37 +466,57 @@ export async function createTransactionChain(
     })),
   });
 
-  // 5. Goods receipt (+ lines). One receipt covering every line; `complete` only
-  //    when everything ordered arrived undamaged, matching the seeded vocabulary.
-  const received = input.lines.map((l) => l.quantity_received ?? l.quantity_ordered);
-  const fullyReceived = input.lines.every(
-    (l, i) => received[i] >= l.quantity_ordered && l.quantity_rejected === 0,
-  );
-  await tx.goodsReceipt.create({
-    data: {
-      id: grnId,
-      poId,
-      receiptDate: utc(input.receipt_date),
-      receivedBy: input.received_by,
-      site: input.site,
-      status: fullyReceived ? "complete" : "partial",
-    },
-  });
-  await tx.grnLine.createMany({
-    data: input.lines.map((l, i) => ({
-      id: ID_FORMATS.grnLine(grnId, i),
-      grnId,
-      poLineId: poLineIds[i],
-      quantityReceived: received[i],
-      quantityRejected: l.quantity_rejected,
-      defectCount: l.defect_count,
-    })),
-  });
+  // 5. Goods receipts (+ lines), in receipt-date order — one or many, each with
+  //    its own site and receiver, each covering any subset of the lines.
+  //
+  //    ⚠️ STATUS is CUMULATIVE-ARRIVAL, matching the seeded vocabulary exactly: a
+  //    receipt is `complete` when, counting everything received up to and
+  //    INCLUDING it, every order line has reached its ordered quantity; otherwise
+  //    `partial`. Verified against all 829 seeded receipts — 647 complete / 182
+  //    partial separate perfectly on that rule, and on a two-receipt order the
+  //    earlier one is partial and the later one complete.
+  //    ⚠️ Rejections do NOT make a receipt partial: 25 seeded `complete` receipts
+  //    carry rejected quantity. (The previous single-receipt code also required
+  //    zero rejections, which diverged from the data; corrected here. GoodsReceipt
+  //    .status is read by neither the view nor python/, so this is inert.)
+  const cumulative = input.lines.map(() => 0);
+  const grnLineRows: { id: string; grnId: string; poLineId: string; quantityReceived: number; quantityRejected: number; defectCount: number }[] = [];
 
-  // 6. Invoice (+ lines). Billed quantity defaults to ACCEPTED (received −
-  //    rejected) and the price to the PO price, so a correct invoice passes the
-  //    three-way match; explicit overrides create a real discrepancy.
-  const billed = input.lines.map((l, i) => l.quantity_billed ?? received[i] - l.quantity_rejected);
+  for (const [ri, receipt] of receipts.entries()) {
+    const grnId = grnIds[ri];
+    for (const rl of receipt.lines) cumulative[rl.line_index] += rl.quantity_received;
+    const complete = input.lines.every((l, i) => cumulative[i] >= l.quantity_ordered);
+
+    await tx.goodsReceipt.create({
+      data: {
+        id: grnId,
+        poId,
+        receiptDate: utc(receipt.receipt_date),
+        receivedBy: receipt.received_by,
+        site: receipt.site,
+        status: complete ? "complete" : "partial",
+      },
+    });
+    receipt.lines.forEach((rl, li) => {
+      grnLineRows.push({
+        id: ID_FORMATS.grnLine(grnId, li),
+        grnId,
+        poLineId: poLineIds[rl.line_index],
+        quantityReceived: rl.quantity_received,
+        quantityRejected: rl.quantity_rejected,
+        defectCount: rl.defect_count,
+      });
+    });
+  }
+  await tx.grnLine.createMany({ data: grnLineRows });
+
+  // 6. Invoice (+ lines). Billed quantity defaults to ACCEPTED — received minus
+  //    rejected, summed ACROSS every receipt — and the price to the PO price, so a
+  //    correct invoice passes the three-way match; explicit overrides create a
+  //    real discrepancy.
+  const received = input.lines.map((_, i) => receivedFor(receipts, i));
+  const rejected = input.lines.map((_, i) => rejectedFor(receipts, i));
+  const billed = input.lines.map((l, i) => l.quantity_billed ?? received[i] - rejected[i]);
   const invoicePrice = input.lines.map((l) => l.invoice_unit_price_usd ?? l.unit_price_usd);
   const invoiceTotal = input.lines.reduce((sum, _, i) => sum + billed[i] * invoicePrice[i], 0);
 
@@ -452,7 +561,7 @@ export async function createTransactionChain(
       ...(sourcingEventId ? { sourcingEvent: sourcingEventId, response: responseId! } : {}),
       purchaseOrder: poId,
       poLines: poLineIds,
-      goodsReceipt: grnId,
+      goodsReceipts: grnIds,
       invoice: invoiceId,
       payment: paymentId,
     },

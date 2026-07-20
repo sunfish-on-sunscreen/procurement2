@@ -22,15 +22,14 @@ export type ItemPick = {
   supplierIds: string[];
 };
 
+/** An ORDER line: what was ordered, and how it was billed. Receiving moved to
+ *  the receipts below, because one order line can arrive across several. */
 type Line = {
   item_name: string;
   category: string;
   unit: string;
   quantity_ordered: string;
   unit_price_usd: string;
-  quantity_received: string;
-  quantity_rejected: string;
-  defect_count: string;
   quantity_billed: string;
   invoice_unit_price_usd: string;
 };
@@ -41,12 +40,26 @@ const EMPTY_LINE: Line = {
   unit: "",
   quantity_ordered: "",
   unit_price_usd: "",
-  quantity_received: "",
-  quantity_rejected: "",
-  defect_count: "",
   quantity_billed: "",
   invoice_unit_price_usd: "",
 };
+
+/** What ONE receipt recorded against ONE order line — index-aligned with `lines`. */
+type ReceiptLine = { received: string; rejected: string; defects: string };
+type Receipt = {
+  receipt_date: string;
+  site: string;
+  received_by: string;
+  lines: ReceiptLine[];
+};
+
+const EMPTY_RECEIPT_LINE: ReceiptLine = { received: "", rejected: "", defects: "" };
+const newReceipt = (lineCount: number): Receipt => ({
+  receipt_date: "",
+  site: "",
+  received_by: "",
+  lines: Array.from({ length: lineCount }, () => ({ ...EMPTY_RECEIPT_LINE })),
+});
 
 /**
  * Keyed to BUYING_METHODS, so a method added without a label is a type error
@@ -62,6 +75,24 @@ const METHOD_LABEL: Record<(typeof BUYING_METHODS)[number], string> = {
 
 const opts = (values: string[]): ComboOption[] => values.map((v) => ({ value: v, label: v }));
 const numOrUndef = (v: string) => (v.trim() === "" ? undefined : Number(v));
+
+/**
+ * Client mirror of the `personName` / `orgName` zod rules in
+ * lib/transaction-create.ts — the server stays authoritative, this only surfaces
+ * the problem before submitting. A person may hold no digit at all; an
+ * organisation or place may not be digits ONLY ("Warehouse 2" is fine).
+ */
+function nameError(value: string, kind: "person" | "org"): string | null {
+  const v = value.trim();
+  if (v === "") return null;
+  if (!/\p{L}/u.test(v)) {
+    return kind === "person"
+      ? "Must be a name, not a number."
+      : "Must contain a letter, not just digits.";
+  }
+  if (kind === "person" && /\d/u.test(v)) return "Must be a person's name, not a number.";
+  return null;
+}
 
 /**
  * Record a COMPLETE purchase: requisition → PO + lines → receipt → invoice →
@@ -103,18 +134,16 @@ export function RecordPurchaseCard({
   const [requester, setRequester] = useState("");
   const [department, setDepartment] = useState("");
   const [terms, setTerms] = useState<(typeof PAYMENT_TERMS)[number]>("Net 30");
-  const [site, setSite] = useState("");
-  const [receivedBy, setReceivedBy] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
   const [dates, setDates] = useState({
     pr_date: "",
     po_date: "",
     promised_delivery_date: "",
-    receipt_date: "",
     invoice_date: "",
     payment_date: "",
   });
   const [lines, setLines] = useState<Line[]>([{ ...EMPTY_LINE }]);
+  const [receipts, setReceipts] = useState<Receipt[]>([newReceipt(1)]);
 
   const supplierOptions = useMemo<ComboOption[]>(
     () => suppliers.map((s) => ({ value: s.id, label: s.name, keywords: `${s.id} ${s.category}` })),
@@ -143,16 +172,12 @@ export function RecordPurchaseCard({
     [supplierItems],
   );
 
-  // Mirrors the zod rules in lib/transaction-create.ts (personName / orgName). The
-  // server stays authoritative; this only surfaces the problem before submitting.
-  const requesterError =
-    requester.trim() !== "" && (/\d/u.test(requester) || !/\p{L}/u.test(requester))
-      ? "Requester must be a person's name, not a number."
-      : null;
-  const departmentError =
-    department.trim() !== "" && !/\p{L}/u.test(department)
-      ? "Department must contain a letter, not just digits."
-      : null;
+  const requesterError = nameError(requester, "person");
+  const departmentError = nameError(department, "org");
+  // Receiving names follow the same rules, per receipt.
+  const receiptNameError = receipts.some(
+    (r) => nameError(r.site, "org") || nameError(r.received_by, "person"),
+  );
 
   const total = lines.reduce(
     (sum, l) => sum + (Number(l.quantity_ordered) || 0) * (Number(l.unit_price_usd) || 0),
@@ -172,18 +197,16 @@ export function RecordPurchaseCard({
       setRequester("");
       setDepartment("");
       setTerms("Net 30");
-      setSite("");
-      setReceivedBy("");
       setInvoiceNo("");
       setDates({
         pr_date: "",
         po_date: "",
         promised_delivery_date: "",
-        receipt_date: "",
         invoice_date: "",
         payment_date: "",
       });
       setLines([{ ...EMPTY_LINE }]);
+      setReceipts([newReceipt(1)]);
       setErrors(null);
       setShowDetail(false);
       setSaving(false);
@@ -193,6 +216,44 @@ export function RecordPurchaseCard({
   function setLine(i: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   }
+  function setReceipt(ri: number, patch: Partial<Omit<Receipt, "lines">>) {
+    setReceipts((prev) => prev.map((r, j) => (j === ri ? { ...r, ...patch } : r)));
+  }
+  function setReceiptLine(ri: number, li: number, patch: Partial<ReceiptLine>) {
+    setReceipts((prev) =>
+      prev.map((r, j) =>
+        j === ri ? { ...r, lines: r.lines.map((rl, k) => (k === li ? { ...rl, ...patch } : rl)) } : r,
+      ),
+    );
+  }
+  // Order lines and receipt lines are index-aligned, so adding or removing an
+  // order line has to reshape every receipt in the same step.
+  function addLine() {
+    setLines((prev) => [...prev, { ...EMPTY_LINE }]);
+    setReceipts((prev) => prev.map((r) => ({ ...r, lines: [...r.lines, { ...EMPTY_RECEIPT_LINE }] })));
+  }
+  function removeLine(i: number) {
+    setLines((prev) => prev.filter((_, j) => j !== i));
+    setReceipts((prev) => prev.map((r) => ({ ...r, lines: r.lines.filter((_, j) => j !== i) })));
+  }
+
+  const single = receipts.length === 1;
+  /**
+   * With ONE receipt a blank quantity still means "all of it arrived", preserving
+   * the previous ergonomics. With SEVERAL, blank means zero — "the rest" would be
+   * ambiguous once quantities are split, so they must be stated.
+   */
+  const receivedOf = (rl: ReceiptLine, li: number) =>
+    single && rl.received.trim() === ""
+      ? Number(lines[li]?.quantity_ordered) || 0
+      : Number(rl.received) || 0;
+  /** Total received per order line across every receipt — drives the reconciliation hint. */
+  const receivedTotals = lines.map((_, li) =>
+    receipts.reduce((sum, r) => sum + receivedOf(r.lines[li] ?? EMPTY_RECEIPT_LINE, li), 0),
+  );
+  const overReceived = lines.some(
+    (l, li) => Number(l.quantity_ordered) > 0 && receivedTotals[li] > Number(l.quantity_ordered),
+  );
 
   async function handleSave() {
     setErrors(null);
@@ -207,8 +268,6 @@ export function RecordPurchaseCard({
         requester,
         department,
         payment_terms: terms,
-        site,
-        received_by: receivedBy,
         supplier_invoice_no: invoiceNo,
         ...dates,
         lines: lines.map((l) => ({
@@ -217,11 +276,28 @@ export function RecordPurchaseCard({
           unit: l.unit,
           quantity_ordered: Number(l.quantity_ordered) || 0,
           unit_price_usd: Number(l.unit_price_usd) || 0,
-          quantity_received: numOrUndef(l.quantity_received),
-          quantity_rejected: Number(l.quantity_rejected) || 0,
-          defect_count: Number(l.defect_count) || 0,
           quantity_billed: numOrUndef(l.quantity_billed),
           invoice_unit_price_usd: numOrUndef(l.invoice_unit_price_usd),
+        })),
+        receipts: receipts.map((r) => ({
+          receipt_date: r.receipt_date,
+          site: r.site,
+          received_by: r.received_by,
+          // A single receipt covers every line (blank = all of it arrived). With
+          // several, only the lines this receipt actually touched are sent, so a
+          // split delivery does not create meaningless zero-quantity GRN lines.
+          lines: r.lines
+            .map((rl, li) => ({ rl, li }))
+            .filter(
+              ({ rl }) =>
+                single || rl.received.trim() !== "" || rl.rejected.trim() !== "" || rl.defects.trim() !== "",
+            )
+            .map(({ rl, li }) => ({
+              line_index: li,
+              quantity_received: receivedOf(rl, li),
+              quantity_rejected: Number(rl.rejected) || 0,
+              defect_count: Number(rl.defects) || 0,
+            })),
         })),
       };
       const res = await fetch("/api/purchases", {
@@ -436,14 +512,6 @@ export function RecordPurchaseCard({
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="rp-site">Receiving site</Label>
-                <TypeableCombobox id="rp-site" aria-label="Receiving site" value={site} onChange={setSite} options={opts(sites)} creatable placeholder="Select or type" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="rp-receivedby">Received by</Label>
-                <TypeableCombobox id="rp-receivedby" aria-label="Received by" value={receivedBy} onChange={setReceivedBy} options={opts(receivers)} creatable placeholder="Select or type" />
-              </div>
-              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-invoiceno">Supplier invoice no.</Label>
                 <Input id="rp-invoiceno" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="e.g. INV-4471" />
               </div>
@@ -456,13 +524,12 @@ export function RecordPurchaseCard({
                 {dateField("pr_date", "Requisition")}
                 {dateField("po_date", "PO")}
                 {dateField("promised_delivery_date", "Promised delivery")}
-                {dateField("receipt_date", "Goods receipt")}
                 {dateField("invoice_date", "Invoice")}
                 {dateField("payment_date", "Payment")}
               </div>
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Must run in order: requisition → PO → receipt → invoice → payment. The PO
-                year sets the reporting period.
+                Must run in order: requisition → PO → receipt → invoice → payment. Receipt
+                dates are set per receipt below. The PO year sets the reporting period.
               </p>
             </div>
 
@@ -477,9 +544,9 @@ export function RecordPurchaseCard({
                 </p>
                 <div className="flex items-center gap-2">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setShowDetail((v) => !v)}>
-                    {showDetail ? "Hide" : "Show"} receipt &amp; billing detail
+                    {showDetail ? "Hide" : "Show"} billing detail
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setLines((l) => [...l, { ...EMPTY_LINE }])}>
+                  <Button type="button" variant="outline" size="sm" onClick={addLine}>
                     <Plus className="mr-1 h-3.5 w-3.5" />
                     Add line
                   </Button>
@@ -533,19 +600,7 @@ export function RecordPurchaseCard({
                     </div>
 
                     {showDetail && (
-                      <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-5">
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor={`rp-recv-${i}`}>Received</Label>
-                          <Input id={`rp-recv-${i}`} type="number" min={0} value={l.quantity_received} onChange={(e) => setLine(i, { quantity_received: e.target.value })} placeholder="= ordered" />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor={`rp-rej-${i}`}>Rejected</Label>
-                          <Input id={`rp-rej-${i}`} type="number" min={0} value={l.quantity_rejected} onChange={(e) => setLine(i, { quantity_rejected: e.target.value })} placeholder="0" />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor={`rp-def-${i}`}>Defects</Label>
-                          <Input id={`rp-def-${i}`} type="number" min={0} value={l.defect_count} onChange={(e) => setLine(i, { defect_count: e.target.value })} placeholder="0" />
-                        </div>
+                      <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2">
                         <div className="flex flex-col gap-1.5">
                           <Label htmlFor={`rp-bill-${i}`}>Billed qty</Label>
                           <Input id={`rp-bill-${i}`} type="number" min={0} value={l.quantity_billed} onChange={(e) => setLine(i, { quantity_billed: e.target.value })} placeholder="= accepted" />
@@ -559,7 +614,7 @@ export function RecordPurchaseCard({
 
                     {lines.length > 1 && (
                       <div className="mt-2 flex justify-end">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(i)}>
                           <Trash2 className="mr-1 h-3.5 w-3.5" />
                           Remove line
                         </Button>
@@ -570,11 +625,161 @@ export function RecordPurchaseCard({
               </div>
               {showDetail && (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Billed quantity and invoice price default to the accepted quantity and the
-                  PO price — a correct invoice, which passes the three-way match. Overriding
-                  either records a genuine billing discrepancy and will fail the match.
+                  Billed quantity and invoice price default to the accepted quantity
+                  (received minus rejected, across every receipt) and the PO price — a
+                  correct invoice, which passes the three-way match. Overriding either
+                  records a genuine billing discrepancy and will fail the match.
                 </p>
               )}
+            </div>
+
+            {/* Goods receipts — one per physical delivery */}
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  Goods receipts{" "}
+                  <span className="font-normal text-muted-foreground">
+                    · {receipts.length} {receipts.length === 1 ? "delivery" : "deliveries"}
+                  </span>
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReceipts((prev) => [...prev, newReceipt(lines.length)])}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Add receipt
+                </Button>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                {receipts.map((r, ri) => (
+                  <div key={ri} className="rounded-lg border p-3">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={`rp-rdate-${ri}`}>Receipt date</Label>
+                        <Input
+                          id={`rp-rdate-${ri}`}
+                          type="date"
+                          value={r.receipt_date}
+                          onChange={(e) => setReceipt(ri, { receipt_date: e.target.value })}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={`rp-rsite-${ri}`}>Receiving site</Label>
+                        <TypeableCombobox
+                          id={`rp-rsite-${ri}`}
+                          aria-label="Receiving site"
+                          value={r.site}
+                          onChange={(v) => setReceipt(ri, { site: v })}
+                          options={opts(sites)}
+                          creatable
+                          placeholder="Select or type"
+                        />
+                        {nameError(r.site, "org") && (
+                          <p className="text-[11px] text-destructive">{nameError(r.site, "org")}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor={`rp-rby-${ri}`}>Received by</Label>
+                        <TypeableCombobox
+                          id={`rp-rby-${ri}`}
+                          aria-label="Received by"
+                          value={r.received_by}
+                          onChange={(v) => setReceipt(ri, { received_by: v })}
+                          options={opts(receivers)}
+                          creatable
+                          placeholder="Select or type"
+                        />
+                        {nameError(r.received_by, "person") && (
+                          <p className="text-[11px] text-destructive">
+                            {nameError(r.received_by, "person")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 border-t pt-3">
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">
+                        Quantities received in this delivery
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        {lines.map((l, li) => {
+                          const rl = r.lines[li] ?? EMPTY_RECEIPT_LINE;
+                          const ordered = Number(l.quantity_ordered) || 0;
+                          const over = ordered > 0 && receivedTotals[li] > ordered;
+                          return (
+                            <div key={li} className="grid items-end gap-2 sm:grid-cols-12">
+                              <div className="sm:col-span-5">
+                                <p className="truncate text-xs">
+                                  {l.item_name || <span className="text-muted-foreground">Line {li + 1}</span>}
+                                </p>
+                                <p className={`text-[11px] ${over ? "text-destructive" : "text-muted-foreground"}`}>
+                                  {receivedTotals[li]} of {ordered || "—"} received
+                                  {over ? " — more than ordered" : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-col gap-1 sm:col-span-3">
+                                <Label htmlFor={`rp-recv-${ri}-${li}`} className="text-[11px]">Received</Label>
+                                <Input
+                                  id={`rp-recv-${ri}-${li}`}
+                                  type="number"
+                                  min={0}
+                                  value={rl.received}
+                                  onChange={(e) => setReceiptLine(ri, li, { received: e.target.value })}
+                                  placeholder={single ? "= ordered" : "0"}
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 sm:col-span-2">
+                                <Label htmlFor={`rp-rej-${ri}-${li}`} className="text-[11px]">Rejected</Label>
+                                <Input
+                                  id={`rp-rej-${ri}-${li}`}
+                                  type="number"
+                                  min={0}
+                                  value={rl.rejected}
+                                  onChange={(e) => setReceiptLine(ri, li, { rejected: e.target.value })}
+                                  placeholder="0"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1 sm:col-span-2">
+                                <Label htmlFor={`rp-def-${ri}-${li}`} className="text-[11px]">Defects</Label>
+                                <Input
+                                  id={`rp-def-${ri}-${li}`}
+                                  type="number"
+                                  min={0}
+                                  value={rl.defects}
+                                  onChange={(e) => setReceiptLine(ri, li, { defects: e.target.value })}
+                                  placeholder="0"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {receipts.length > 1 && (
+                      <div className="mt-2 flex justify-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setReceipts((prev) => prev.filter((_, j) => j !== ri))}
+                        >
+                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          Remove receipt
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                {single
+                  ? "One delivery. A blank quantity means the whole line arrived. Add a receipt to split a delivery across dates or sites."
+                  : "Split delivery — enter what arrived in each one; blanks count as zero. Delivery performance is judged on the LAST receipt date, and a receipt is marked complete once everything ordered has arrived."}
+              </p>
             </div>
 
             {errors && (
@@ -597,7 +802,10 @@ export function RecordPurchaseCard({
               <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saving || !!requesterError || !!departmentError}>
+              <Button
+                onClick={handleSave}
+                disabled={saving || !!requesterError || !!departmentError || receiptNameError || overReceived}
+              >
                 {saving ? "Recording…" : "Record purchase"}
               </Button>
             </div>
