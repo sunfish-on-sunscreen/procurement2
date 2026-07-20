@@ -7,8 +7,7 @@ Pipeline:
   2. For each ORDER-YEAR period, score per-supplier metrics via the proven-exact
      scores.build_window_metrics (period dimension = the view's `period` column) and
      write SupplierMetric rows (delete-then-insert per period).
-  3. Run compute_analyses.py --period-id for every period (Mode A → AnalysisResult
-     + the kraljic risk/quadrant writeback onto SupplierMetric).
+  3. Run compute_analyses.py --period-id for every period (Mode A → AnalysisResult).
   4. Clear the range cache (AnalysisResult rows with periodId IS NULL).
 
 Idempotent; safe to re-run after any reseed. Order-year bucketing (per the migration
@@ -69,8 +68,10 @@ def _df(conn, query):
     return pd.DataFrame(rows, columns=cols)
 
 
-# SupplierMetric columns written here (kraljic denorm fields left NULL — the Mode A
-# compute_analyses writeback fills supplyRiskScore/kraljicQuadrant/categoryCompetition).
+# SupplierMetric columns written here. (The old kraljic denormalization columns —
+# supplyRiskScore / kraljicQuadrant / categoryCompetition — were dropped: they were
+# rewritten on every recompute and read by nothing. Kraljic values live in the
+# `kraljic` AnalysisResult payload, which every consumer already reads.)
 _METRIC_INSERT_COLS = [
     "id", "supplierExternalId", "supplierName", "category",
     "totalSpendUsd", "numPos", "avgPoValueUsd", "avgLeadTimeDays",
@@ -92,7 +93,9 @@ def write_supplier_metrics(conn):
     pur = scores.rename_purchase_columns(enriched)
     roster = scores.roster_category_counts(suppliers)
 
-    periods = _df(conn, 'SELECT id, name FROM "ReportingPeriod"')
+    # ORDER BY is load-bearing: without it Postgres returns physical row order, so
+    # the period processing sequence could vary between runs on the same data.
+    periods = _df(conn, 'SELECT id, name FROM "ReportingPeriod" ORDER BY name')
     pid_by_name = {str(n): pid for pid, n in zip(periods["id"], periods["name"])}
 
     total = 0

@@ -1419,24 +1419,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     }
 
 
-def writeback_supplier_metrics(conn, risk_map, comp_map, quad_map):
-    """Mode A only: denormalize the latest computed risk/quadrant onto SupplierMetric."""
-    with conn.cursor() as cur:
-        for sid, quadrant in quad_map.items():
-            cur.execute(
-                'UPDATE "SupplierMetric" '
-                'SET "supplyRiskScore" = %s, "kraljicQuadrant" = %s, "categoryCompetition" = %s '
-                'WHERE "supplierExternalId" = %s',
-                (
-                    float(round(risk_map.get(sid, 0.0), 2)),
-                    quadrant,
-                    int(comp_map.get(sid, 0)),
-                    sid,
-                ),
-            )
-    conn.commit()
-
-
 # --------------------------------------------------------------------------- #
 # Persistence (Mode A)
 # --------------------------------------------------------------------------- #
@@ -1543,16 +1525,15 @@ def main():
                 traceback.print_exc(file=sys.stderr)
                 results[name] = None
 
-        # Kraljic is computed separately: it returns supplier-level maps used for
-        # the Mode A SupplierMetric writeback in addition to the result payload.
-        kraljic_writeback = None
+        # Kraljic returns supplier-level maps alongside its payload; only the
+        # payload is persisted now (the SupplierMetric denormalization was dropped —
+        # those columns were written every recompute and read by nothing).
         try:
             log("Computing kraljic...")
-            kr_result, risk_map, comp_map, quad_map = kraljic_analysis(
+            kr_result, _risk_map, _comp_map, _quad_map = kraljic_analysis(
                 purchases, suppliers, metrics
             )
             results["kraljic"] = kr_result
-            kraljic_writeback = (risk_map, comp_map, quad_map)
         except Exception as exc:  # noqa: BLE001
             log(f"FAILED kraljic: {exc}")
             traceback.print_exc(file=sys.stderr)
@@ -1596,9 +1577,6 @@ def main():
                 if results.get(name) is not None:
                     upsert(conn, args.period_id, name, results[name])
                     succeeded += 1
-            # Denormalize risk/quadrant onto SupplierMetric (latest period wins).
-            if kraljic_writeback is not None:
-                writeback_supplier_metrics(conn, *kraljic_writeback)
             log(
                 f"Done. {succeeded}/{len(all_types)} analyses upserted for period {args.period_id}."
             )

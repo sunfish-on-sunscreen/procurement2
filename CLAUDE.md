@@ -3,6 +3,84 @@
 A full-stack Next.js web app for presenting mining procurement analytics from synthetic 
 data. Multi-user with auth, single organization, fixed analyses (no parameter tweaking).
 
+## CURRENT ARCHITECTURE (2026-07-20) — READ THIS FIRST
+
+> ⚠️ **This block supersedes everything below it.** The sections after "Current Work"
+> are dated SESSION HISTORY from the pre-migration flat-`Purchase` era and describe a
+> data model that NO LONGER EXISTS. They are kept as history. For current state, this
+> block + `git log` are the source of truth.
+
+**Data model = NORMALIZED, 12 tables.** The flat `Purchase` table is GONE. The document
+graph is Supplier / Framework / Requisition / SourcingEvent / Response / PurchaseOrder /
+PoLine / GoodsReceipt / GrnLine / Invoice / InvoiceLine / Payment.
+
+- **`EnrichedPurchase` is a plain Postgres VIEW** reconstructing a PO-grain row whose
+  column names are BYTE-IDENTICAL to the old flat `Purchase` (spend = `totalValueUsd`,
+  supplier = `supplierExternalId`, camelCase dates, `*Days`, `onTimeDelivery`,
+  `threeWayMatchPass`, `defectCount`). Both Python `load_frames` and the TS read routes
+  consume it, so the analyses needed no rename. **Item-level detail is NOT on the view**
+  (it is PO grain) — line consumers read `PoLine` via `lib/po-lines.ts`.
+- **Period = ORDER YEAR.** `PurchaseOrder.period` and the compute date filter are both
+  `poDate` (was payment-year in the flat era — the one deliberate plumbing change).
+- **Analytics math is UNCHANGED** by the migration: composite 0.30Q/0.30D/0.22P/0.18R,
+  supply-risk = concentration + cost premium + import friction, ABC 80/95, cycle z>2.
+- **three-way match** tests INVOICE vs PO+receipt (no overpay), NOT that everything
+  ordered arrived: per line, billed == accepted (accepted = received − rejected) AND
+  invoice price == PO price. A correctly-billed partial delivery PASSES.
+
+**Write paths are RESTORED (Phases 1-6, 2026-07-20).** They were 501-stubbed during the
+migration; all are live again:
+- **Recompute** — `lib/recompute.ts` -> `python/seed_compute.py --json`. THE single
+  sanctioned path after ANY data change. Full recompute (~6s): rewrites SupplierMetric,
+  runs `compute_analyses` per period, clears the range cache. Serialized via a promise
+  chain (concurrent recomputes would interleave writes). Incremental is NOT possible —
+  roster concentration is global and the ABC/Kraljic/zone splits are population medians.
+- **Supplier CRUD** — add / edit / deactivate. Master data uses an append-only
+  **history log** (`SupplierChangeLog`: who / when / field / before -> after). Suppliers
+  are never deleted (5 RESTRICT FKs); retirement is `status` active <-> inactive.
+  ⚠️ Status is master-data ONLY — the compute layer never filters on it and counts
+  inactive suppliers deliberately, so deactivating changes NO analytics number.
+- **Dataset import** — replace-all (see "Data flow for imports").
+- **Transaction create** — records a COMPLETE document chain (PR -> PO + lines -> GRN +
+  lines -> invoice + lines -> payment) in one atomic transaction. ⚠️ **No open POs, by
+  design**: the view COALESCEs a PO with no invoice lines to `threeWayMatchPass = TRUE`,
+  so an open PO would count as a match PASS while contributing to no other rate
+  denominator. Supporting them would require changing a rate denominator.
+- **Corrections** — posted transactional records are IMMUTABLE (Postgres BEFORE UPDATE
+  triggers on the 10 document tables reject any edit). A mistake is fixed by APPENDING a
+  signed correction line linked via `correctsLineId`, with a `Correction` audit header.
+  Three kinds: quantity, price (credit + re-bill), defect.
+  - ⚠️ The triggers block **UPDATE only**. DELETE stays open for the importer, and
+    `SET LOCAL app.bulk_import = 'on'` is the sanctioned escape hatch — load-bearing,
+    because the correction FKs use `ON DELETE SET NULL` and referential actions fire
+    triggers. Set by both the importer transaction and the seed.
+  - ⚠️ **Corrections FOLD into the corrected item** in every line-level read
+    (`lib/po-lines.ts`, Python `load_po_lines`) so no breakdown shows a phantom
+    negative-quantity item.
+
+⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
+because proven byte-identical on existing data AND semantically required under
+corrections: `dom_cat` now aggregates per category then takes the argmax (a reversed line
+used to still sort as the highest single row, so a PO could report a category with zero
+net spend); `line_bill` uses the value-weighted effective billed price instead of
+`MAX(unitPrice)` (which returned the pre-correction price, so a correctly-credited
+invoice still failed the match). Verified inert across the whole view, dom_cat for every
+PO, every processScore, all AnalysisResult payloads and zones before shipping.
+
+**BASELINE — verify any change against this:** $707,687,316.20 · 647 POs (240/250/157) ·
+55 suppliers · 14 categories · 566 three-way-match pass / 81 fail · $82,253,733.40
+control exposure · SupplierMetric 151 rows · processScore min 0 / max 100 / avg 87.67.
+
+**Restore recipe:** `npx prisma db seed`, then
+`cd python && .venv/Scripts/python seed_compute.py`.
+
+**Removed 2026-07-20 as dead:** `ImportForm`, `AddPurchaseCard`, `RemoveSupplierCard`,
+`RemovePurchaseCard`, `PurchaseRosterTable`, `lib/purchase-import.ts`,
+`python/import_compute.py` (+ its test), `runImportCompute`, `/api/sample-data`, and the
+three write-only `SupplierMetric` kraljic columns (`categoryCompetition` /
+`kraljicQuadrant` / `supplyRiskScore`) — the latter were rewritten on every recompute,
+read by nothing, and the sole source of a cross-run non-determinism.
+
 ## Current Work
 
 > **Current state of record = `git log`.** This file holds DURABLE architecture +
@@ -2173,34 +2251,46 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 - Use cuid() for IDs (not uuid)
 
 ## Data flow for imports
-1. Admin uploads **TWO separate `.xlsx` files** via /import page: a **Suppliers file**
-   and a **Purchases file** (each a SINGLE sheet — "Suppliers" / "Purchases"). ⚠️ There
-   is **NO SupplierMetrics sheet** — per-supplier metrics + the composite/sub-scores are
-   computed server-side from the raw rows, not uploaded.
-2. Next.js API (`app/api/imports/upload/route.ts`) parses BOTH workbooks with the `xlsx`
-   library and validates each sheet with zod **before any DB write** (fail-fast)
-3. Compute derived scores server-side FIRST via `python/import_compute.py` (raw rows in →
-   per-period `SupplierMetric` rows out); a Python failure aborts with **NO partial state**
-4. Atomic `$transaction`: per affected period, delete-then-insert Supplier / Purchase /
-   SupplierMetric (periods auto-created from the purchase **payment year**, PR-year fallback)
-5. After the write, spawn `compute_analyses.py` per period (Mode A) to compute the analyses
-6. Python writes AnalysisResult rows back to Postgres (6 types: spend_overview, abc, performance_spend, kraljic, recommendations, cycle_time)
-7. Clear the range cache (`AnalysisResult` rows with `periodId IS NULL`)
-8. Frontend pages read AnalysisResult and display via Recharts
+1. Admin uploads **ONE `.xlsx` workbook with 12 sheets** via /import (suppliers,
+   frameworks, requisitions, sourcing_events, responses, purchase_orders, po_lines,
+   goods_receipts, grn_lines, invoices, invoice_lines, payments). The old two-file
+   (Suppliers + Purchases) format is GONE.
+2. `lib/dataset-import.ts` parses + validates ALL 12 sheets **before any DB write**:
+   required columns, non-empty core sheets, primary-key uniqueness, and FK closure
+   across all 18 relation edges. Errors carry sheet + spreadsheet row number.
+3. **REPLACE-ALL**, in one `$transaction`: wipe in reverse-FK order, insert in FK
+   order, upsert any missing `ReportingPeriod`. A validation failure or any throw
+   rolls back with ZERO writes. The same library backs `prisma db seed`.
+4. Then `recomputeAllPeriods()` (`lib/recompute.ts` -> `python/seed_compute.py --json`)
+   regenerates SupplierMetric + all AnalysisResult rows and clears the range cache.
+5. Frontend pages read AnalysisResult and display via Recharts.
+
+⚠️ Replace-all is destructive: it deletes manually-added suppliers and ALL posted
+corrections. Supplier change-history IS preserved for suppliers the new file still
+contains. The confirmation dialog names each loss with live counts.
 
 ## Excel file schema
-**TWO separate `.xlsx` files, each a single sheet.** ⚠️ There is NO SupplierMetrics
-sheet — the per-supplier metrics + composite/sub-scores (quality/delivery/process/risk/
-composite; **no `service_score`** — Service was removed from the model) are computed
-server-side by `python/import_compute.py` from the raw rows, then written to the
-`SupplierMetric` table.
-- **Suppliers file**, sheet "Suppliers": supplier_id, supplier_name, country, category, product_description  *(`tier` removed in `158849b`)*
-- **Purchases file**, sheet "Purchases": po_id, supplier_id, supplier_name, category, item_description, unit, quantity, unit_price_usd, total_value_usd, pr_date, po_date, delivery_date, invoice_date, payment_date, pr_to_po_days, po_to_delivery_days, delivery_to_invoice_days, invoice_to_payment_days, total_cycle_days, on_time_delivery, three_way_match_pass  *(`automation_period` removed in Batch 5)*
+**ONE workbook, 12 sheets** — `data/raw/procurement_dataset_full.xlsx`. Raw facts
+only: NO derived columns (no `*_days`, no `total_value_usd`, no `three_way_match_pass`,
+no scores). Everything derived is reconstructed by the `EnrichedPurchase` VIEW at read
+time; scores are computed by `python/seed_compute.py`.
 
-Sample data files: `data/raw/procurement_suppliers.xlsx` + `data/raw/procurement_purchases.xlsx`
-(served by `app/api/sample-data/route.ts?file=suppliers|purchases`)
+| sheet | key columns |
+|---|---|
+| suppliers | supplier_id, supplier_name, country, category, status, is_mining_service, iujp_no, iujp_valid_until |
+| frameworks | framework_id, supplier_id, title, category, start_date, end_date, status |
+| requisitions | pr_id, pr_date, requester, department, category, need_by_date, estimated_value_usd, status |
+| sourcing_events | sourcing_event_id, pr_id, issue_date, close_date, num_suppliers_invited, awarded_supplier_id, awarded_response_id |
+| responses | response_id, sourcing_event_id, supplier_id, quoted_unit_price_usd, quoted_lead_time_days, submitted_date, is_awarded |
+| purchase_orders | po_id, pr_id, sourcing_event_id, supplier_id, buying_method, framework_id, justification, po_date, promised_delivery_date, payment_terms, complaint_count, status, period |
+| po_lines | po_line_id, po_id, item_name, category, unit, quantity_ordered, unit_price_usd, need_by_date |
+| goods_receipts | grn_id, po_id, receipt_date, received_by, site, status |
+| grn_lines | grn_line_id, grn_id, po_line_id, quantity_received, quantity_rejected, defect_count |
+| invoices | invoice_id, po_id, supplier_id, supplier_invoice_no, invoice_date, total_amount_usd, status |
+| invoice_lines | invoice_line_id, invoice_id, po_line_id, quantity_billed, unit_price_usd |
+| payments | payment_id, invoice_id, payment_date, amount_paid_usd, method |
 
-See `dataset_type_explainer.md` for type definitions and provenance.
+⚠️ `/api/sample-data` and the two old sample workbooks are GONE (deleted 2026-07-20).
 
 ## When uncertain
 Default to the simpler implementation. Don't add features I didn't request.
