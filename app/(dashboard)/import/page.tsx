@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { nextSupplierId } from "@/lib/supplier-import";
 import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
+import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -76,9 +77,9 @@ export default async function ImportPage() {
         <h1 className="text-lg font-semibold">Data management</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Supplier master data is editable below — every change is recorded in the
-          audit trail. Transactional data (purchase orders and their receipt /
-          invoice / payment chain) and the Excel upload are still loaded from the
-          seed dataset.
+          audit trail. The full 12-sheet dataset can be re-imported from Excel, which
+          replaces all transactional data. Creating individual transactions is not
+          yet available.
         </p>
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
           <span><span className="font-semibold">{supplierCount}</span> suppliers</span>
@@ -86,6 +87,8 @@ export default async function ImportPage() {
           <span><span className="font-semibold">{lineCount}</span> order lines</span>
         </div>
       </div>
+
+      <DatasetImportCard />
 
       <div className="overflow-x-auto">
         <SupplierAdminPanel

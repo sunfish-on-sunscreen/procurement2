@@ -57,8 +57,19 @@ export type SupplierWriteInput = z.infer<typeof SupplierWriteBody>;
  * optional — only what's present is changed, and each changed field is written to
  * SupplierChangeLog. The id is immutable (it is the natural key the whole
  * document graph FKs against).
+ *
+ * ⚠️ Declared field-by-field rather than as `SupplierWriteBody.partial()`: zod's
+ * `.partial()` does NOT strip `.default()`, so the create schema's defaults would
+ * be injected into every patch. A request changing only `country` would then also
+ * silently reset `is_mining_service` to false and — far worse — force `status`
+ * back to "active", reactivating a deactivated supplier. No defaults here.
  */
-export const SupplierPatchBody = SupplierWriteBody.partial().extend({
+export const SupplierPatchBody = z.object({
+  supplier_name: z.string().trim().min(1, "Supplier name is required").optional(),
+  country: z.string().trim().min(1, "Country is required").optional(),
+  category: z.string().trim().min(1, "Category is required").optional(),
+  status: z.enum(SUPPLIER_STATUSES).optional(),
+  is_mining_service: z.boolean().optional(),
   iujp_no: z.string().trim().nullable().optional(),
   iujp_valid_until: z.string().trim().nullable().optional(),
 });
