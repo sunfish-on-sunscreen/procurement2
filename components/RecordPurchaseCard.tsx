@@ -135,6 +135,8 @@ export function RecordPurchaseCard({
   const [department, setDepartment] = useState("");
   const [terms, setTerms] = useState<(typeof PAYMENT_TERMS)[number]>("Net 30");
   const [invoiceNo, setInvoiceNo] = useState("");
+  /** PO-level complaint count; blank means none, matching the zod default of 0. */
+  const [complaints, setComplaints] = useState("");
   const [dates, setDates] = useState({
     pr_date: "",
     po_date: "",
@@ -198,6 +200,7 @@ export function RecordPurchaseCard({
       setDepartment("");
       setTerms("Net 30");
       setInvoiceNo("");
+      setComplaints("");
       setDates({
         pr_date: "",
         po_date: "",
@@ -269,6 +272,9 @@ export function RecordPurchaseCard({
         department,
         payment_terms: terms,
         supplier_invoice_no: invoiceNo,
+        // Blank -> 0, matching the zod default; a fractional entry is floored so
+        // the integer schema cannot reject a stray "1.5".
+        complaint_count: Math.max(0, Math.floor(Number(complaints) || 0)),
         ...dates,
         lines: lines.map((l) => ({
           item_name: l.item_name,
@@ -514,6 +520,28 @@ export function RecordPurchaseCard({
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-invoiceno">Supplier invoice no.</Label>
                 <Input id="rp-invoiceno" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="e.g. INV-4471" />
+              </div>
+              {/* PO-LEVEL, deliberately not in a receipt card: a complaint is a
+                  relational grievance about the ORDER (late, wrong paperwork,
+                  poor handling), not a dock-side observation about goods. The
+                  physical signals — rejected quantity and defects — are recorded
+                  per receipt below. */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="rp-complaints">Complaints</Label>
+                <Input
+                  id="rp-complaints"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={complaints}
+                  onChange={(e) => setComplaints(e.target.value)}
+                  placeholder="0"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Complaints raised about this order. Leave blank for none — most orders
+                  have none. Feeds the supplier&rsquo;s Quality score, separately from
+                  the rejected quantity and defects recorded per receipt.
+                </p>
               </div>
             </div>
 
