@@ -106,6 +106,44 @@ export function isSourcedMethod(method: string): method is SourcedMethod {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isoDate = z.string().regex(DATE_RE, "Dates must be YYYY-MM-DD");
 
+/**
+ * Name-shaped free text. `min(1)` alone let "12" and "da12" through on the
+ * requisition fields, which then became the requester/department of a posted,
+ * immutable document.
+ *
+ * The two fields differ deliberately, calibrated against the live vocabulary:
+ * - **requester is a PERSON** ("Agus Pratama", "Dedi Firmansyah") — no existing
+ *   value contains a digit, and a person's name has none, so ANY digit is rejected.
+ * - **department is a PLACE/FUNCTION** ("Drill & Blast", "HSE", "Coal Processing")
+ *   — only digit-ONLY is rejected, so a plausible "Warehouse 2" still passes.
+ *
+ * Both require at least one LETTER, so punctuation-only ("--", "&") is refused.
+ * No minimum length beyond that and no two-word rule: "HSE" is a real department.
+ * Letters are matched Unicode-aware (\p{L}) rather than A-Z, so a non-ASCII name
+ * is not rejected for being non-English.
+ */
+const HAS_LETTER = /\p{L}/u;
+const HAS_DIGIT = /\d/u;
+/** Letters, spaces and the punctuation real names use: & - ' . , / ( ) */
+const NAME_CHARS = /^[\p{L}\p{M}0-9\s&\-'’.,/()]+$/u;
+
+export const personName = (field: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${field} is required`)
+    .refine((v) => HAS_LETTER.test(v), `${field} must contain a letter`)
+    .refine((v) => !HAS_DIGIT.test(v), `${field} must be a name, not a number`)
+    .refine((v) => NAME_CHARS.test(v), `${field} contains characters that are not part of a name`);
+
+export const orgName = (field: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${field} is required`)
+    .refine((v) => HAS_LETTER.test(v), `${field} must contain a letter, not just digits`)
+    .refine((v) => NAME_CHARS.test(v), `${field} contains characters that are not part of a name`);
+
 const LineInput = z.object({
   item_name: z.string().trim().min(1, "Item name is required"),
   category: z.string().trim().min(1, "Category is required"),
@@ -134,8 +172,8 @@ export const CreateTransactionBody = z
     justification: z.string().trim().min(1).optional(),
     num_suppliers_invited: z.number().int().min(2).max(10).default(3),
 
-    requester: z.string().trim().min(1, "Requester is required"),
-    department: z.string().trim().min(1, "Department is required"),
+    requester: personName("Requester"),
+    department: orgName("Department"),
     payment_terms: z.enum(PAYMENT_TERMS),
     site: z.string().trim().min(1, "Site is required"),
     received_by: z.string().trim().min(1, "Received by is required"),

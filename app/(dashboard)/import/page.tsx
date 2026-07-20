@@ -77,7 +77,7 @@ export default async function ImportPage() {
 
   // Vocabularies for the record-purchase form, sourced from the existing data so
   // new transactions reuse the established values rather than inventing new ones.
-  const [frameworks, lineFacets, grnFacets, prFacets] = await Promise.all([
+  const [frameworks, lineFacets, grnFacets, prFacets, itemRows] = await Promise.all([
     prisma.framework.findMany({
       where: { status: "active" },
       select: { id: true, supplierId: true, title: true },
@@ -86,7 +86,30 @@ export default async function ImportPage() {
     prisma.poLine.findMany({ select: { category: true, unit: true }, distinct: ["category", "unit"] }),
     prisma.goodsReceipt.findMany({ select: { site: true, receivedBy: true }, distinct: ["site", "receivedBy"] }),
     prisma.requisition.findMany({ select: { department: true, requester: true }, distinct: ["department", "requester"] }),
+    // Item vocabulary for the record-purchase form, carrying each item's supplier(s).
+    // Item -> category and item -> unit are both strictly 1:1 in the data, so picking
+    // an item determines both; the form auto-fills them.
+    prisma.poLine.findMany({
+      select: { itemName: true, category: true, unit: true, po: { select: { supplierId: true } } },
+    }),
   ]);
+
+  // Collapse the line rows to one entry per item, with the set of suppliers that have
+  // actually supplied it (2-5 each) so the form can scope the picker per supplier.
+  const itemMap = new Map<string, { name: string; category: string; unit: string; supplierIds: Set<string> }>();
+  for (const l of itemRows) {
+    const e = itemMap.get(l.itemName) ?? {
+      name: l.itemName,
+      category: l.category,
+      unit: l.unit,
+      supplierIds: new Set<string>(),
+    };
+    e.supplierIds.add(l.po.supplierId);
+    itemMap.set(l.itemName, e);
+  }
+  const items = [...itemMap.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((i) => ({ name: i.name, category: i.category, unit: i.unit, supplierIds: [...i.supplierIds] }));
 
   const corrections = await prisma.correction.findMany({
     take: 25,
@@ -128,6 +151,7 @@ export default async function ImportPage() {
           .filter((s) => s.status === "active")
           .map((s) => ({ id: s.id, name: s.supplierName, category: s.category }))}
         frameworks={frameworks}
+        items={items}
         categories={uniqSorted(lineFacets.map((l) => l.category))}
         units={uniqSorted(lineFacets.map((l) => l.unit))}
         sites={uniqSorted(grnFacets.map((g) => g.site))}

@@ -14,6 +14,13 @@ import { BUYING_METHODS, PAYMENT_TERMS, isSourcedMethod } from "@/lib/transactio
 
 export type SupplierPick = { id: string; name: string; category: string };
 export type FrameworkPick = { id: string; supplierId: string; title: string };
+/** An item plus the suppliers that have supplied it. category/unit are 1:1 with the item. */
+export type ItemPick = {
+  name: string;
+  category: string;
+  unit: string;
+  supplierIds: string[];
+};
 
 type Line = {
   item_name: string;
@@ -64,6 +71,7 @@ const numOrUndef = (v: string) => (v.trim() === "" ? undefined : Number(v));
 export function RecordPurchaseCard({
   suppliers,
   frameworks,
+  items,
   categories,
   units,
   sites,
@@ -73,6 +81,7 @@ export function RecordPurchaseCard({
 }: {
   suppliers: SupplierPick[];
   frameworks: FrameworkPick[];
+  items: ItemPick[];
   categories: string[];
   units: string[];
   sites: string[];
@@ -111,10 +120,39 @@ export function RecordPurchaseCard({
     () => suppliers.map((s) => ({ value: s.id, label: s.name, keywords: `${s.id} ${s.category}` })),
     [suppliers],
   );
+  const supplier = suppliers.find((s) => s.id === supplierId) ?? null;
+
+  // Only this supplier's frameworks are selectable — verified correct against the
+  // data: every call-off references a framework owned by its own supplier. But only
+  // 21 of 55 suppliers HAVE one, so an empty list is the common, legitimate case and
+  // must explain itself rather than read as a broken field.
   const supplierFrameworks = useMemo(
     () => frameworks.filter((f) => f.supplierId === supplierId),
     [frameworks, supplierId],
   );
+  const noFrameworks = !!supplierId && supplierFrameworks.length === 0;
+
+  // Items this supplier has actually supplied (2-5 each). Creatable, so a genuinely
+  // new item is still possible.
+  const supplierItems = useMemo(
+    () => items.filter((i) => i.supplierIds.includes(supplierId)),
+    [items, supplierId],
+  );
+  const itemOptions = useMemo<ComboOption[]>(
+    () => supplierItems.map((i) => ({ value: i.name, label: i.name, keywords: `${i.category} ${i.unit}` })),
+    [supplierItems],
+  );
+
+  // Mirrors the zod rules in lib/transaction-create.ts (personName / orgName). The
+  // server stays authoritative; this only surfaces the problem before submitting.
+  const requesterError =
+    requester.trim() !== "" && (/\d/u.test(requester) || !/\p{L}/u.test(requester))
+      ? "Requester must be a person's name, not a number."
+      : null;
+  const departmentError =
+    department.trim() !== "" && !/\p{L}/u.test(department)
+      ? "Department must contain a letter, not just digits."
+      : null;
 
   const total = lines.reduce(
     (sum, l) => sum + (Number(l.quantity_ordered) || 0) * (Number(l.unit_price_usd) || 0),
@@ -281,20 +319,38 @@ export function RecordPurchaseCard({
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-method">Buying method</Label>
                 <div className="flex flex-wrap gap-1.5" id="rp-method" role="radiogroup">
-                  {BUYING_METHODS.map((m) => (
-                    <Button
-                      key={m}
-                      type="button"
-                      role="radio"
-                      aria-checked={method === m}
-                      variant={method === m ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setMethod(m)}
-                    >
-                      {METHOD_LABEL[m]}
-                    </Button>
-                  ))}
+                  {BUYING_METHODS.map((m) => {
+                    // Call-off is unavailable when the chosen supplier has no
+                    // framework — shown ON the button so the dead end is visible
+                    // before it is selected, not after.
+                    const blocked = m === "call_off" && noFrameworks;
+                    return (
+                      <Button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={method === m}
+                        aria-disabled={blocked}
+                        title={
+                          blocked
+                            ? `${supplier?.name} has no active framework agreement`
+                            : undefined
+                        }
+                        variant={method === m ? "default" : "outline"}
+                        size="sm"
+                        className={blocked ? "opacity-40" : undefined}
+                        onClick={() => !blocked && setMethod(m)}
+                      >
+                        {METHOD_LABEL[m]}
+                      </Button>
+                    );
+                  })}
                 </div>
+                {noFrameworks && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Call-off unavailable — {supplier?.name} has no framework agreement.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -308,8 +364,23 @@ export function RecordPurchaseCard({
                   value={frameworkId}
                   onChange={setFrameworkId}
                   options={supplierFrameworks.map((f) => ({ value: f.id, label: `${f.id} — ${f.title}` }))}
+                  // Inert until a supplier is chosen: with no supplier the list is
+                  // necessarily empty and nothing could ever be committed, so an
+                  // editable-looking field would just swallow typing.
+                  disabled={!supplierId}
                   placeholder={supplierId ? "Select a framework" : "Choose a supplier first"}
+                  emptyText={
+                    supplier
+                      ? `${supplier.name} has no active framework agreement`
+                      : "Choose a supplier first"
+                  }
                 />
+                {noFrameworks && (
+                  <p className="text-[11px] text-destructive">
+                    {supplier?.name} has no active framework agreement — a call-off
+                    requires one. Choose another buying method, or another supplier.
+                  </p>
+                )}
               </div>
             )}
             {method === "direct" && (
@@ -347,10 +418,12 @@ export function RecordPurchaseCard({
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-requester">Requester</Label>
                 <TypeableCombobox id="rp-requester" aria-label="Requester" value={requester} onChange={setRequester} options={opts(requesters)} creatable placeholder="Select or type" />
+                {requesterError && <p className="text-[11px] text-destructive">{requesterError}</p>}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-department">Department</Label>
                 <TypeableCombobox id="rp-department" aria-label="Department" value={department} onChange={setDepartment} options={opts(departments)} creatable placeholder="Select or type" />
+                {departmentError && <p className="text-[11px] text-destructive">{departmentError}</p>}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-terms">Payment terms</Label>
@@ -419,7 +492,27 @@ export function RecordPurchaseCard({
                     <div className="grid gap-3 sm:grid-cols-12">
                       <div className="flex flex-col gap-1.5 sm:col-span-4">
                         <Label htmlFor={`rp-item-${i}`}>Item</Label>
-                        <Input id={`rp-item-${i}`} value={l.item_name} onChange={(e) => setLine(i, { item_name: e.target.value })} placeholder="e.g. OTR tyre 27.00R49" />
+                        <TypeableCombobox
+                          id={`rp-item-${i}`}
+                          aria-label="Item"
+                          value={l.item_name}
+                          // Picking a known item fills category + unit, which are 1:1
+                          // with the item in the data. A newly-created name matches
+                          // nothing, so those stay as typed.
+                          onChange={(v) => {
+                            const known = items.find((it) => it.name === v);
+                            setLine(i, known ? { item_name: v, category: known.category, unit: known.unit } : { item_name: v });
+                          }}
+                          options={itemOptions}
+                          creatable
+                          disabled={!supplierId}
+                          placeholder={supplierId ? "Select or type an item" : "Choose a supplier first"}
+                          emptyText={
+                            supplier
+                              ? `No items on record for ${supplier.name} — type to add one`
+                              : "Choose a supplier first"
+                          }
+                        />
                       </div>
                       <div className="flex flex-col gap-1.5 sm:col-span-3">
                         <Label htmlFor={`rp-cat-${i}`}>Category</Label>
@@ -504,7 +597,7 @@ export function RecordPurchaseCard({
               <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button onClick={handleSave} disabled={saving || !!requesterError || !!departmentError}>
                 {saving ? "Recording…" : "Record purchase"}
               </Button>
             </div>
