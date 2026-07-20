@@ -16,7 +16,14 @@ decision) — NOT payment-year — so SupplierMetric membership converges with t
 PurchaseOrder.period column and compute_analyses' poDate filter.
 
 Run:  python/.venv/Scripts/python seed_compute.py
+      python/.venv/Scripts/python seed_compute.py --json   (machine-readable)
+
+With --json the human progress lines go to STDERR and a single summary JSON object
+is the ONLY thing on stdout, so the app (lib/recompute.ts) can spawn this and parse
+the result. Without it, behaviour is unchanged (progress on stdout, no JSON).
 """
+import argparse
+import json
 import os
 import subprocess
 import sys
@@ -28,6 +35,14 @@ from psycopg2.extras import execute_values
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import scores  # noqa: E402
+
+# When True, progress output is redirected to stderr so stdout carries only JSON.
+_JSON_MODE = False
+
+
+def log(*args) -> None:
+    """Progress output. Goes to stderr in --json mode so stdout stays parseable."""
+    print(*args, file=sys.stderr if _JSON_MODE else sys.stdout, flush=True)
 
 
 def get_database_url() -> str:
@@ -84,7 +99,7 @@ def write_supplier_metrics(conn):
     for year in sorted(pur["period"].astype(str).unique()):
         pid = pid_by_name.get(year)
         if pid is None:
-            print(f"  WARN: no ReportingPeriod for order-year {year}; skipping")
+            log(f"  WARN: no ReportingPeriod for order-year {year}; skipping")
             continue
         window = pur[pur["period"].astype(str) == year]
         wm = scores.build_window_metrics(suppliers, window, roster)
@@ -110,8 +125,8 @@ def write_supplier_metrics(conn):
             )
         conn.commit()
         total += len(records)
-        print(f"  period {year} (pid {pid[:8]}…): {len(records)} SupplierMetric rows")
-    print(f"  SupplierMetric total: {total}")
+        log(f"  period {year} (pid {pid[:8]}…): {len(records)} SupplierMetric rows")
+    log(f"  SupplierMetric total: {total}")
     return list(pid_by_name.items())
 
 
@@ -119,16 +134,16 @@ def run_analyses(period_ids):
     """compute_analyses.py --period-id for each period (Mode A)."""
     compute_py = os.path.join(HERE, "compute_analyses.py")
     for name, pid in period_ids:
-        print(f"  compute_analyses period {name} …", flush=True)
+        log(f"  compute_analyses period {name} …")
         res = subprocess.run(
             [sys.executable, compute_py, "--period-id", pid],
             env=os.environ, capture_output=True, text=True,
         )
         if res.returncode != 0:
-            print(res.stdout)
+            log(res.stdout)
             print(res.stderr, file=sys.stderr)
             raise RuntimeError(f"compute_analyses failed for period {name} (exit {res.returncode})")
-    print(f"  analyses computed for {len(period_ids)} periods")
+    log(f"  analyses computed for {len(period_ids)} periods")
 
 
 def clear_range_cache(conn):
@@ -136,32 +151,74 @@ def clear_range_cache(conn):
         cur.execute('DELETE FROM "AnalysisResult" WHERE "periodId" IS NULL')
         n = cur.rowcount
     conn.commit()
-    print(f"  cleared {n} range-cache AnalysisResult rows")
+    log(f"  cleared {n} range-cache AnalysisResult rows")
+
+
+def recompute(conn) -> dict:
+    """The full recompute, in order. Returns a summary dict. Raises on any failure —
+    callers must treat an exception as 'analyses are now stale', since the data
+    mutation that triggered this has already committed."""
+    log("1) SupplierMetric (order-year):")
+    period_ids = write_supplier_metrics(conn)
+    log("2) AnalysisResult per period:")
+    run_analyses(period_ids)
+    log("3) Range cache:")
+    clear_range_cache(conn)
+
+    sm = _df(conn, 'SELECT COUNT(*) AS n FROM "SupplierMetric"')["n"][0]
+    ar = _df(conn, 'SELECT COUNT(*) AS n FROM "AnalysisResult"')["n"][0]
+    ps = _df(conn, 'SELECT MIN("processScore") AS mn, MAX("processScore") AS mx, '
+                   'ROUND(AVG("processScore")::numeric,2) AS avg, '
+                   'COUNT(DISTINCT "processScore") AS distinct_vals FROM "SupplierMetric"')
+    log(f"\nDONE. SupplierMetric={sm}  AnalysisResult={ar}")
+    log(f"processScore across suppliers: min={ps['mn'][0]} max={ps['mx'][0]} "
+        f"avg={ps['avg'][0]} distinct_values={ps['distinct_vals'][0]} "
+        f"(should be >1 distinct — NOT flat 100)")
+
+    return {
+        "ok": True,
+        "periods": [name for name, _ in period_ids],
+        "supplierMetricRows": int(sm),
+        "analysisResultRows": int(ar),
+        "processScore": {
+            "min": float(ps["mn"][0]),
+            "max": float(ps["mx"][0]),
+            "avg": float(ps["avg"][0]),
+            "distinct": int(ps["distinct_vals"][0]),
+        },
+    }
 
 
 def main():
-    url = get_database_url().split("?")[0]
-    conn = psycopg2.connect(url)
+    global _JSON_MODE
+    parser = argparse.ArgumentParser(description="Regenerate SupplierMetric + AnalysisResult.")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a summary JSON object on stdout (progress goes to stderr)",
+    )
+    args = parser.parse_args()
+    _JSON_MODE = args.json
+
+    conn = None
     try:
-        print("1) SupplierMetric (order-year):")
-        period_ids = write_supplier_metrics(conn)
-        print("2) AnalysisResult per period:")
-        run_analyses(period_ids)
-        print("3) Range cache:")
-        clear_range_cache(conn)
-        # Summary
-        sm = _df(conn, 'SELECT COUNT(*) AS n FROM "SupplierMetric"')["n"][0]
-        ar = _df(conn, 'SELECT COUNT(*) AS n FROM "AnalysisResult"')["n"][0]
-        ps = _df(conn, 'SELECT MIN("processScore") AS mn, MAX("processScore") AS mx, '
-                       'ROUND(AVG("processScore")::numeric,2) AS avg, '
-                       'COUNT(DISTINCT "processScore") AS distinct_vals FROM "SupplierMetric"')
-        print(f"\nDONE. SupplierMetric={sm}  AnalysisResult={ar}")
-        print(f"processScore across suppliers: min={ps['mn'][0]} max={ps['mx'][0]} "
-              f"avg={ps['avg'][0]} distinct_values={ps['distinct_vals'][0]} "
-              f"(should be >1 distinct — NOT flat 100)")
+        # connect() is inside the try so a bad DSN also reports structurally.
+        conn = psycopg2.connect(get_database_url().split("?")[0])
+        summary = recompute(conn)
+    except Exception as exc:  # surface as a non-zero exit + JSON error for the caller
+        if _JSON_MODE:
+            print(json.dumps({"ok": False, "error": str(exc)}), flush=True)
+        else:
+            print(f"RECOMPUTE FAILED: {exc}", file=sys.stderr, flush=True)
+        return 1
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
+
+    if _JSON_MODE:
+        print(json.dumps(summary), flush=True)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

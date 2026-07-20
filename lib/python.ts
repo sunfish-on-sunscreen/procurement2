@@ -24,10 +24,14 @@ function resolvePythonExecutable(): string {
   return isWindows ? "python" : "python3";
 }
 
-function runScript(args: string[], timeoutMs?: number): Promise<PythonResult> {
+function runScript(
+  args: string[],
+  timeoutMs?: number,
+  scriptName = "compute_analyses.py",
+): Promise<PythonResult> {
   return new Promise((resolve) => {
     const root = process.cwd();
-    const script = path.join(root, "python", "compute_analyses.py");
+    const script = path.join(root, "python", scriptName);
     const child = spawn(resolvePythonExecutable(), [script, ...args], {
       cwd: root,
       detached: false,
@@ -65,6 +69,49 @@ function runScript(args: string[], timeoutMs?: number): Promise<PythonResult> {
  */
 export function runComputeAnalyses(periodId: string, timeoutMs?: number): Promise<PythonResult> {
   return runScript(["--period-id", periodId], timeoutMs);
+}
+
+/** The summary `seed_compute.py --json` prints on stdout when it succeeds. */
+export type SeedComputeSummary = {
+  ok: true;
+  periods: string[];
+  supplierMetricRows: number;
+  analysisResultRows: number;
+  processScore: { min: number; max: number; avg: number; distinct: number };
+};
+
+/**
+ * THE recompute: `python/seed_compute.py --json`. Regenerates the per-period
+ * SupplierMetric rows (scores.build_window_metrics), runs compute_analyses Mode A
+ * for every period, and clears the range cache — the same pipeline the post-seed
+ * step runs, so the math is reused rather than reimplemented.
+ *
+ * Note this does STRICTLY MORE than the old per-period `runComputeAnalyses` loop:
+ * that one never rewrote SupplierMetric, which is why stored sub-scores used to lag
+ * until a full import. Returns `summary: null` with a non-zero `code` on any failure
+ * (Python error, timeout, or unparseable stdout).
+ */
+export function runSeedCompute(
+  timeoutMs = 180_000,
+): Promise<{ code: number; summary: SeedComputeSummary | null; stderr: string }> {
+  return runScript(["--json"], timeoutMs, "seed_compute.py").then((res) => {
+    if (res.code !== 0) {
+      return { code: res.code, summary: null, stderr: res.stderr };
+    }
+    try {
+      const parsed = JSON.parse(res.stdout.trim()) as SeedComputeSummary | { ok: false; error: string };
+      if (!parsed.ok) {
+        return { code: -1, summary: null, stderr: `${res.stderr}\n${parsed.error}` };
+      }
+      return { code: 0, summary: parsed, stderr: res.stderr };
+    } catch (e) {
+      return {
+        code: -1,
+        summary: null,
+        stderr: `${res.stderr}\nJSON parse error: ${String(e)}`,
+      };
+    }
+  });
 }
 
 /** Mode B: compute over a date range and return the analyses JSON on stdout. */
