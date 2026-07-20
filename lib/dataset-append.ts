@@ -12,11 +12,7 @@ import {
   type Row,
   type SheetName,
 } from "@/lib/dataset-import";
-import {
-  BUYING_METHODS,
-  SOLICITATION_TYPES,
-  type SolicitationType,
-} from "@/lib/transaction-create";
+import { BUYING_METHODS, SOURCED_METHODS, isSourcedMethod } from "@/lib/transaction-create";
 import {
   diffSupplier,
   changeLogRows,
@@ -326,12 +322,14 @@ export async function planTransactionAppend(
       if (!present.has(col)) push(`Sheet "${name}" is missing required column "${col}".`);
     }
   }
-  const usesRfq = rowsOf("purchase_orders").some((r) => str(r.buying_method) === "rfq");
-  if (usesRfq) {
+  const usesSourcing = rowsOf("purchase_orders").some((r) => isSourcedMethod(str(r.buying_method)));
+  if (usesSourcing) {
     for (const name of TXN_CONDITIONAL_SHEETS) {
       const rows = rowsOf(name);
       if (rows.length === 0) {
-        push(`Sheet "${name}" is required because at least one purchase order uses buying_method "rfq".`);
+        push(
+          `Sheet "${name}" is required because at least one purchase order uses a competitively sourced buying_method (${SOURCED_METHODS.join(" or ")}).`,
+        );
         continue;
       }
       const present = new Set(Object.keys(rows[0]));
@@ -513,8 +511,10 @@ export async function planTransactionAppend(
     if (!BUYING_METHODS.includes(method as (typeof BUYING_METHODS)[number])) {
       push(`PO "${id}": buying_method "${method}" is not one of ${BUYING_METHODS.join(", ")}.`);
     }
-    if (method === "rfq") {
-      if (!sourcing) push(`PO "${id}": buying_method "rfq" requires a sourcing_event_id.`);
+    // Both sourced methods (rfq, tender) are competitive and carry their own
+    // sourcing event, responses and award; the non-competitive methods carry none.
+    if (isSourcedMethod(method)) {
+      if (!sourcing) push(`PO "${id}": buying_method "${method}" requires a sourcing_event_id.`);
       else {
         const ev = sourcingById.get(sourcing);
         const awarded = ev ? s(ev.awarded_response_id) : null;
@@ -524,7 +524,9 @@ export async function planTransactionAppend(
         }
       }
     } else if (sourcing) {
-      push(`PO "${id}": only buying_method "rfq" may reference a sourcing event.`);
+      push(
+        `PO "${id}": only a competitively sourced order (${SOURCED_METHODS.join(", ")}) may reference a sourcing event.`,
+      );
     }
     if (method === "call_off" && !framework) push(`PO "${id}": buying_method "call_off" requires a framework_id.`);
     if (method !== "call_off" && framework) push(`PO "${id}": only buying_method "call_off" may reference a framework.`);
@@ -556,21 +558,6 @@ export async function planTransactionAppend(
       push(`PO "${id}": period "${period}" does not match the order year of po_date (${orderYear}).`);
     }
     if (orderYear) periods.add(orderYear);
-  }
-
-  // 9. Solicitation type on the sourcing document. The column is OPTIONAL —
-  //    absent means rfq, matching the mapper and the database default — so only a
-  //    present-but-unknown value is an error. Checked identically on the
-  //    replace-all path (validateDataset) so the two cannot disagree.
-  //    ⚠️ NOT a buying-method conditional: a tender-sourced PO still carries
-  //    buying_method "rfq", so rule 6 above needs no widening for tender.
-  for (const [i, ev] of rowsOf("sourcing_events").entries()) {
-    const t = s(ev.solicitation_type);
-    if (t !== null && !SOLICITATION_TYPES.includes(t as SolicitationType)) {
-      push(
-        `Sourcing event "${str(ev.sourcing_event_id)}" (row ${i + 2}): solicitation_type "${t}" is not one of ${SOLICITATION_TYPES.join(", ")}.`,
-      );
-    }
   }
 
   return {

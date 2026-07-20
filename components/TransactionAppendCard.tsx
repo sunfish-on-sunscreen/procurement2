@@ -112,7 +112,8 @@ export function TransactionAppendCard() {
       </div>
       <p className="text-sm text-muted-foreground">
         Adds new purchase orders from the eight document sheets (requisitions through
-        payments), plus sourcing events and responses if any order is an RFQ. Each order
+        payments), plus sourcing events and responses if any order is competitively
+        sourced (an RFQ or a tender). Each order
         must arrive as a complete chain, its suppliers must already exist, and posted
         records are never overwritten — a re-uploaded id is rejected.
       </p>

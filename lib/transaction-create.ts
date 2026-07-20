@@ -103,17 +103,6 @@ export function isSourcedMethod(method: string): method is SourcedMethod {
   return (SOURCED_METHODS as readonly string[]).includes(method);
 }
 
-/**
- * @deprecated Superseded by the tender buying method — the distinction now lives
- * in BUYING_METHODS, not in a type on the sourcing document. Retained for one
- * commit only so the import path still compiles; both it and its remaining
- * consumers in dataset-import / dataset-append are removed in the next phase,
- * along with the SourcingEvent.solicitationType column itself.
- */
-export const SOLICITATION_TYPES = ["rfq", "tender"] as const;
-/** @deprecated see {@link SOLICITATION_TYPES}. */
-export type SolicitationType = (typeof SOLICITATION_TYPES)[number];
-
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isoDate = z.string().regex(DATE_RE, "Dates must be YYYY-MM-DD");
 
