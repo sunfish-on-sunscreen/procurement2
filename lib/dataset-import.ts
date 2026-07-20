@@ -143,12 +143,24 @@ function readSheet(wb: xlsx.WorkBook, name: string): Row[] {
   return xlsx.utils.sheet_to_json<Row>(sheet, { defval: null });
 }
 
+/**
+ * Parse a SUBSET of sheets from workbook bytes. Throws if a requested sheet is
+ * missing. Used by the partial append uploads, which carry only the sheets their
+ * mode needs.
+ */
+export function parseWorkbookSheets<T extends SheetName>(
+  data: Uint8Array,
+  names: readonly T[],
+): Record<T, Row[]> {
+  const wb = xlsx.read(data, { cellDates: true });
+  const out = {} as Record<T, Row[]>;
+  for (const name of names) out[name] = readSheet(wb, name);
+  return out;
+}
+
 /** Parse all 12 sheets from workbook bytes. Throws if a sheet is missing. */
 export function parseWorkbook(data: Uint8Array): Dataset {
-  const wb = xlsx.read(data, { cellDates: true });
-  const out = {} as Dataset;
-  for (const name of SHEET_NAMES) out[name] = readSheet(wb, name);
-  return out;
+  return parseWorkbookSheets(data, SHEET_NAMES);
 }
 
 // --- validate --------------------------------------------------------------

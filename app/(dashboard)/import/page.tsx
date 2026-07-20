@@ -4,6 +4,7 @@ import { nextSupplierId } from "@/lib/supplier-import";
 import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
 import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
+import { SupplierAppendCard } from "@/components/SupplierAppendCard";
 import { CorrectionCard } from "@/components/CorrectionCard";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -116,6 +117,8 @@ export default async function ImportPage() {
       </div>
 
       <DatasetImportCard />
+
+      <SupplierAppendCard />
 
       <RecordPurchaseCard
         suppliers={suppliers
