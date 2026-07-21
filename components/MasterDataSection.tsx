@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ChevronRight, Plus, X } from "lucide-react";
 import { AddSupplierCard } from "@/components/AddSupplierCard";
@@ -87,6 +87,16 @@ export function MasterDataSection({
 }) {
   const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
+
+  /**
+   * Set when the correction form hands an order over — a locked field there means
+   * "this cannot be corrected", and voiding is the tool that can. Arriving with it
+   * expands the purchase_orders table, narrows it to that one order and highlights
+   * the row, so the order is already in front of the user rather than something
+   * they have to go and find.
+   */
+  const focusPo = useSearchParams().get("focusPo");
+  const clearFocus = () => router.replace("/import", { scroll: false });
 
   // Void confirmation state, shared because only one dialog exists at a time.
   const [impact, setImpact] = useState<VoidImpact | null>(null);
@@ -197,6 +207,7 @@ export function MasterDataSection({
             label={config.label}
             table={config.table}
             count={counts[config.table] ?? 0}
+            forceOpen={!!focusPo && !!config.voidable}
           >
             {config.table === "suppliers" ? (
               // The roster itself — editable, with its own filters and actions.
@@ -208,6 +219,8 @@ export function MasterDataSection({
                 periods={periods}
                 reloadKey={config.voidable ? voidVersion : 0}
                 onVoid={config.voidable ? openVoidDialog : undefined}
+                focusPo={config.voidable ? focusPo : null}
+                onClearFocus={clearFocus}
               />
             )}
           </CollapsibleTable>
@@ -362,15 +375,34 @@ function CollapsibleTable({
   label,
   table,
   count,
+  forceOpen = false,
   children,
 }: {
   label: string;
   table: string;
   count: number;
+  /** Opened from outside — e.g. arriving with ?focusPo= from the correction form. */
+  forceOpen?: boolean;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const [hasOpened, setHasOpened] = useState(false);
+  // ⚠️ Seeded FROM forceOpen, not false. Arriving directly on a URL that already
+  // carries ?focusPo= mounts this with forceOpen already true, and the transition
+  // below only fires on a CHANGE — so initialising to false would leave the table
+  // shut on exactly the deep link that asked for it open.
+  const [open, setOpen] = useState(forceOpen);
+  const [hasOpened, setHasOpened] = useState(forceOpen);
+
+  // Handles the other direction: already mounted and collapsed when the correction
+  // form hands an order over. Render-time transition rather than an effect, matching
+  // the pattern used elsewhere in the repo. The user can still collapse it again.
+  const [prevForce, setPrevForce] = useState(forceOpen);
+  if (forceOpen !== prevForce) {
+    setPrevForce(forceOpen);
+    if (forceOpen) {
+      setOpen(true);
+      setHasOpened(true);
+    }
+  }
 
   return (
     // A row in a list, not a card: a single divider separates it from the next.
@@ -412,15 +444,30 @@ function BrowserTableSection({
   periods,
   reloadKey,
   onVoid,
+  focusPo = null,
+  onClearFocus,
 }: {
   config: TableConfig;
   supplierOptions: ComboOption[];
   periods: string[];
   reloadKey: number;
   onVoid?: (poId: string) => void;
+  /** Transient single-order filter, set by arriving from the correction form. */
+  focusPo?: string | null;
+  onClearFocus?: () => void;
 }) {
   const [fSupplier, setFSupplier] = useState("");
   const [fPeriod, setFPeriod] = useState("all");
+
+  // The amber highlight is an attention cue, not a state: it has done its job the
+  // moment the user's pointer reaches the row, so it clears on first hover.
+  const [highlightSpent, setHighlightSpent] = useState(false);
+  const [prevFocus, setPrevFocus] = useState(focusPo);
+  if (focusPo !== prevFocus) {
+    setPrevFocus(focusPo);
+    setHighlightSpent(false);
+  }
+  const highlightActive = !!focusPo && !highlightSpent;
 
   // Keyed result state rather than a loading flag set inside the effect — the same
   // shape SpendOverviewClient uses, so nothing sets state synchronously on mount.
@@ -457,12 +504,24 @@ function BrowserTableSection({
 
   const filtered = useMemo(() => {
     if (!rows) return [];
+    // ⚠️ The focus filter REPLACES the others rather than composing with them: it
+    // was handed a specific order to show, and a supplier or period filter left
+    // over from earlier could hide the very row the user was sent here to see.
+    if (focusPo) return rows.filter((r) => r.id === focusPo);
     return rows.filter(
       (r) =>
         (fSupplier === "" || r._supplierId === fSupplier) &&
         (fPeriod === "all" || r._period === fPeriod),
     );
-  }, [rows, fSupplier, fPeriod]);
+  }, [rows, fSupplier, fPeriod, focusPo]);
+
+  // Bring the handed-over row into view once its rows are on screen. No state is
+  // set here, so this stays clear of the set-state-in-effect rule.
+  useEffect(() => {
+    if (!focusPo || !rows) return;
+    const el = document.querySelector(`[data-po-row="${CSS.escape(focusPo)}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusPo, rows]);
 
   const { page, setPage, pageCount, start, pageItems } = usePagination(
     filtered,
@@ -475,7 +534,27 @@ function BrowserTableSection({
   return (
     <div className="flex flex-col gap-3">
       {/* No heading here — the collapsible shell already names the table. */}
-      <div className="flex flex-wrap items-end gap-4">
+      {focusPo && (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-3 text-sm"
+          style={{
+            borderColor: "color-mix(in srgb, var(--warning) 45%, transparent)",
+            backgroundColor: "color-mix(in srgb, var(--warning) 8%, transparent)",
+          }}
+        >
+          <span>
+            Showing one order — <span className="font-mono text-xs">{focusPo}</span>, sent here
+            from the correction form because those fields cannot be corrected.
+          </span>
+          <span className="flex-1" />
+          <Button variant="outline" size="sm" onClick={onClearFocus}>
+            Clear filter
+          </Button>
+        </div>
+      )}
+
+      {/* The ordinary filters are meaningless while a single order is pinned. */}
+      <div className={`flex flex-wrap items-end gap-4 ${focusPo ? "hidden" : ""}`}>
         {config.supplierFilter && (
           <div className="flex min-w-[220px] flex-col gap-1.5">
             <Label htmlFor={`db-${config.table}-supplier`}>Supplier</Label>
@@ -557,9 +636,27 @@ function BrowserTableSection({
                     </TableCell>
                   </TableRow>
                 ) : (
-                  pageItems.map((r) => (
+                  pageItems.map((r) => {
+                    const isFocused = highlightActive && r.id === focusPo;
+                    return (
                     // A voided row stays listed but reads as withdrawn.
-                    <TableRow key={r.id} className={r._voided ? "opacity-55" : undefined}>
+                    <TableRow
+                      key={r.id}
+                      data-po-row={config.voidable ? r.id : undefined}
+                      className={r._voided ? "opacity-55" : undefined}
+                      // Amber marks WHICH row, so it is spent as soon as the pointer
+                      // arrives — by then the user has found it.
+                      onMouseEnter={() => highlightActive && setHighlightSpent(true)}
+                      style={
+                        isFocused
+                          ? {
+                              backgroundColor:
+                                "color-mix(in srgb, var(--warning) 18%, transparent)",
+                              transition: "background-color 400ms ease-out",
+                            }
+                          : { transition: "background-color 400ms ease-out" }
+                      }
+                    >
                       {config.columns.map((c, i) => (
                         <TableCell key={c.key} className={cellClass(c)}>
                           {renderCell(r.cells[c.key], c)}
@@ -586,7 +683,8 @@ function BrowserTableSection({
                         </TableCell>
                       )}
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

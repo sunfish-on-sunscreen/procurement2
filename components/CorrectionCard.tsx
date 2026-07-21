@@ -328,6 +328,18 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
 
   const selectedPo = poId ? poById.get(poId) ?? null : null;
 
+  /**
+   * Hand this order over to the data browser for voiding. The locked fields have no
+   * correction path — a wrong supplier or date is not an adjustment, it is an order
+   * that should not stand — so the offer is made where the user actually hits the
+   * wall, on the field they just tried to edit.
+   */
+  function handOverToVoid() {
+    if (!chain) return;
+    setOpen(false);
+    router.push(`/import?focusPo=${encodeURIComponent(chain.po.id)}`, { scroll: false });
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -551,37 +563,38 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
 
                 {/* Supplier + method */}
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <LockedField label="Supplier" value={chain.po.supplierName} />
+                  <LockedField label="Supplier" value={chain.po.supplierName} onVoidHint={handOverToVoid} />
                   <LockedField
                     label="Buying method"
                     value={METHOD_LABEL[chain.po.buyingMethod] ?? chain.po.buyingMethod}
+                  onVoidHint={handOverToVoid}
                   />
                 </div>
                 {chain.po.frameworkId && (
-                  <LockedField label="Framework agreement" value={chain.po.frameworkId} />
+                  <LockedField label="Framework agreement" value={chain.po.frameworkId} onVoidHint={handOverToVoid} />
                 )}
                 {chain.po.justification && (
-                  <LockedField label="Justification" value={chain.po.justification} />
+                  <LockedField label="Justification" value={chain.po.justification} onVoidHint={handOverToVoid} />
                 )}
 
                 {/* Requisition + logistics */}
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <LockedField label="Requester" value={chain.po.requester} />
-                  <LockedField label="Department" value={chain.po.department} />
-                  <LockedField label="Payment terms" value={chain.po.paymentTerms} />
-                  <LockedField label="Supplier invoice no." value={chain.po.supplierInvoiceNo} />
-                  <LockedField label="Complaints" value={String(chain.po.complaintCount)} />
+                  <LockedField label="Requester" value={chain.po.requester} onVoidHint={handOverToVoid} />
+                  <LockedField label="Department" value={chain.po.department} onVoidHint={handOverToVoid} />
+                  <LockedField label="Payment terms" value={chain.po.paymentTerms} onVoidHint={handOverToVoid} />
+                  <LockedField label="Supplier invoice no." value={chain.po.supplierInvoiceNo} onVoidHint={handOverToVoid} />
+                  <LockedField label="Complaints" value={String(chain.po.complaintCount)} onVoidHint={handOverToVoid} />
                 </div>
 
                 {/* Dates */}
                 <div>
                   <p className="mb-2 text-sm font-medium">Document dates</p>
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <LockedField label="Requisition" value={chain.po.dates.pr} />
-                    <LockedField label="PO" value={chain.po.dates.po} />
-                    <LockedField label="Promised delivery" value={chain.po.dates.promised} />
-                    <LockedField label="Invoice" value={chain.po.dates.invoice} />
-                    <LockedField label="Payment" value={chain.po.dates.payment} />
+                    <LockedField label="Requisition" value={chain.po.dates.pr} onVoidHint={handOverToVoid} />
+                    <LockedField label="PO" value={chain.po.dates.po} onVoidHint={handOverToVoid} />
+                    <LockedField label="Promised delivery" value={chain.po.dates.promised} onVoidHint={handOverToVoid} />
+                    <LockedField label="Invoice" value={chain.po.dates.invoice} onVoidHint={handOverToVoid} />
+                    <LockedField label="Payment" value={chain.po.dates.payment} onVoidHint={handOverToVoid} />
                   </div>
                 </div>
 
@@ -611,10 +624,10 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
                           </div>
                           <div className="grid gap-3 sm:grid-cols-12">
                             <div className="sm:col-span-3">
-                              <LockedField label="Category" value={l.category} />
+                              <LockedField label="Category" value={l.category} onVoidHint={handOverToVoid} />
                             </div>
                             <div className="sm:col-span-2">
-                              <LockedField label="Unit" value={l.unit} />
+                              <LockedField label="Unit" value={l.unit} onVoidHint={handOverToVoid} />
                             </div>
                             <div className="sm:col-span-2">
                               <EditableField
@@ -627,7 +640,7 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
                             </div>
                             {/* ⚠️ PO price is NOT correctable — only a void fixes it. */}
                             <div className="sm:col-span-2">
-                              <LockedField label="PO price" value={n2(l.unitPriceUsd)} />
+                              <LockedField label="PO price" value={n2(l.unitPriceUsd)} onVoidHint={handOverToVoid} />
                             </div>
                             <div className="sm:col-span-3">
                               <EditableField
@@ -641,7 +654,7 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
                           </div>
                           <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-12">
                             <div className="sm:col-span-3">
-                              <LockedField label="Billed qty" value={n2(l.billedQty)} />
+                              <LockedField label="Billed qty" value={n2(l.billedQty)} onVoidHint={handOverToVoid} />
                             </div>
                             {/* ⚠️ DELIBERATE DIVERGENCE from record-purchase, which
                                 records defects per receipt: a defect correction is per
@@ -676,9 +689,9 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
                       {chain.receipts.map((r) => (
                         <div key={r.id} className="rounded-lg border p-3">
                           <div className="grid gap-3 sm:grid-cols-3">
-                            <LockedField label="Receipt date" value={r.receiptDate} />
-                            <LockedField label="Receiving site" value={r.site} />
-                            <LockedField label="Received by" value={r.receivedBy} />
+                            <LockedField label="Receipt date" value={r.receiptDate} onVoidHint={handOverToVoid} />
+                            <LockedField label="Receiving site" value={r.site} onVoidHint={handOverToVoid} />
+                            <LockedField label="Received by" value={r.receivedBy} onVoidHint={handOverToVoid} />
                           </div>
                         </div>
                       ))}
@@ -763,9 +776,18 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
  * it occupies the same space as its record-purchase counterpart — the mirror only
  * works if the locked fields look like fields, not like text.
  */
-function LockedField({ label, value }: { label: string; value: string | null }) {
+function LockedField({
+  label,
+  value,
+  onVoidHint,
+}: {
+  label: string;
+  value: string | null;
+  /** Offers the void route on hover — these fields have no correction path at all. */
+  onVoidHint?: () => void;
+}) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="group relative flex flex-col gap-1.5">
       <Label className="text-muted-foreground">{label}</Label>
       <Input
         value={value ?? "—"}
@@ -774,6 +796,22 @@ function LockedField({ label, value }: { label: string; value: string | null }) 
         data-locked="true"
         className="cursor-not-allowed bg-muted/60 text-muted-foreground"
       />
+      {onVoidHint && (
+        // Absolutely positioned so appearing on hover shifts nothing in the grid.
+        <button
+          type="button"
+          onClick={onVoidHint}
+          data-void-hint="true"
+          className="absolute left-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded-md border px-2 py-1 text-[11px] shadow-sm group-hover:block group-focus-within:block"
+          style={{
+            borderColor: "color-mix(in srgb, var(--warning) 45%, transparent)",
+            backgroundColor: "color-mix(in srgb, var(--warning) 12%, var(--background))",
+            color: "var(--warning)",
+          }}
+        >
+          Want to void this purchase instead?
+        </button>
+      )}
     </div>
   );
 }
