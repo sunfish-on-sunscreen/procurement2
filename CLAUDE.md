@@ -258,6 +258,75 @@ cookie → clean 401, same as the other admin routes).
     to ~1s, so a chain of short sleeps blows the 30s tool timeout — split UI checks
     into separate calls. Same root cause as the HIDDEN-TAB notes elsewhere in this file.
 
+**VOID A PURCHASE ORDER (`PurchaseOrderVoid`).** 2026-07-21. Marks an order as entered
+in ERROR — wrong supplier, wrong buying method, any posted field a CORRECTION cannot
+reach. The order and its whole chain (PR → sourcing → PO → GRN → invoice → payment)
+drop out of EVERY analytic; nothing is deleted and the rows stay browsable. The user
+then re-records a correct order via the record-purchase dialog.
+
+- ⚠️ **APPEND, NEVER MUTATE — the PO row is NOT touched.** Voiding inserts a
+  `PurchaseOrderVoid` row `{poId PK/FK, reason, voidedBy, voidedAt}`. **The
+  immutability triggers are UNTOUCHED and there is NO bypass flag** — verified after
+  shipping: all 10 triggers present, a `PurchaseOrder` status UPDATE still rejected,
+  and all 647 statuses still read `closed`. ⚠️ **`PurchaseOrder.status` is NOT the void
+  mechanism** — an earlier design flipped it to `'voided'`, which was rejected because
+  it would have required weakening `block_posted_update()`. Same discipline as
+  corrections: posted documents are never edited, only appended to.
+- **The void row IS the audit record** (who / when / why) — there is no separate log
+  table, and the restore dialog surfaces the original reason. **Un-void = a plain
+  DELETE of that row** (no trigger blocks DELETE). Both directions recompute all periods.
+- ⚠️ **VOIDED-NESS = `NOT EXISTS (SELECT 1 FROM "PurchaseOrderVoid" v WHERE v."poId" =
+  po.id)`. FOUR SITES CARRY IT. Miss one and a voided order still counts:**
+  1. **The `EnrichedPurchase` view's `FROM "PurchaseOrder"`** — the primary chokepoint,
+     covering NINE consumers: `seed_compute` (every SupplierMetric), `compute_analyses`
+     `load_frames` (**all six analyses**), `getEnrichedPurchases` + its 4 callers
+     (cycle-breakdown, stage-occupancy, cycle supplier-detail, spend-detail), and the
+     two raw spend queries (`spend-overview`, `spend-detail` rank).
+  2. ⚠️ **`python/compute_analyses.py` `load_po_lines`** — raw `PoLine JOIN
+     PurchaseOrder`, feeds Kraljic **`cost_premium`**. **THE EASY ONE TO MISS**: inside
+     Python, raw SQL, bypasses the view. A miss leaves a voided order still moving
+     supply risk and quadrant assignment while absent from every other number.
+  3. **`lib/po-lines.ts` `getPoLines`** — seeded UNCONDITIONALLY into `conds` so it
+     survives every filter combination. Feeds spend-by-item, evolution product-mix,
+     report supplier brief.
+  4. **`lib/suppliers.ts` `getSupplierDirectory`** — `purchaseOrder.groupBy` all-time
+     `num_pos` (`where: { voidRecord: { is: null } }`).
+- **What deliberately does NOT filter:** the **data browser** (all 12 branches) and the
+  **import-page header + picker counts**. A voided order MUST stay visible — that is the
+  point of voiding rather than deleting. `purchase_orders` rows carry `_voided` and
+  render muted + a `voided` chip with the action flipped to Un-void.
+- ⚠️ **FK is `ON DELETE CASCADE`, deliberately.** A replace-all wipes `PurchaseOrder`
+  wholesale; **RESTRICT would make ANY replace-all FAIL while a void existed**. A void
+  refers to one specific posted order, so once wiped it cannot be reattached (the same
+  reasoning the importer applies to corrections). The importer counts them BEFORE the
+  wipe and returns **`audit.voidsDropped`**, so the loss is named, not silent.
+- **Two guards:** `/api/corrections/lines` refuses a voided PO (**409**, "restore it
+  first") — the picker already omits it via the view, this catches a stale client; and
+  the **record-purchase vocabularies** (categories/units/sites/receivers/departments/
+  requesters/items) exclude voided orders, since a void usually means the values were
+  typed wrong and should not be suggested again.
+- **⚠️ EDGE CASE — the single-PO-supplier ranking gap does NOT fire on a void.** Voiding
+  a supplier's ONLY order drops its `SupplierMetric` row (151→150) with no error. The
+  known gap ("supplier has POs but no metric row → dropped from the ranking while the
+  KPI still counts its spend") needs the two sides to DISAGREE; a void removes the
+  supplier from BOTH together. Measured: KPI == ranking sum, difference **0**, all four
+  analytics pages 200. *(The gap still fires via its original trigger — a manually added
+  supplier — unchanged.)* ⚠️ **The period-drop case** (void a period's last PO →
+  `seed_compute` drops the period) is DOCUMENTED, NOT TESTED — it needs 157-240 voids.
+- **⚠️ VERIFIED (2026-07-21).** **Inertness first**: with ZERO voids a full recompute is
+  byte-identical — all 18 per-period analyses, SupplierMetric md5, every figure. Then
+  voiding PO-2024-00149 ($51,842.00, 2024, match fail) moved spend to exactly
+  **$707,635,474.20**, count 647→646, 2024 240→239, match failures 81→80 (passes
+  untouched), and changed **all six 2024 analyses** while leaving all twelve 2025/2026
+  ones identical — Kraljic moving is the specific proof site 2 works. Raw
+  `PurchaseOrder` rows stayed 647 throughout. Un-void restored everything
+  byte-identically. tsc + ESLint clean.
+- ⚠️ **GOTCHA — RESTART THE DEV SERVER AFTER `prisma generate`.** Adding the model
+  mid-session left the RUNNING server holding a STALE Prisma client, so the first void
+  returned an **empty 500** (`Unknown field voidRecord`). `tsc` passed the whole time —
+  it reads the regenerated types from disk, while only the running process was stale.
+  Restart one server (never two — that tears `.next`).
+
 ⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
 because proven byte-identical on existing data AND semantically required under
 corrections: `dom_cat` now aggregates per category then takes the argmax (a reversed line
