@@ -97,6 +97,156 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tab
       break;
     }
 
+    case "frameworks": {
+      const recs = await prisma.framework.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          supplierId: true,
+          title: true,
+          category: true,
+          startDate: true,
+          endDate: true,
+          status: true,
+          supplier: { select: { supplierName: true } },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          framework_id: r.id,
+          supplier_id: r.supplierId,
+          title: r.title,
+          category: r.category,
+          start_date: d(r.startDate),
+          end_date: d(r.endDate),
+          status: r.status,
+        },
+        _supplierId: r.supplierId,
+        _supplierName: r.supplier.supplierName,
+        // A framework's own validity window is not a reporting period.
+        _period: null,
+      }));
+      break;
+    }
+
+    case "requisitions": {
+      const recs = await prisma.requisition.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          prDate: true,
+          requester: true,
+          department: true,
+          category: true,
+          needByDate: true,
+          estimatedValueUsd: true,
+          status: true,
+          // 1:1 with its order, so `take: 1` loses nothing.
+          purchaseOrders: {
+            select: { supplierId: true, period: true, supplier: { select: { supplierName: true } } },
+            take: 1,
+          },
+        },
+      });
+      rows = recs.map((r) => {
+        const po = r.purchaseOrders[0] ?? null;
+        return {
+          id: r.id,
+          cells: {
+            pr_id: r.id,
+            pr_date: d(r.prDate),
+            requester: r.requester,
+            department: r.department,
+            category: r.category,
+            need_by_date: d(r.needByDate),
+            estimated_value_usd: r.estimatedValueUsd,
+            status: r.status,
+          },
+          _supplierId: po?.supplierId ?? null,
+          _supplierName: po?.supplier.supplierName ?? null,
+          _period: po?.period ?? null,
+        };
+      });
+      break;
+    }
+
+    case "sourcing_events": {
+      const recs = await prisma.sourcingEvent.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          prId: true,
+          issueDate: true,
+          closeDate: true,
+          numSuppliersInvited: true,
+          awardedSupplierId: true,
+          awardedResponseId: true,
+          purchaseOrders: {
+            select: { supplierId: true, period: true, supplier: { select: { supplierName: true } } },
+            take: 1,
+          },
+        },
+      });
+      rows = recs.map((r) => {
+        const po = r.purchaseOrders[0] ?? null;
+        return {
+          id: r.id,
+          cells: {
+            sourcing_event_id: r.id,
+            pr_id: r.prId,
+            issue_date: d(r.issueDate),
+            close_date: d(r.closeDate),
+            num_suppliers_invited: r.numSuppliersInvited,
+            awarded_supplier_id: r.awardedSupplierId,
+            awarded_response_id: r.awardedResponseId,
+          },
+          // Resolved through the PO so every table shares one anchor; identical to
+          // awardedSupplierId in the data, but non-null by construction.
+          _supplierId: po?.supplierId ?? null,
+          _supplierName: po?.supplier.supplierName ?? null,
+          _period: po?.period ?? null,
+        };
+      });
+      break;
+    }
+
+    case "responses": {
+      const recs = await prisma.response.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          sourcingEventId: true,
+          supplierId: true,
+          quotedUnitPriceUsd: true,
+          quotedLeadTimeDays: true,
+          submittedDate: true,
+          isAwarded: true,
+          supplier: { select: { supplierName: true } },
+          sourcingEvent: { select: { purchaseOrders: { select: { period: true }, take: 1 } } },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          response_id: r.id,
+          sourcing_event_id: r.sourcingEventId,
+          supplier_id: r.supplierId,
+          quoted_unit_price_usd: r.quotedUnitPriceUsd,
+          quoted_lead_time_days: r.quotedLeadTimeDays,
+          submitted_date: d(r.submittedDate),
+          is_awarded: r.isAwarded,
+        },
+        // ⚠️ The BIDDER, not the awarded supplier — a losing bid still belongs to
+        // the supplier that made it, which is what "filter by supplier" should mean
+        // on this table.
+        _supplierId: r.supplierId,
+        _supplierName: r.supplier.supplierName,
+        _period: r.sourcingEvent.purchaseOrders[0]?.period ?? null,
+      }));
+      break;
+    }
+
     case "purchase_orders": {
       const recs = await prisma.purchaseOrder.findMany({
         orderBy: { id: "asc" },
@@ -137,6 +287,178 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tab
         _supplierId: r.supplierId,
         _supplierName: r.supplier.supplierName,
         _period: r.period,
+      }));
+      break;
+    }
+
+    case "po_lines": {
+      const recs = await prisma.poLine.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          poId: true,
+          itemName: true,
+          category: true,
+          unit: true,
+          quantityOrdered: true,
+          unitPriceUsd: true,
+          needByDate: true,
+          correctsLineId: true,
+          po: { select: { supplierId: true, period: true, supplier: { select: { supplierName: true } } } },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          po_line_id: r.id,
+          po_id: r.poId,
+          item_name: r.itemName,
+          category: r.category,
+          unit: r.unit,
+          quantity_ordered: r.quantityOrdered,
+          unit_price_usd: r.unitPriceUsd,
+          need_by_date: d(r.needByDate),
+          corrects_line_id: r.correctsLineId,
+        },
+        _supplierId: r.po.supplierId,
+        _supplierName: r.po.supplier.supplierName,
+        _period: r.po.period,
+      }));
+      break;
+    }
+
+    case "goods_receipts": {
+      const recs = await prisma.goodsReceipt.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          poId: true,
+          receiptDate: true,
+          receivedBy: true,
+          site: true,
+          status: true,
+          po: { select: { supplierId: true, period: true, supplier: { select: { supplierName: true } } } },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          grn_id: r.id,
+          po_id: r.poId,
+          receipt_date: d(r.receiptDate),
+          received_by: r.receivedBy,
+          site: r.site,
+          status: r.status,
+        },
+        _supplierId: r.po.supplierId,
+        _supplierName: r.po.supplier.supplierName,
+        _period: r.po.period,
+      }));
+      break;
+    }
+
+    case "grn_lines": {
+      const recs = await prisma.grnLine.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          grnId: true,
+          poLineId: true,
+          quantityReceived: true,
+          quantityRejected: true,
+          defectCount: true,
+          correctsLineId: true,
+          // Two hops: the receipt line reaches the anchor through its receipt.
+          goodsReceipt: {
+            select: {
+              po: { select: { supplierId: true, period: true, supplier: { select: { supplierName: true } } } },
+            },
+          },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          grn_line_id: r.id,
+          grn_id: r.grnId,
+          po_line_id: r.poLineId,
+          quantity_received: r.quantityReceived,
+          quantity_rejected: r.quantityRejected,
+          defect_count: r.defectCount,
+          corrects_line_id: r.correctsLineId,
+        },
+        _supplierId: r.goodsReceipt.po.supplierId,
+        _supplierName: r.goodsReceipt.po.supplier.supplierName,
+        _period: r.goodsReceipt.po.period,
+      }));
+      break;
+    }
+
+    case "invoices": {
+      const recs = await prisma.invoice.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          poId: true,
+          supplierId: true,
+          supplierInvoiceNo: true,
+          invoiceDate: true,
+          totalAmountUsd: true,
+          status: true,
+          supplier: { select: { supplierName: true } },
+          po: { select: { period: true } },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          invoice_id: r.id,
+          po_id: r.poId,
+          supplier_id: r.supplierId,
+          supplier_invoice_no: r.supplierInvoiceNo,
+          invoice_date: d(r.invoiceDate),
+          total_amount_usd: r.totalAmountUsd,
+          status: r.status,
+        },
+        _supplierId: r.supplierId,
+        _supplierName: r.supplier.supplierName,
+        _period: r.po.period,
+      }));
+      break;
+    }
+
+    case "invoice_lines": {
+      const recs = await prisma.invoiceLine.findMany({
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          invoiceId: true,
+          poLineId: true,
+          quantityBilled: true,
+          unitPriceUsd: true,
+          correctsLineId: true,
+          invoice: {
+            select: {
+              supplierId: true,
+              supplier: { select: { supplierName: true } },
+              po: { select: { period: true } },
+            },
+          },
+        },
+      });
+      rows = recs.map((r) => ({
+        id: r.id,
+        cells: {
+          invoice_line_id: r.id,
+          invoice_id: r.invoiceId,
+          po_line_id: r.poLineId,
+          quantity_billed: r.quantityBilled,
+          unit_price_usd: r.unitPriceUsd,
+          corrects_line_id: r.correctsLineId,
+        },
+        _supplierId: r.invoice.supplierId,
+        _supplierName: r.invoice.supplier.supplierName,
+        _period: r.invoice.po.period,
       }));
       break;
     }
