@@ -35,6 +35,12 @@ export type TableConfig = {
    */
   supplierFilter: boolean;
   periodFilter: boolean;
+  /**
+   * Renders a trailing Actions column with void / un-void. Only purchase_orders:
+   * a void is defined at PO grain, and voiding one excludes its whole chain, so
+   * offering the action on a line or receipt would misrepresent what it does.
+   */
+  voidable?: boolean;
 };
 
 /**
@@ -49,6 +55,12 @@ export type BrowserRow = {
   _supplierId: string | null;
   _supplierName: string | null;
   _period: string | null;
+  /**
+   * Set only by voidable tables. A voided order is deliberately still listed here —
+   * excluded from analytics, never deleted — so the browser is where its state is
+   * both visible and reversible.
+   */
+  _voided?: boolean;
 };
 
 export type BrowserResponse = { rows: BrowserRow[] };
@@ -163,6 +175,7 @@ export const TABLE_CONFIGS: TableConfig[] = [
     // table's period is resolved by joining back to this one.
     supplierFilter: true,
     periodFilter: true,
+    voidable: true,
     columns: [
       { key: "po_id", type: "id" },
       { key: "pr_id", type: "id" },

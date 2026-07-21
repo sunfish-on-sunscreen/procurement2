@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { readSession } from "@/lib/auth";
 import { recomputeAllPeriods } from "@/lib/recompute";
 import { z } from "zod";
@@ -26,6 +27,63 @@ const VoidBody = z.object({
  * Both directions recompute every period, because a void changes the population
  * every analysis is computed over.
  */
+/**
+ * What voiding this order would actually exclude — the value leaving the totals
+ * plus the size of the chain. Fetched when the confirmation dialog opens rather
+ * than shipped with all 647 browser rows, since it is only ever needed one at a
+ * time. Read-only.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { session, stale } = await readSession();
+  if (stale) {
+    return NextResponse.json(
+      { error: "Your session is no longer valid — sign out and sign in again." },
+      { status: 401 },
+    );
+  }
+  if (!session || session.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  const { id } = await params;
+
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      period: true,
+      supplier: { select: { supplierName: true } },
+      voidRecord: { select: { reason: true, voidedAt: true } },
+      _count: { select: { poLines: true, goodsReceipts: true, invoices: true } },
+      invoices: { select: { _count: { select: { payments: true } } } },
+    },
+  });
+  if (!po) {
+    return NextResponse.json({ error: `Purchase order ${id} not found.` }, { status: 404 });
+  }
+
+  // Spend is read from the view, so a voided order reports 0 — it has already left
+  // the totals. The dialog only needs the figure when voiding, and at that moment
+  // the order is still live.
+  const [row] = await prisma.$queryRaw<{ total: number | null }[]>(
+    Prisma.sql`SELECT "totalValueUsd"::float8 AS total FROM "EnrichedPurchase" WHERE "poId" = ${id}`,
+  );
+
+  return NextResponse.json({
+    poId: po.id,
+    supplierName: po.supplier.supplierName,
+    period: po.period,
+    totalValueUsd: row?.total ?? null,
+    voided: po.voidRecord !== null,
+    voidReason: po.voidRecord?.reason ?? null,
+    chain: {
+      lines: po._count.poLines,
+      receipts: po._count.goodsReceipts,
+      invoices: po._count.invoices,
+      payments: po.invoices.reduce((n, i) => n + i._count.payments, 0),
+    },
+  });
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { session, stale } = await readSession();
   if (stale) {

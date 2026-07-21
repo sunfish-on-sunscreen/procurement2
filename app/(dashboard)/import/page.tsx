@@ -85,13 +85,30 @@ export default async function ImportPage() {
       select: { id: true, supplierId: true, title: true },
       orderBy: { id: "asc" },
     }),
-    prisma.poLine.findMany({ select: { category: true, unit: true }, distinct: ["category", "unit"] }),
-    prisma.goodsReceipt.findMany({ select: { site: true, receivedBy: true }, distinct: ["site", "receivedBy"] }),
-    prisma.requisition.findMany({ select: { department: true, requester: true }, distinct: ["department", "requester"] }),
+    // ⚠️ Voided orders are excluded from every vocabulary below. A void usually means
+    // the order was entered wrong, so its item names, sites and requester spellings
+    // are exactly the values that should NOT be offered as suggestions next time.
+    prisma.poLine.findMany({
+      where: { po: { voidRecord: { is: null } } },
+      select: { category: true, unit: true },
+      distinct: ["category", "unit"],
+    }),
+    prisma.goodsReceipt.findMany({
+      where: { po: { voidRecord: { is: null } } },
+      select: { site: true, receivedBy: true },
+      distinct: ["site", "receivedBy"],
+    }),
+    prisma.requisition.findMany({
+      // Requisition is 1:1 with its order, so "has a non-voided PO" is exact.
+      where: { purchaseOrders: { some: { voidRecord: { is: null } } } },
+      select: { department: true, requester: true },
+      distinct: ["department", "requester"],
+    }),
     // Item vocabulary for the record-purchase form, carrying each item's supplier(s).
     // Item -> category and item -> unit are both strictly 1:1 in the data, so picking
     // an item determines both; the form auto-fills them.
     prisma.poLine.findMany({
+      where: { po: { voidRecord: { is: null } } },
       select: { itemName: true, category: true, unit: true, po: { select: { supplierId: true } } },
     }),
   ]);

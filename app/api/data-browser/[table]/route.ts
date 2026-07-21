@@ -265,6 +265,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tab
           status: true,
           period: true,
           supplier: { select: { supplierName: true } },
+          // Void state travels with the row so the browser can mute it and offer
+          // the reverse action. Voided orders are NOT filtered out here — staying
+          // visible is the whole point of voiding rather than deleting.
+          voidRecord: { select: { poId: true } },
         },
       });
       rows = recs.map((r) => ({
@@ -287,6 +291,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tab
         _supplierId: r.supplierId,
         _supplierName: r.supplier.supplierName,
         _period: r.period,
+        _voided: r.voidRecord !== null,
       }));
       break;
     }
