@@ -68,12 +68,21 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reactivate }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+        status?: string;
+      };
       if (res.ok && data.status) {
         toast.success(`${row.supplierName} is now ${data.status}.`);
         router.refresh();
       } else {
-        toast.error(data.error || "Could not change the supplier status.");
+        // The generic string is now only a last resort — for a response that carried
+        // no JSON at all (a crash, or a 404 from a torn build). Anything the server
+        // could explain, it explains, and `detail` carries the underlying cause.
+        toast.error(data.error || "Could not change the supplier status.", {
+          description: data.detail,
+        });
       }
     } catch {
       toast.error("Could not change the supplier status.");

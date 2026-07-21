@@ -7,23 +7,56 @@ import { sessionOptions, type SessionData } from "@/lib/session";
 export type { SessionData };
 
 /**
- * Reads the iron-session cookie and returns the session payload, or null if
- * the visitor is not signed in.
+ * Reads the iron-session cookie AND confirms the user it names still exists.
+ *
+ * ⚠️ The existence check is load-bearing, not defensive. The cookie outlives the
+ * database: `prisma db seed` recreates users with fresh cuids, so a browser signed
+ * in before a re-seed keeps presenting a `userId` that no longer resolves. Without
+ * this check such a session passes authorization (role is read from the cookie) and
+ * then fails deep inside a write, on any FK referencing `User` — e.g.
+ * `SupplierChangeLog.changedBy` — which surfaces as an unattributable 500 rather
+ * than "sign in again".
+ *
+ * `stale` distinguishes "never signed in" from "signed in as someone who is gone",
+ * so a route can say which. Costs one PK lookup per call.
+ *
+ * ⚠️ Deliberately does NOT clear the cookie: this runs in server components too,
+ * where mutating cookies throws. Callers surface the state; sign-in overwrites it.
  */
-export async function getSession(): Promise<SessionData | null> {
+export async function readSession(): Promise<{ session: SessionData | null; stale: boolean }> {
   const cookieStore = await cookies();
   const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
 
   if (!session.userId) {
-    return null;
+    return { session: null, stale: false };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true },
+  });
+  if (!user) {
+    return { session: null, stale: true };
   }
 
   return {
-    userId: session.userId,
-    email: session.email,
-    name: session.name,
-    role: session.role,
+    session: {
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      role: session.role,
+    },
+    stale: false,
   };
+}
+
+/**
+ * Reads the iron-session cookie and returns the session payload, or null if
+ * the visitor is not signed in (or is signed in as a user that no longer exists —
+ * see `readSession`).
+ */
+export async function getSession(): Promise<SessionData | null> {
+  return (await readSession()).session;
 }
 
 /**

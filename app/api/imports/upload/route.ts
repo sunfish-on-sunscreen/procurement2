@@ -11,6 +11,7 @@ import {
   type SheetName,
 } from "@/lib/dataset-import";
 import { recomputeAllPeriods } from "@/lib/recompute";
+import { changeLogRows } from "@/lib/supplier-audit";
 
 export const runtime = "nodejs";
 
@@ -123,6 +124,7 @@ export async function POST(request: Request) {
     counts: Record<SheetName, number>;
     auditKept: number;
     auditDropped: number;
+    auditCreated: number;
     correctionsDropped: number;
     importId: string;
   };
@@ -144,6 +146,13 @@ export async function POST(request: Request) {
 
         const priorLog = await tx.supplierChangeLog.findMany();
         await tx.supplierChangeLog.deleteMany();
+
+        // Captured BEFORE the wipe: which suppliers already existed. Anything the
+        // file introduces is a genuine creation and is logged below, so a supplier
+        // arriving by replace-all is recorded exactly as one arriving by append.
+        const priorSupplierIds = new Set(
+          (await tx.supplier.findMany({ select: { id: true } })).map((s) => s.id),
+        );
 
         // Corrections are statements about SPECIFIC posted lines. A replace-all
         // replaces those lines outright, so a correction against the old ledger has
@@ -180,6 +189,17 @@ export async function POST(request: Request) {
           await tx.supplierChangeLog.createMany({ data: keep });
         }
 
+        // A `create` entry for every supplier this file introduces. Same helper the
+        // manual add and the supplier append use, so the trail reads identically
+        // whichever path a supplier arrived by. Suppliers the file merely restates
+        // are not re-logged — their preserved history already covers them.
+        const createdIds = [...survivingIds].filter((sid) => !priorSupplierIds.has(sid));
+        if (createdIds.length > 0) {
+          await tx.supplierChangeLog.createMany({
+            data: createdIds.flatMap((sid) => changeLogRows(sid, session.userId, "create", [])),
+          });
+        }
+
         const latestPeriod = await tx.reportingPeriod.findFirst({
           where: { name: periods[periods.length - 1] },
           select: { id: true },
@@ -204,6 +224,7 @@ export async function POST(request: Request) {
           counts,
           auditKept: keep.length,
           auditDropped: priorLog.length - keep.length,
+          auditCreated: createdIds.length,
           correctionsDropped,
           importId: imp.id,
         };
@@ -247,7 +268,11 @@ export async function POST(request: Request) {
     success: true,
     counts: result.counts,
     periods,
-    audit: { preserved: result.auditKept, dropped: result.auditDropped },
+    audit: {
+      preserved: result.auditKept,
+      dropped: result.auditDropped,
+      created: result.auditCreated,
+    },
     correctionsDropped: result.correctionsDropped,
     recompute: recompute.summary,
   });

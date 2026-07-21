@@ -2230,8 +2230,14 @@ gates on `CycleTimeView`: `showAnomaliesTable`, `showMonthlyTrend`, `showStatGri
 
 > ⚠️ **CRUD REWORK (2026-07-13) — the four CRUD gotchas immediately below are
 > SUPERSEDED in the parts noted here; read this first.**
-> - **EDIT REMOVED (governance).** The supplier + purchase **PATCH handlers are
->   DELETED**, and the Pencil/edit buttons + edit dialogs are gone (both `Add*Card`s
+> - **EDIT REMOVED (governance).** ⚠️ **STALE for SUPPLIER as of the normalized model —
+>   `PATCH /api/suppliers/[id]` EXISTS, works, is fully audited (one
+>   `SupplierChangeLog` row per changed field) and recomputes. It simply has NO UI
+>   caller** (no `method: "PATCH"` anywhere; the roster offers only the status
+>   toggle), so supplier edit is reachable by API only. The PURCHASE PATCH is still
+>   gone. The rest of this bullet stands. Original note: the supplier + purchase
+>   **PATCH handlers are DELETED**, and the Pencil/edit buttons + edit dialogs are
+>   gone (both `Add*Card`s
 >   are now add-only). Defensible line: transactional records can be **added or
 >   removed, never silently ALTERED** (no in-place edit without an audit trail). So
 >   "Supplier/Purchase edit/delete recomputes…" (Batch A/B below) is now **DELETE-only**

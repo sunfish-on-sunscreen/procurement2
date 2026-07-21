@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { readSession } from "@/lib/auth";
 import { changeLogRows } from "@/lib/supplier-audit";
 import { z } from "zod";
 
@@ -25,7 +25,17 @@ const Body = z.object({ reactivate: z.boolean().default(false) });
  * that reasoning and you must add the recompute back.)
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getSession();
+  const { session, stale } = await readSession();
+  // A stale cookie is NOT a permissions problem, and saying "Forbidden" would send
+  // an admin hunting for a role issue. It also has to be caught here rather than at
+  // the write: `changedBy` FKs User, so a vanished user would fail the audit insert
+  // and roll the whole flip back.
+  if (stale) {
+    return NextResponse.json(
+      { error: "Your session is no longer valid — sign out and sign in again." },
+      { status: 401 },
+    );
+  }
   if (!session || session.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -54,14 +64,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ success: true, status: target, message: "Already in that state." });
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.supplier.update({ where: { id }, data: { status: target } });
-    await tx.supplierChangeLog.createMany({
-      data: changeLogRows(id, session.userId, target === "active" ? "reactivate" : "deactivate", [
-        { field: "status", oldValue: current.status, newValue: target },
-      ]),
+  // The flip and its audit row are one transaction, so a failed log leaves no
+  // unlogged status change. Without this catch any database error became an
+  // unattributable 500: the body was not this route's JSON shape, so the client's
+  // `res.json().catch(() => ({}))` produced no `error` field and the UI fell back to
+  // a generic "Could not change the supplier status" that named no cause.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.supplier.update({ where: { id }, data: { status: target } });
+      await tx.supplierChangeLog.createMany({
+        data: changeLogRows(id, session.userId, target === "active" ? "reactivate" : "deactivate", [
+          { field: "status", oldValue: current.status, newValue: target },
+        ]),
+      });
     });
-  });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      {
+        error: `${current.supplierName} was not changed — the update was rolled back.`,
+        detail,
+      },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({ success: true, id, name: current.supplierName, status: target });
 }
