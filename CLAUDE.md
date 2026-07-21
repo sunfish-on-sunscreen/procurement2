@@ -52,7 +52,8 @@ migration; all are live again:
 - **Corrections** — posted transactional records are IMMUTABLE (Postgres BEFORE UPDATE
   triggers on the 10 document tables reject any edit). A mistake is fixed by APPENDING a
   signed correction line linked via `correctsLineId`, with a `Correction` audit header.
-  Three kinds: quantity, price (credit + re-bill), defect.
+  Three kinds: quantity, price (credit + re-bill), defect. See "POST-CORRECTION FORM"
+  below for the dialog.
   - ⚠️ The triggers block **UPDATE only**. DELETE stays open for the importer, and
     `SET LOCAL app.bulk_import = 'on'` is the sanctioned escape hatch — load-bearing,
     because the correction FKs use `ON DELETE SET NULL` and referential actions fire
@@ -140,6 +141,55 @@ migration; all are live again:
   (0 items span two categories, 0 span two units). **Category is
   DERIVED-WITH-OVERRIDE, not read-only**, so a new item in a new category is possible; a
   created name matches nothing, so category/unit stay as typed.
+
+**POST-CORRECTION FORM (`CorrectionCard`).** 2026-07-21. Rebuilt on the record-purchase
+patterns — form only, no analytics/compute/schema/migration change, and the correction
+backend (`lib/corrections.ts`, `POST /api/corrections`) is UNTOUCHED.
+
+- **PO picker = `TypeableCombobox`, reused as-is** (was: type an exact PO id + click
+  "Find"). ⚠️ **`creatable` is OFF** — you cannot invent a purchase order. Options come
+  from a **server-rendered `pos` prop** built in `app/(dashboard)/import/page.tsx` — the
+  same pattern that feeds suppliers/items to `RecordPurchaseCard` — via
+  `getEnrichedPurchases()` merged by id with `PurchaseOrder.buyingMethod` (⚠️ the
+  PO-grain view does NOT carry `buyingMethod`). Rich two-line `renderOption`; searchable
+  by supplier id / category / period / method / `passing`|`failing`; `maxVisible={40}`
+  with the built-in "N more" hint.
+- **Filter row above it** (period / three-way match / supplier), segmented in the
+  record-purchase style. ⚠️ **Counts on each button are computed with the OTHER two
+  filters still applied**, so a count never promises rows the click cannot deliver.
+  **Failing (81) is tinted as the primary entry point but All is the DEFAULT** —
+  defaulting to Failing would hide 566 orders. Applying a filter that excludes the
+  chosen PO clears the choice (else the field blanks while the loaded lines below still
+  belong to the hidden order).
+- **Detail is a full 900px form** (was 640px + a small progressive card): chosen-PO
+  summary strip (⚠️ needed because the combobox's COLLAPSED field can only render plain
+  text, not the rich row), line grid **with column headers**, horizontal kind segmented
+  row with `CORRECTION_KIND_LABELS` moved to a swapping line below.
+  **Single-line POs AUTO-SELECT** (301 of 647 have exactly one line).
+- **Current → Change → Resulting**, client-computed, no server dry-run. Fixes the
+  blind-commit problem (a correction is appended and CANNOT be deleted) and makes the
+  signed-delta convention self-evident, which no placeholder could.
+- **`/api/corrections/lines` now also returns `billedQty`** — the only backend change. It
+  was already computed there and discarded; without it a price correction cannot be
+  priced client-side.
+- **Client validation now mirrors zod**: reason `min(3)` (previously only `.trim()`
+  non-empty, so a 1-2 char reason passed the client and was rejected by the server after
+  a round trip); the value fields mirror their own refinements. Recompute is disclosed,
+  as record-purchase already does.
+- ⚠️ **PRICE-CORRECTION EDGE CASE.** The server's `netEffect` string quotes the
+  **ORIGINAL** invoice line's price and quantity; the preview uses the **value-weighted
+  EFFECTIVE** billed price and net billed quantity. They are identical until a prior
+  price correction exists on that line — after which the effective figures are the ones
+  the view actually compares, so the two strings can legitimately differ. Not a bug;
+  don't "fix" it by reverting the preview to the original figures.
+- **⚠️ VERIFIED (2026-07-21).** Filter counts match the DB exactly (failing 81 = 2024×35
+  / 2025×27 / 2026×19); an end-to-end post produced a server `netEffect`
+  CHARACTER-IDENTICAL to the previewed string and moved spend by exactly its amount
+  (−1,128.00). That test correction was REVERTED (delete the appended header + 3 line
+  rows under `app.bulk_import`, then `seed_compute.py`) and the **BASELINE re-verified
+  intact**. tsc + ESLint clean. *(Screenshots unavailable — the in-app rasterizer times
+  out on this page; verified via DOM + computed styles. The dialog lingering after a
+  successful post is the documented HIDDEN-TAB ANIMATION artifact, not a stuck modal.)*
 
 ⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
 because proven byte-identical on existing data AND semantically required under
