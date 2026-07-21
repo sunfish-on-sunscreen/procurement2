@@ -52,7 +52,7 @@ migration; all are live again:
 - **Corrections** — posted transactional records are IMMUTABLE (Postgres BEFORE UPDATE
   triggers on the 10 document tables reject any edit). A mistake is fixed by APPENDING a
   signed correction line linked via `correctsLineId`, with a `Correction` audit header.
-  Three kinds: quantity, price (credit + re-bill), defect. See "POST-CORRECTION FORM"
+  Three kinds: quantity, price (credit + re-bill), defect. See "POST-CORRECTION FORM v2"
   below for the dialog.
   - ⚠️ The triggers block **UPDATE only**. DELETE stays open for the importer, and
     `SET LOCAL app.bulk_import = 'on'` is the sanctioned escape hatch — load-bearing,
@@ -142,121 +142,139 @@ migration; all are live again:
   DERIVED-WITH-OVERRIDE, not read-only**, so a new item in a new category is possible; a
   created name matches nothing, so category/unit stay as typed.
 
-**POST-CORRECTION FORM (`CorrectionCard`).** 2026-07-21. Rebuilt on the record-purchase
-patterns — form only, no analytics/compute/schema/migration change, and the correction
-backend (`lib/corrections.ts`, `POST /api/corrections`) is UNTOUCHED.
+**POST-CORRECTION FORM v2 (`CorrectionCard`).** 2026-07-21, commits `dfa6638` →
+`49e2185` → `ef9b37c`. Filter card → Select PO → a form that MIRRORS record-purchase.
+No schema change, no migration, no analytics-formula change.
 
-- **PO picker = `TypeableCombobox`, reused as-is** (was: type an exact PO id + click
-  "Find"). ⚠️ **`creatable` is OFF** — you cannot invent a purchase order. Options come
-  from a **server-rendered `pos` prop** built in `app/(dashboard)/import/page.tsx` — the
-  same pattern that feeds suppliers/items to `RecordPurchaseCard` — via
-  `getEnrichedPurchases()` merged by id with `PurchaseOrder.buyingMethod` (⚠️ the
-  PO-grain view does NOT carry `buyingMethod`). Rich two-line `renderOption`; searchable
-  by supplier id / category / period / method / `passing`|`failing`; `maxVisible={40}`
-  with the built-in "N more" hint.
-- **Filter row above it** (period / three-way match / supplier), segmented in the
-  record-purchase style. ⚠️ **Counts on each button are computed with the OTHER two
-  filters still applied**, so a count never promises rows the click cannot deliver.
-  **Failing (81) is tinted as the primary entry point but All is the DEFAULT** —
-  defaulting to Failing would hide 566 orders. Applying a filter that excludes the
-  chosen PO clears the choice (else the field blanks while the loaded lines below still
-  belong to the hidden order).
-- **Detail is a full 900px form** (was 640px + a small progressive card): chosen-PO
-  summary strip (⚠️ needed because the combobox's COLLAPSED field can only render plain
-  text, not the rich row), line grid **with column headers**, horizontal kind segmented
-  row with `CORRECTION_KIND_LABELS` moved to a swapping line below.
-  **Single-line POs AUTO-SELECT** (301 of 647 have exactly one line).
-- **Current → Change → Resulting**, client-computed, no server dry-run. Fixes the
-  blind-commit problem (a correction is appended and CANNOT be deleted) and makes the
-  signed-delta convention self-evident, which no placeholder could.
-- **`/api/corrections/lines` now also returns `billedQty`** — the only backend change. It
-  was already computed there and discarded; without it a price correction cannot be
-  priced client-side.
-- **Client validation now mirrors zod**: reason `min(3)` (previously only `.trim()`
-  non-empty, so a 1-2 char reason passed the client and was rejected by the server after
-  a round trip); the value fields mirror their own refinements. Recompute is disclosed,
-  as record-purchase already does.
-- ⚠️ **PRICE-CORRECTION EDGE CASE.** The server's `netEffect` string quotes the
-  **ORIGINAL** invoice line's price and quantity; the preview uses the **value-weighted
-  EFFECTIVE** billed price and net billed quantity. They are identical until a prior
-  price correction exists on that line — after which the effective figures are the ones
-  the view actually compares, so the two strings can legitimately differ. Not a bug;
-  don't "fix" it by reverting the preview to the original figures.
-- **⚠️ VERIFIED (2026-07-21).** Filter counts match the DB exactly (failing 81 = 2024×35
-  / 2025×27 / 2026×19); an end-to-end post produced a server `netEffect`
-  CHARACTER-IDENTICAL to the previewed string and moved spend by exactly its amount
-  (−1,128.00). That test correction was REVERTED (delete the appended header + 3 line
-  rows under `app.bulk_import`, then `seed_compute.py`) and the **BASELINE re-verified
-  intact**. tsc + ESLint clean. *(Screenshots unavailable — the in-app rasterizer times
-  out on this page; verified via DOM + computed styles. The dialog lingering after a
-  successful post is the documented HIDDEN-TAB ANIMATION artifact, not a stuck modal.)*
+- **Find the order:** typeable supplier (`TypeableCombobox`) + a classic match
+  pass/fail `<select>` + **period year buttons** + a **SEPARATE poDate date-range**.
+  ⚠️ **Period and PO-date are DIFFERENT AXES and must stay labelled apart** — period
+  is the order YEAR (a grouping); the range finds orders placed in a window, which
+  may sit inside one year or straddle several. Verified: a 2024-11→2025-02 range
+  returns 54 orders (no period value can express that), and period=2024 on top
+  narrows it to 26.
+- **The form is a PARALLEL component — `RecordPurchaseCard` is NOT refactored.** It
+  reuses the LOOK, never the 845-line state (index-aligned lines/receipts, blank-qty
+  conventions, name validators). Mirroring does not change that decision; it
+  strengthens it.
+- **Editable (amber): line quantity · `invoice_unit_price_usd` · defects.**
+  Everything else is a disabled input — supplier, buying method, requester,
+  department, payment terms, invoice no., all dates, goods-receipt fields,
+  complaints, and ⚠️ **`unit_price_usd` (the PO price — only a VOID fixes that)**.
+  The line carries BOTH prices and they are easy to confuse: a correction adjusts
+  what was BILLED.
+  - ⚠️ **DEFECTS SIT ON THE ORDER LINE**, not in the receipt cards where
+    record-purchase puts them — a defect correction is per PO LINE, aggregated
+    across every GRN. A deliberate divergence from the mirror.
+  - ⚠️ **Locked fields are MUTED, not red.** With 23 locked against 6 editable,
+    literal red inverts the hierarchy and makes the un-editable majority shout.
+- **Fields hold ABSOLUTE values** like record-purchase; the signed deltas are derived
+  on submit, and a field is only sent when it actually differs. A running summary
+  lists what will be written before it is written.
+- **MULTI-FIELD: one submit → one `Correction` header PER CHANGED FIELD** (N calls to
+  `postCorrection` in ONE `$transaction`, ONE recompute after). The existing schema
+  carries one `kind` per header, so N fields simply means N headers — the ledger
+  gains one traceable entry per field instead of one opaque entry per submit.
+  ⚠️ **Apply order is enforced server-side: quantity → defect → price** (see below).
+  Guards: ≤1 correction per (line, kind) per post, ≥1 item, reason `min(3)`.
+- ⚠️ **THE PRICE-BRANCH FIX — a PRE-EXISTING bug, not one this feature introduced.**
+  The price branch credited the ORIGINAL billed quantity and re-billed it at the new
+  price. But a quantity correction adds its own signed invoice row, so the original
+  quantity is no longer what stands billed: the delta kept the OLD rate and the
+  view's value-weighted price landed between the two. Measured on PO-2024-00003-010
+  (68 @ 1445): qty −20 + price →1444 gave **1443.5833 instead of 1444**, the gap
+  being exactly the 20 corrected-away units never re-priced. **It fired across TWO
+  SEQUENTIAL single-field posts too**, so it was reachable before multi-field existed.
+  **Fix (Option A): credit + re-bill the NET billed quantity at the current effective
+  price.** ⚠️ **Inert by CONSTRUCTION** — with no prior correction on the line the
+  code takes an explicit branch using the original figures, so the rows are
+  byte-identical and cannot drift on a float division (verified: a lone price
+  correction still writes 68 @ 1445 and reports "billed price 1445 → 1444 on 68
+  units"). ⚠️ Order matters *because* of this fix: price must run after quantity.
+- **Locked fields offer the VOID route on hover** — "Want to void this purchase
+  instead?" on all 23. Clicking closes the dialog and navigates to
+  **`/import?focusPo=<poId>`**, which expands `purchase_orders` in Master data,
+  narrows to that order, scrolls to it and paints the row `--warning` at 18%. The
+  highlight is **spent on first hover** (it only had to say WHICH row).
+  ⚠️ The focus filter **REPLACES** the ordinary filters rather than composing — a
+  leftover supplier/period filter could otherwise hide the very row the user was
+  sent to see. A banner explains it and clears it.
+- **⚠️ VERIFIED (2026-07-21).** Multi-field on a 2-line order: qty 3,661→3,600,
+  billed price 179→175, defects 0→2 posted as **THREE headers sharing one reason**,
+  landing on effective price exactly **175.0** and defects **2**; the toast read
+  "billed price 179 → 175 on **3600** units" — the NET, proving the fix live. 23
+  locked / 6 editable. Baseline byte-identical after cleanup at every stage.
+  tsc + ESLint clean.
 
-**DATA BROWSER (`DataBrowserCard`).** 2026-07-21. Read-only view of all 12 dataset
-tables, last section on the admin data page. **READ-ONLY: selects only** — no writes,
-no recompute, no analytics, no migration. Admin-gated via `readSession()` (stale
-cookie → clean 401, same as the other admin routes).
+**MASTER DATA (`MasterDataSection`).** 2026-07-21. ONE section — Add supplier + all
+12 dataset tables — sitting AFTER the Correction ledger and BEFORE the audit trail.
+⚠️ **There is no "Browse data" section and no table picker any more**; `DataBrowserCard`
+was renamed `MasterDataSection` and `SupplierAdminPanel` was DELETED.
 
 - ⚠️ **CONFIG-DRIVEN, NOT 12 BESPOKE TABLES.** Every table does the same three things
   — show rows, filter by supplier + period, paginate — so there is ONE generic
-  component (`components/DataBrowserCard.tsx`), ONE config list
-  (`lib/data-browser-config.ts`, 12 entries: label / columns / which filters apply)
-  and ONE route (`app/api/data-browser/[table]/route.ts`, a switch of Prisma selects).
-  **Adding a table = a config entry + a query branch. Never a new component.**
-- **The row contract is what makes one component serve twelve tables:** every table
-  returns `{id, cells, _supplierId, _supplierName, _period}`. The three underscore
-  fields are resolved SERVER-side per table, so the component filters uniformly and
-  never learns which were direct columns and which were joins.
-- **The picker is driven by the config registry**, in document-chain order
-  (= `SHEET_NAMES`), so a table appears only once implemented — there is no state
-  where picking an entry errors. Labels carry row counts (12 `COUNT(*)`s on page
-  load — metadata; ⚠️ NO table's rows are fetched until one is picked).
-- **FILTER-JOIN MAP — period is ALWAYS `PurchaseOrder.period` (order year), the single
-  anchor.** ⚠️ **Period is ABSENT (not disabled) on `suppliers` and `frameworks`**: a
-  supplier is period-free master data, and a framework carries its own multi-year
-  validity window, which is NOT a reporting period — deriving one from its call-offs
-  would invent a fact the row does not state. Supplier resolution, all verified against
-  the data: DIRECT on `frameworks` / `responses` / `purchase_orders` / `invoices`;
-  via **PO** on `po_lines` / `goods_receipts`; via **GRN→PO** on `grn_lines`; via
-  **Invoice→PO** on `invoice_lines` / `payments`; via their **1:1 PO** on
-  `requisitions` (647↔647, none orphaned, none with two) and `sourcing_events`
-  (226 events, 226 POs, none with two). `sourcing_events` resolves through the PO
-  rather than `awardedSupplierId` so every table shares one anchor — the two never
-  disagree in the data, but the PO path is non-null by construction.
+  component, ONE config list (`lib/data-browser-config.ts`) and ONE route
+  (`app/api/data-browser/[table]/route.ts`). **Adding a table = a config entry + a
+  query branch. Never a new component.**
+- **Rendered as lightweight COLLAPSIBLE TEXT ROWS, not cards** — a chevron, label and
+  count with a divider between rows; the expanded table sits directly beneath.
+- ⚠️ **DEFAULT COLLAPSED, LAZY, THEN STAY-MOUNTED.** A collapsed table is never
+  mounted so it never fetches (**verified: ZERO data-browser requests on page load**).
+  After first expand it stays mounted and is merely hidden when re-collapsed, so
+  re-opening costs no second fetch and keeps the filters and page already set.
+  ⚠️ `CollapsibleTable` **seeds its open state FROM `forceOpen`**, not `false` — the
+  render-time transition only fires on a CHANGE, so a deep link already carrying
+  `?focusPo=` would otherwise leave the table shut on exactly the link that asked
+  for it open. (Caught in testing: worked from the dialog, failed on reload.)
+- ⚠️ **`suppliers` IS THE EDITABLE ROSTER, not a read-only copy** — it carries its
+  four text filters and Deactivate/Reactivate, exactly as `purchase_orders` carries
+  Void. It is fed by a SERVER PROP, so expanding it makes **no API call at all**.
+  Rendering a read-only suppliers table beside a separate editable one would show
+  the same rows twice and invite edits in the copy that does nothing.
+- **Order = the CIPS procure-to-pay flow** (= `SHEET_NAMES`): suppliers, frameworks,
+  then requisitions → sourcing_events → responses → purchase_orders → po_lines →
+  goods_receipts → grn_lines → invoices → invoice_lines → payments. **Do not
+  re-sort** — the sequence is why the list reads as a chain.
+- **PER-TABLE INDEPENDENCE IS STRUCTURAL:** rows, filters, page and expanded-ness
+  live in each section, not the parent, so filtering or paging one cannot disturb
+  another. Only the void dialog is shared. Verified under compound use — one table
+  filtered to 240 while another sat on page 4 of 61 and a third held page 1,
+  including across a void.
+- **The row contract** is what lets one component serve twelve: every table returns
+  `{id, cells, _supplierId, _supplierName, _period}` (+ `_voided` on voidable ones),
+  the underscore fields resolved SERVER-side.
+- **FILTER-JOIN MAP — period is ALWAYS `PurchaseOrder.period` (order year).**
+  ⚠️ **ABSENT (not disabled) on `suppliers` and `frameworks`**: a supplier is
+  period-free master data, and a framework's multi-year validity window is not a
+  reporting period. Supplier resolution: DIRECT on `frameworks` / `responses` /
+  `purchase_orders` / `invoices`; via **PO** on `po_lines` / `goods_receipts`; via
+  **GRN→PO** on `grn_lines`; via **Invoice→PO** on `invoice_lines` / `payments`; via
+  their **1:1 PO** on `requisitions` (647↔647) and `sourcing_events` (226↔226).
 - ⚠️ **TWO COLUMNS DELIBERATELY BEYOND THE SHEET SCHEMA:**
   - **`corrects_line_id` on `po_lines` / `grn_lines` / `invoice_lines`.** A correction
-    IS a real signed row in those tables. Without this column it renders as an
-    inexplicable negative-quantity duplicate of its original. **Do not "tidy" it away.**
-  - **`responses.supplier_id` is labelled "(bidder)".** It is the supplier that
-    SUBMITTED the quote, losing bids included — NOT the awarded supplier. Proven
-    distinct in the data: Total Energies bids on 28 responses but holds 31 POs, and
-    the top row of that filtered view is a bid it LOST. Filtering by supplier here
-    means "what did this supplier bid on", which is the useful reading — but the
-    header must say so or it reads as the winner.
-- ⚠️ **DRIFT GUARD — the config CANNOT import `REQUIRED_COLUMNS`.** `lib/dataset-import.ts`
-  pulls in `xlsx`, which must not reach the client bundle, so columns are declared
-  explicitly in the config and **the ROUTE asserts on every request that the config
-  covers every required column for that sheet** (named 500 if not). A column added to
-  the sheet schema and missed in the config fails loudly instead of quietly vanishing.
-- **PAGINATION IS CLIENT-SIDE** (reuses `usePagination` + `PaginationFooter`): the
-  route returns the WHOLE table, the client filters + pages in memory, so filtering is
-  instant rather than a round trip per keystroke. Sized deliberately — the largest
-  table is `grn_lines` at 1,508 rows. ⚠️ **Switch to server-side `skip`/`take` + a
-  count once any SINGLE table passes ~10k rows** (or if a cross-column text search is
-  added); the change is contained to the route + the hook — **the row contract and all
-  12 configs are unaffected.**
-- **⚠️ VERIFIED (2026-07-21).** All 12 render exact counts — suppliers 55 · frameworks
-  21 · requisitions 647 · sourcing_events 226 · responses 677 · purchase_orders 647 ·
-  po_lines 1193 · goods_receipts 829 · grn_lines 1508 · invoices 647 · invoice_lines
-  1193 · payments 647. Every table's period distribution + supplier-filter count was
-  recomputed INDEPENDENTLY IN SQL and matches the API exactly (grn_lines 569/592/347,
-  responses 290/206/181, po_lines 462/451/280; S0022 = 57/28/51). Every row resolved a
-  supplier key; period null only on the two tables that have none. Drift guard passed
-  for all 12. tsc + ESLint clean.
+    IS a real signed row there; without it it renders as an inexplicable
+    negative-quantity duplicate. **Do not "tidy" it away.**
+  - **`responses.supplier_id` is labelled "(bidder)"** — the supplier that SUBMITTED
+    the quote, losing bids included, NOT the winner. Proven distinct: 28 bids vs 31
+    POs for the same supplier.
+- ⚠️ **DRIFT GUARD — the config CANNOT import `REQUIRED_COLUMNS`** (`lib/dataset-import.ts`
+  pulls in `xlsx`, which must not reach the client bundle), so the **ROUTE asserts on
+  every request** that the config covers every required column for that sheet.
+- **PAGINATION IS CLIENT-SIDE**, 25/page, reusing `usePagination` + `PaginationFooter`;
+  the route returns the whole table (largest `grn_lines` 1,508). ⚠️ **Switch to
+  server-side `skip`/`take` once any SINGLE table passes ~10k rows** — contained to
+  the route + hook; the row contract and all 12 configs are unaffected.
+- **⚠️ VERIFIED (2026-07-21).** All 12 render exact counts — 55 · 21 · 647 · 226 ·
+  677 · 647 · 1193 · 829 · 1508 · 647 · 1193 · 647 — each independently recomputed in
+  SQL for period distribution and supplier-filter count. Drift guard passed for all 12.
   - ⚠️ **TEST-HARNESS GOTCHAS (not bugs):** programmatic `.focus()` does NOT open a
-    `TypeableCombobox` — React 17+ delegates `onFocus` via native **`focusin`**, so a
-    DOM-driven test must dispatch that. And a hidden preview tab throttles `setTimeout`
-    to ~1s, so a chain of short sleeps blows the 30s tool timeout — split UI checks
-    into separate calls. Same root cause as the HIDDEN-TAB notes elsewhere in this file.
+    `TypeableCombobox` (React delegates `onFocus` via native **`focusin`**), and
+    synthetic `mouseover` does NOT reach React's enter/leave plugin, so `onMouseEnter`
+    must be invoked directly in a DOM-driven test. ⚠️ **A hidden preview tab FREEZES
+    CSS transitions** — `getComputedStyle` then reports a mid-flight value and reads
+    as a broken fade. **Disable the transition and measure the end state** (cost a
+    false negative twice). It also throttles `setTimeout` to ~1s, so a chain of short
+    sleeps blows the 30s tool timeout — split UI checks into separate calls.
 
 **VOID A PURCHASE ORDER (`PurchaseOrderVoid`).** 2026-07-21. Marks an order as entered
 in ERROR — wrong supplier, wrong buying method, any posted field a CORRECTION cannot
@@ -291,7 +309,7 @@ then re-records a correct order via the record-purchase dialog.
      report supplier brief.
   4. **`lib/suppliers.ts` `getSupplierDirectory`** — `purchaseOrder.groupBy` all-time
      `num_pos` (`where: { voidRecord: { is: null } }`).
-- **What deliberately does NOT filter:** the **data browser** (all 12 branches) and the
+- **What deliberately does NOT filter:** the **Master-data tables** (all 12 branches) and the
   **import-page header + picker counts**. A voided order MUST stay visible — that is the
   point of voiding rather than deleting. `purchase_orders` rows carry `_voided` and
   render muted + a `voided` chip with the action flipped to Un-void.
