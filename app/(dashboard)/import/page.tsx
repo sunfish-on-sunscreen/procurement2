@@ -1,13 +1,12 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { nextSupplierId } from "@/lib/supplier-import";
-import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
+import { MasterDataSection } from "@/components/MasterDataSection";
 import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
 import { SupplierAppendCard } from "@/components/SupplierAppendCard";
 import { TransactionAppendCard } from "@/components/TransactionAppendCard";
 import { CorrectionCard, type CorrectablePo } from "@/components/CorrectionCard";
-import { DataBrowserCard } from "@/components/DataBrowserCard";
 import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -155,9 +154,9 @@ export default async function ImportPage() {
     // chronological, and recent orders are the likelier correction targets.
     .sort((a, b) => b.id.localeCompare(a.id));
 
-  // Row counts for the data-browser picker. Twelve `COUNT(*)`s on indexed tables —
-  // metadata only, so the browser can label each table without loading any of them.
-  // No table's rows are fetched until one is picked.
+  // Row counts for the Master-data table headings. Twelve `COUNT(*)`s on indexed
+  // tables — metadata only, so every heading can state its size while collapsed.
+  // No table's rows are fetched until it is expanded.
   const [
     cSupplier, cFramework, cRequisition, cSourcingEvent, cResponse, cPurchaseOrder,
     cPoLine, cGoodsReceipt, cGrnLine, cInvoice, cInvoiceLine, cPayment,
@@ -292,10 +291,13 @@ export default async function ImportPage() {
       </div>
 
       <div className="overflow-x-auto">
-        <SupplierAdminPanel
-          suppliers={suppliers}
-          nextId={nextId}
-          categories={categories}
+        <MasterDataSection
+          counts={browserCounts}
+          suppliers={suppliers.map((s) => ({ id: s.id, name: s.supplierName }))}
+          supplierRoster={suppliers}
+          nextSupplierId={nextId}
+          supplierCategories={categories}
+          periods={browserPeriods}
         />
       </div>
 
@@ -380,11 +382,6 @@ export default async function ImportPage() {
         )}
       </div>
 
-      <DataBrowserCard
-        counts={browserCounts}
-        suppliers={suppliers.map((s) => ({ id: s.id, name: s.supplierName }))}
-        periods={browserPeriods}
-      />
     </div>
   );
 }

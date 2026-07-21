@@ -36,7 +36,14 @@ type Row = {
 type Filters = { id: string; name: string; country: string; category: string };
 const EMPTY_FILTERS: Filters = { id: "", name: "", country: "", category: "" };
 
-export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
+export function SupplierRosterTable({
+  suppliers,
+  hideHeading = false,
+}: {
+  suppliers: Row[];
+  /** Set when a collapsible wrapper already names the table, to avoid two headings. */
+  hideHeading?: boolean;
+}) {
   const router = useRouter();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -93,13 +100,15 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold">
-        Suppliers{" "}
-        <span className="text-sm font-normal text-muted-foreground">
-          ({filtered.length}
-          {filtered.length !== suppliers.length ? ` of ${suppliers.length}` : ""})
-        </span>
-      </h2>
+      {!hideHeading && (
+        <h2 className="text-lg font-semibold">
+          Suppliers{" "}
+          <span className="text-sm font-normal text-muted-foreground">
+            ({filtered.length}
+            {filtered.length !== suppliers.length ? ` of ${suppliers.length}` : ""})
+          </span>
+        </h2>
+      )}
 
       {suppliers.length === 0 ? (
         <p className="text-sm text-muted-foreground">

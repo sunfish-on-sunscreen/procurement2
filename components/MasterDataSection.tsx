@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { X } from "lucide-react";
+import { ChevronRight, Plus, X } from "lucide-react";
+import { AddSupplierCard } from "@/components/AddSupplierCard";
+import { SupplierRosterTable } from "@/components/SupplierRosterTable";
 import {
   Table,
   TableBody,
@@ -28,6 +30,15 @@ import {
 
 export type SupplierPick = { id: string; name: string };
 
+/** The supplier roster's own row shape — this table is master data, not a read copy. */
+export type SupplierRow = {
+  id: string;
+  supplierName: string;
+  country: string;
+  category: string;
+  status: string;
+};
+
 /** What voiding this order would exclude — loaded when the dialog opens. */
 type VoidImpact = {
   poId: string;
@@ -40,30 +51,42 @@ type VoidImpact = {
 };
 
 /**
- * Read-only browser over the dataset tables.
+ * MASTER DATA — the supplier roster and all twelve dataset tables in one section.
  *
- * All twelve render at once, stacked in document-chain order, each an independent
- * section with its own filters and its own pagination — filtering or paging one
- * leaves the others exactly where they were, because the state lives per section
- * rather than in this parent.
+ * ⚠️ `suppliers` is NOT a read-only copy of the roster: it IS the roster, rendered
+ * as the suppliers entry among the twelve, carrying its own Deactivate/Reactivate
+ * actions and its four text filters. Rendering a read-only suppliers table here
+ * alongside a separate editable roster would show the same rows twice and invite
+ * edits in the copy that does nothing. purchase_orders works the same way, carrying
+ * the Void action.
  *
- * ⚠️ Every table fetches its own rows on page load (~8.3k rows across the twelve).
- * That is the deliberate trade for having them all visible at once; the alternative
- * is the picker this replaced. Each section then filters and pages in memory.
+ * Every table is COLLAPSIBLE and starts collapsed, so the page opens light: a
+ * collapsed table is never mounted and therefore never fetches. Once expanded it
+ * stays mounted and is merely hidden when re-collapsed, so re-opening costs no
+ * second fetch and keeps the filters and page the user had set.
  *
- * Only the void dialog is shared: at most one can be open, and voiding has to
- * refresh the purchase_orders section, which a bumped key handles.
+ * Per-table state (expanded, filters, page) lives in each section, which is what
+ * keeps twelve of them independent. Only the void dialog is shared: at most one can
+ * be open, and voiding refreshes just the purchase_orders section via a bumped key.
  */
-export function DataBrowserCard({
+export function MasterDataSection({
   counts,
   suppliers,
+  supplierRoster,
+  nextSupplierId,
+  supplierCategories,
   periods,
 }: {
   counts: Record<string, number>;
   suppliers: SupplierPick[];
+  /** Full roster rows for the editable suppliers table. */
+  supplierRoster: SupplierRow[];
+  nextSupplierId: string;
+  supplierCategories: string[];
   periods: string[];
 }) {
   const router = useRouter();
+  const [addOpen, setAddOpen] = useState(false);
 
   // Void confirmation state, shared because only one dialog exists at a time.
   const [impact, setImpact] = useState<VoidImpact | null>(null);
@@ -144,28 +167,51 @@ export function DataBrowserCard({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Browse data</h2>
-        <p className="text-sm text-muted-foreground">
-          Read-only view of the raw dataset tables, exactly as stored, in the order the
-          documents flow. Each table filters and pages on its own. Nothing here writes,
-          apart from voiding an order — which excludes it from analytics without
-          deleting anything.
-        </p>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Master data</h2>
+        <Button size="sm" onClick={() => setAddOpen(true)}>
+          <Plus className="mr-1 h-4 w-4" />
+          Add supplier
+        </Button>
       </div>
+      <p className="text-sm text-muted-foreground">
+        Every dataset table, in the order the documents flow. Suppliers are editable —
+        adding one recomputes every period, and retiring one is a status change, never a
+        delete. The rest are read-only apart from voiding an order, which excludes it
+        from analytics without deleting anything. Expand a table to load it.
+      </p>
 
-      {TABLE_CONFIGS.map((config) => (
-        <BrowserTableSection
-          key={config.table}
-          config={config}
-          count={counts[config.table] ?? 0}
-          supplierOptions={supplierOptions}
-          periods={periods}
-          reloadKey={config.voidable ? voidVersion : 0}
-          onVoid={config.voidable ? openVoidDialog : undefined}
-        />
-      ))}
+      <AddSupplierCard
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        nextId={nextSupplierId}
+        categories={supplierCategories}
+      />
+
+      <div className="flex flex-col gap-2">
+        {TABLE_CONFIGS.map((config) => (
+          <CollapsibleTable
+            key={config.table}
+            label={config.label}
+            table={config.table}
+            count={counts[config.table] ?? 0}
+          >
+            {config.table === "suppliers" ? (
+              // The roster itself — editable, with its own filters and actions.
+              <SupplierRosterTable suppliers={supplierRoster} hideHeading />
+            ) : (
+              <BrowserTableSection
+                config={config}
+                supplierOptions={supplierOptions}
+                periods={periods}
+                reloadKey={config.voidable ? voidVersion : 0}
+                onVoid={config.voidable ? openVoidDialog : undefined}
+              />
+            )}
+          </CollapsibleTable>
+        ))}
+      </div>
 
       <Dialog open={impact !== null} onOpenChange={(o) => !busy && !o && setImpact(null)}>
         <DialogContent
@@ -304,19 +350,68 @@ export function DataBrowserCard({
 }
 
 /**
+ * Collapsible shell around one table.
+ *
+ * ⚠️ The body is not rendered until the first expand, so a collapsed table never
+ * mounts and never fetches — that is what keeps the page's initial load light. After
+ * that it stays mounted and is hidden with a class when collapsed, so re-expanding
+ * costs no second fetch and preserves the filters and page already set.
+ */
+function CollapsibleTable({
+  label,
+  table,
+  count,
+  children,
+}: {
+  label: string;
+  table: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hasOpened, setHasOpened] = useState(false);
+
+  return (
+    <section className="rounded-lg border">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen((o) => !o);
+          setHasOpened(true);
+        }}
+        className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+      >
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+        />
+        <span className="text-base font-semibold">{label}</span>
+        <span className="text-sm text-muted-foreground">({count.toLocaleString()})</span>
+        <span className="flex-1" />
+        <span className="font-mono text-[11px] text-muted-foreground">{table}</span>
+      </button>
+
+      {hasOpened && (
+        <div className={open ? "border-t p-3" : "hidden"}>{children}</div>
+      )}
+    </section>
+  );
+}
+
+/**
  * ONE table: its own fetch, its own filters, its own pagination. Nothing here is
  * lifted to the parent, which is what keeps twelve of these independent.
  */
 function BrowserTableSection({
   config,
-  count,
   supplierOptions,
   periods,
   reloadKey,
   onVoid,
 }: {
   config: TableConfig;
-  count: number;
   supplierOptions: ComboOption[];
   periods: string[];
   reloadKey: number;
@@ -376,21 +471,8 @@ function BrowserTableSection({
   const colCount = config.columns.length + (config.voidable ? 1 : 0);
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-base font-semibold">
-          {config.label}{" "}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({count.toLocaleString()}
-            {rows && filtered.length !== rows.length
-              ? ` · ${filtered.length.toLocaleString()} shown`
-              : ""}
-            )
-          </span>
-        </h3>
-        <span className="font-mono text-[11px] text-muted-foreground">{config.table}</span>
-      </div>
-
+    <div className="flex flex-col gap-3">
+      {/* No heading here — the collapsible shell already names the table. */}
       <div className="flex flex-wrap items-end gap-4">
         {config.supplierFilter && (
           <div className="flex min-w-[220px] flex-col gap-1.5">
@@ -518,7 +600,7 @@ function BrowserTableSection({
           />
         </>
       )}
-    </section>
+    </div>
   );
 }
 
