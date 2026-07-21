@@ -196,7 +196,14 @@ def load_po_lines(conn, start_ts, end_ts):
     Correction lines (signed quantity + correctsLineId) fold onto the ORIGINAL line's
     itemName, so cost_premium benchmarks the corrected item rather than treating a
     reversal as a separate product. The signed quantity then nets into that item's
-    spend-weighted average price. Formula unchanged."""
+    spend-weighted average price. Formula unchanged.
+
+    ⚠️ VOIDED ORDERS ARE EXCLUDED HERE SEPARATELY. This is one of only two analytics
+    readers that joins PoLine to PurchaseOrder directly instead of going through the
+    EnrichedPurchase view (the other is lib/po-lines.ts), so the view's void filter
+    does NOT reach it. Without this clause a voided order would keep moving
+    cost_premium — a supply-risk term — and therefore keep shifting Kraljic quadrant
+    assignment, while disappearing from every other number."""
     return _df(
         conn,
         'SELECT po.id AS "poId", po."supplierId" AS "supplierExternalId", '
@@ -205,6 +212,7 @@ def load_po_lines(conn, start_ts, end_ts):
         'FROM "PoLine" pl JOIN "PurchaseOrder" po ON po.id = pl."poId" '
         'LEFT JOIN "PoLine" orig ON orig.id = pl."correctsLineId" '
         'WHERE po."poDate" >= %s AND po."poDate" <= %s '
+        'AND NOT EXISTS (SELECT 1 FROM "PurchaseOrderVoid" v WHERE v."poId" = po.id) '
         'ORDER BY pl.id',
         (start_ts, end_ts),
     )

@@ -22,10 +22,25 @@ export async function GET(request: Request) {
 
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: poId },
-    select: { id: true, supplierId: true, poDate: true, supplier: { select: { supplierName: true } } },
+    select: {
+      id: true,
+      supplierId: true,
+      poDate: true,
+      supplier: { select: { supplierName: true } },
+      voidRecord: { select: { poId: true } },
+    },
   });
   if (!po) {
     return NextResponse.json({ error: `Purchase order ${poId} not found.` }, { status: 404 });
+  }
+  // The picker is built from the EnrichedPurchase view, so a voided order is already
+  // absent from it. This guards the direct lookup: a client holding a stale list
+  // could otherwise correct an order that counts towards nothing.
+  if (po.voidRecord) {
+    return NextResponse.json(
+      { error: `${poId} is voided — a voided order cannot be corrected. Restore it first.` },
+      { status: 409 },
+    );
   }
 
   const lines = await prisma.poLine.findMany({

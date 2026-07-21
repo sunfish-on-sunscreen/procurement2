@@ -37,7 +37,15 @@ export interface PoLineFilter {
 
 /** PoLine rows joined to their PurchaseOrder, filtered by poDate span + supplier. */
 export async function getPoLines(filter: PoLineFilter = {}): Promise<PoLineRow[]> {
-  const conds: Prisma.Sql[] = [];
+  // ⚠️ UNCONDITIONAL, and seeded first so it survives every filter combination.
+  // This is one of only two analytics readers that joins PoLine to PurchaseOrder
+  // directly rather than reading the EnrichedPurchase view (the other is Python's
+  // load_po_lines), so the view's void exclusion does NOT reach it. Without this a
+  // voided order would still appear in spend-by-item, the evolution product mix and
+  // the report supplier brief, while being absent from every PO-grain number.
+  const conds: Prisma.Sql[] = [
+    Prisma.sql`NOT EXISTS (SELECT 1 FROM "PurchaseOrderVoid" v WHERE v."poId" = po.id)`,
+  ];
   if (filter.start) conds.push(Prisma.sql`po."poDate" >= ${filter.start}`);
   if (filter.end) conds.push(Prisma.sql`po."poDate" <= ${filter.end}`);
   if (filter.supplierExternalId)

@@ -33,6 +33,10 @@ export async function getSupplierDirectory(): Promise<
     prisma.purchaseOrder.groupBy({
       by: ["supplierId"],
       _count: { _all: true },
+      // Voided orders are excluded, as everywhere else analytics reads POs. This is
+      // the third reader that does not go through the EnrichedPurchase view, so the
+      // exclusion has to be stated here too.
+      where: { voidRecord: { is: null } },
     }),
   ]);
   const numPosById = new Map(

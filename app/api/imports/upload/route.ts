@@ -126,6 +126,7 @@ export async function POST(request: Request) {
     auditDropped: number;
     auditCreated: number;
     correctionsDropped: number;
+    voidsDropped: number;
     importId: string;
   };
   try {
@@ -163,6 +164,11 @@ export async function POST(request: Request) {
         // confirmation so the loss is never silent.
         const correctionsDropped = await tx.correction.count();
         await tx.correction.deleteMany();
+
+        // Voids CASCADE away with their purchase orders, so unlike corrections they
+        // need no explicit delete — but they are counted here, before the wipe, so
+        // the confirmation can name the loss rather than letting it happen silently.
+        const voidsDropped = await tx.purchaseOrderVoid.count();
 
         await clearDataset(tx);
 
@@ -226,6 +232,7 @@ export async function POST(request: Request) {
           auditDropped: priorLog.length - keep.length,
           auditCreated: createdIds.length,
           correctionsDropped,
+          voidsDropped,
           importId: imp.id,
         };
       },
@@ -274,6 +281,7 @@ export async function POST(request: Request) {
       created: result.auditCreated,
     },
     correctionsDropped: result.correctionsDropped,
+    voidsDropped: result.voidsDropped,
     recompute: recompute.summary,
   });
 }
