@@ -191,6 +191,73 @@ backend (`lib/corrections.ts`, `POST /api/corrections`) is UNTOUCHED.
   out on this page; verified via DOM + computed styles. The dialog lingering after a
   successful post is the documented HIDDEN-TAB ANIMATION artifact, not a stuck modal.)*
 
+**DATA BROWSER (`DataBrowserCard`).** 2026-07-21. Read-only view of all 12 dataset
+tables, last section on the admin data page. **READ-ONLY: selects only** — no writes,
+no recompute, no analytics, no migration. Admin-gated via `readSession()` (stale
+cookie → clean 401, same as the other admin routes).
+
+- ⚠️ **CONFIG-DRIVEN, NOT 12 BESPOKE TABLES.** Every table does the same three things
+  — show rows, filter by supplier + period, paginate — so there is ONE generic
+  component (`components/DataBrowserCard.tsx`), ONE config list
+  (`lib/data-browser-config.ts`, 12 entries: label / columns / which filters apply)
+  and ONE route (`app/api/data-browser/[table]/route.ts`, a switch of Prisma selects).
+  **Adding a table = a config entry + a query branch. Never a new component.**
+- **The row contract is what makes one component serve twelve tables:** every table
+  returns `{id, cells, _supplierId, _supplierName, _period}`. The three underscore
+  fields are resolved SERVER-side per table, so the component filters uniformly and
+  never learns which were direct columns and which were joins.
+- **The picker is driven by the config registry**, in document-chain order
+  (= `SHEET_NAMES`), so a table appears only once implemented — there is no state
+  where picking an entry errors. Labels carry row counts (12 `COUNT(*)`s on page
+  load — metadata; ⚠️ NO table's rows are fetched until one is picked).
+- **FILTER-JOIN MAP — period is ALWAYS `PurchaseOrder.period` (order year), the single
+  anchor.** ⚠️ **Period is ABSENT (not disabled) on `suppliers` and `frameworks`**: a
+  supplier is period-free master data, and a framework carries its own multi-year
+  validity window, which is NOT a reporting period — deriving one from its call-offs
+  would invent a fact the row does not state. Supplier resolution, all verified against
+  the data: DIRECT on `frameworks` / `responses` / `purchase_orders` / `invoices`;
+  via **PO** on `po_lines` / `goods_receipts`; via **GRN→PO** on `grn_lines`; via
+  **Invoice→PO** on `invoice_lines` / `payments`; via their **1:1 PO** on
+  `requisitions` (647↔647, none orphaned, none with two) and `sourcing_events`
+  (226 events, 226 POs, none with two). `sourcing_events` resolves through the PO
+  rather than `awardedSupplierId` so every table shares one anchor — the two never
+  disagree in the data, but the PO path is non-null by construction.
+- ⚠️ **TWO COLUMNS DELIBERATELY BEYOND THE SHEET SCHEMA:**
+  - **`corrects_line_id` on `po_lines` / `grn_lines` / `invoice_lines`.** A correction
+    IS a real signed row in those tables. Without this column it renders as an
+    inexplicable negative-quantity duplicate of its original. **Do not "tidy" it away.**
+  - **`responses.supplier_id` is labelled "(bidder)".** It is the supplier that
+    SUBMITTED the quote, losing bids included — NOT the awarded supplier. Proven
+    distinct in the data: Total Energies bids on 28 responses but holds 31 POs, and
+    the top row of that filtered view is a bid it LOST. Filtering by supplier here
+    means "what did this supplier bid on", which is the useful reading — but the
+    header must say so or it reads as the winner.
+- ⚠️ **DRIFT GUARD — the config CANNOT import `REQUIRED_COLUMNS`.** `lib/dataset-import.ts`
+  pulls in `xlsx`, which must not reach the client bundle, so columns are declared
+  explicitly in the config and **the ROUTE asserts on every request that the config
+  covers every required column for that sheet** (named 500 if not). A column added to
+  the sheet schema and missed in the config fails loudly instead of quietly vanishing.
+- **PAGINATION IS CLIENT-SIDE** (reuses `usePagination` + `PaginationFooter`): the
+  route returns the WHOLE table, the client filters + pages in memory, so filtering is
+  instant rather than a round trip per keystroke. Sized deliberately — the largest
+  table is `grn_lines` at 1,508 rows. ⚠️ **Switch to server-side `skip`/`take` + a
+  count once any SINGLE table passes ~10k rows** (or if a cross-column text search is
+  added); the change is contained to the route + the hook — **the row contract and all
+  12 configs are unaffected.**
+- **⚠️ VERIFIED (2026-07-21).** All 12 render exact counts — suppliers 55 · frameworks
+  21 · requisitions 647 · sourcing_events 226 · responses 677 · purchase_orders 647 ·
+  po_lines 1193 · goods_receipts 829 · grn_lines 1508 · invoices 647 · invoice_lines
+  1193 · payments 647. Every table's period distribution + supplier-filter count was
+  recomputed INDEPENDENTLY IN SQL and matches the API exactly (grn_lines 569/592/347,
+  responses 290/206/181, po_lines 462/451/280; S0022 = 57/28/51). Every row resolved a
+  supplier key; period null only on the two tables that have none. Drift guard passed
+  for all 12. tsc + ESLint clean.
+  - ⚠️ **TEST-HARNESS GOTCHAS (not bugs):** programmatic `.focus()` does NOT open a
+    `TypeableCombobox` — React 17+ delegates `onFocus` via native **`focusin`**, so a
+    DOM-driven test must dispatch that. And a hidden preview tab throttles `setTimeout`
+    to ~1s, so a chain of short sleeps blows the 30s tool timeout — split UI checks
+    into separate calls. Same root cause as the HIDDEN-TAB notes elsewhere in this file.
+
 ⚠️ **TWO GATED VIEW FIXES** — the only change touching a locked-formula input, accepted
 because proven byte-identical on existing data AND semantically required under
 corrections: `dom_cat` now aggregates per category then takes the argmax (a reversed line
