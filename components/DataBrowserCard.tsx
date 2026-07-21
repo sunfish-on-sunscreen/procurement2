@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { X } from "lucide-react";
@@ -21,9 +21,9 @@ import { usePagination, PaginationFooter, ROSTER_PAGE_SIZE } from "@/components/
 import { panelElevation, formatCompactCurrency } from "@/lib/utils";
 import {
   TABLE_CONFIGS,
-  CONFIG_BY_TABLE,
   type BrowserRow,
   type ColumnConfig,
+  type TableConfig,
 } from "@/lib/data-browser-config";
 
 export type SupplierPick = { id: string; name: string };
@@ -42,12 +42,17 @@ type VoidImpact = {
 /**
  * Read-only browser over the dataset tables.
  *
- * ONE table component driven by per-table config — every table shows rows, filters
- * by supplier and period, and paginates, so there is nothing to specialise. Adding
- * a table is a config entry plus a query branch in the route, never a new component.
+ * All twelve render at once, stacked in document-chain order, each an independent
+ * section with its own filters and its own pagination — filtering or paging one
+ * leaves the others exactly where they were, because the state lives per section
+ * rather than in this parent.
  *
- * ⚠️ Nothing is fetched until a table is picked. This sits on an already-busy page,
- * and most visits never open it, so the section costs nothing until used.
+ * ⚠️ Every table fetches its own rows on page load (~8.3k rows across the twelve).
+ * That is the deliberate trade for having them all visible at once; the alternative
+ * is the picker this replaced. Each section then filters and pages in memory.
+ *
+ * Only the void dialog is shared: at most one can be open, and voiding has to
+ * refresh the purchase_orders section, which a bumped key handles.
  */
 export function DataBrowserCard({
   counts,
@@ -59,31 +64,15 @@ export function DataBrowserCard({
   periods: string[];
 }) {
   const router = useRouter();
-  const [table, setTable] = useState("");
-  const [rows, setRows] = useState<BrowserRow[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fSupplier, setFSupplier] = useState("");
-  const [fPeriod, setFPeriod] = useState("all");
 
-  // Void confirmation state.
+  // Void confirmation state, shared because only one dialog exists at a time.
   const [impact, setImpact] = useState<VoidImpact | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
-
-  const config = table ? CONFIG_BY_TABLE.get(table) ?? null : null;
-
-  const tableOptions = useMemo<ComboOption[]>(
-    () =>
-      TABLE_CONFIGS.map((c) => ({
-        value: c.table,
-        label: `${c.label} · ${(counts[c.table] ?? 0).toLocaleString()}`,
-        keywords: c.table,
-      })),
-    [counts],
-  );
+  /** Bumped after a void so the voidable section refetches and shows the new state. */
+  const [voidVersion, setVoidVersion] = useState(0);
 
   const supplierOptions = useMemo<ComboOption[]>(
     () => [
@@ -93,40 +82,6 @@ export function DataBrowserCard({
     [suppliers],
   );
 
-  /**
-   * Fetch a table's rows. Deliberately does NOT touch the filters, so it can be
-   * reused to refresh in place after a void — resetting the filters there would
-   * throw the user back to page 1 of all 647 rows and hide the row they just acted
-   * on, which is exactly when they most want to see it.
-   */
-  async function loadTable(next: string) {
-    setRows(null);
-    setError(null);
-    if (!next) return;
-
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/data-browser/${next}`);
-      const data = (await res.json().catch(() => ({}))) as { rows?: BrowserRow[]; error?: string };
-      if (res.ok && data.rows) setRows(data.rows);
-      else setError(data.error ?? "Could not load that table.");
-    } catch {
-      setError("Could not load that table.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function pickTable(next: string) {
-    setTable(next);
-    // Filters reset with the TABLE: a period selection is meaningless on a table
-    // that has no period, and a supplier may not appear in the new one at all.
-    setFSupplier("");
-    setFPeriod("all");
-    await loadTable(next);
-  }
-
-  /** Open the confirmation, loading the impact figures for this specific order. */
   async function openVoidDialog(poId: string) {
     setReason("");
     setDialogError(null);
@@ -156,7 +111,6 @@ export function DataBrowserCard({
     }
   }
 
-  /** Void or un-void, then reload the table so the row reflects its new state. */
   async function submitVoid(unvoid: boolean) {
     if (!impact) return;
     setBusy(true);
@@ -175,9 +129,9 @@ export function DataBrowserCard({
             : `${impact.poId} voided and excluded from analytics.`,
         );
         setImpact(null);
-        // Refresh rows in place so the row's new state is visible where the user
-        // is standing; filters and page are preserved.
-        await loadTable(table);
+        // Refetch only the voidable section; its own filters and page are preserved
+        // because they live in that section's state, not in this key.
+        setVoidVersion((v) => v + 1);
         router.refresh();
       } else {
         setDialogError(data.error ?? "Could not change the void state.");
@@ -189,176 +143,29 @@ export function DataBrowserCard({
     }
   }
 
-  const filtered = useMemo(() => {
-    if (!rows) return [];
-    return rows.filter(
-      (r) =>
-        (fSupplier === "" || r._supplierId === fSupplier) &&
-        (fPeriod === "all" || r._period === fPeriod),
-    );
-  }, [rows, fSupplier, fPeriod]);
-
-  const { page, setPage, pageCount, start, pageItems } = usePagination(
-    filtered,
-    ROSTER_PAGE_SIZE,
-    `${table}|${fSupplier}|${fPeriod}`,
-  );
-
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold">Browse data</h2>
-      <p className="text-sm text-muted-foreground">
-        Read-only view of the raw dataset tables, exactly as stored. Pick a table to
-        load it, then narrow by supplier or period. Nothing here writes.
-      </p>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="db-table">Table</Label>
-          <TypeableCombobox
-            id="db-table"
-            aria-label="Table"
-            value={table}
-            onChange={pickTable}
-            options={tableOptions}
-            placeholder="Select a table"
-          />
-        </div>
-
-        {config?.supplierFilter && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="db-supplier">Supplier</Label>
-            <TypeableCombobox
-              id="db-supplier"
-              aria-label="Supplier"
-              value={fSupplier}
-              onChange={setFSupplier}
-              options={supplierOptions}
-              placeholder="All suppliers"
-            />
-          </div>
-        )}
-
-        {/* Absent, not disabled, where the table has no period dimension at all. */}
-        {config?.periodFilter && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="db-period">Period</Label>
-            <div className="flex flex-wrap gap-1.5" id="db-period" role="radiogroup">
-              <Button
-                type="button"
-                role="radio"
-                aria-checked={fPeriod === "all"}
-                variant={fPeriod === "all" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFPeriod("all")}
-              >
-                All
-              </Button>
-              {periods.map((p) => (
-                <Button
-                  key={p}
-                  type="button"
-                  role="radio"
-                  aria-checked={fPeriod === p}
-                  variant={fPeriod === p ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFPeriod(p)}
-                >
-                  {p}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold">Browse data</h2>
+        <p className="text-sm text-muted-foreground">
+          Read-only view of the raw dataset tables, exactly as stored, in the order the
+          documents flow. Each table filters and pages on its own. Nothing here writes,
+          apart from voiding an order — which excludes it from analytics without
+          deleting anything.
+        </p>
       </div>
 
-      {!table && (
-        <p className="text-sm text-muted-foreground">
-          No table selected — {TABLE_CONFIGS.length} available.
-        </p>
-      )}
-      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      {config && rows && !loading && (
-        <>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {config.columns.map((c) => (
-                    <TableHead
-                      key={c.key}
-                      className={
-                        c.type === "money" || c.type === "number" ? "text-right" : undefined
-                      }
-                    >
-                      {c.label ?? c.key}
-                    </TableHead>
-                  ))}
-                  {config.voidable && <TableHead className="text-right">Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pageItems.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={config.columns.length + (config.voidable ? 1 : 0)}
-                      className="text-center text-muted-foreground"
-                    >
-                      No rows match the filters.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  pageItems.map((r) => (
-                    // A voided row stays listed but reads as withdrawn.
-                    <TableRow key={r.id} className={r._voided ? "opacity-55" : undefined}>
-                      {config.columns.map((c, i) => (
-                        <TableCell key={c.key} className={cellClass(c)}>
-                          {renderCell(r.cells[c.key], c)}
-                          {/* The chip rides the first column so it reads with the id. */}
-                          {i === 0 && r._voided && (
-                            <span
-                              className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                color: "var(--destructive)",
-                                backgroundColor:
-                                  "color-mix(in srgb, var(--destructive) 14%, transparent)",
-                              }}
-                            >
-                              voided
-                            </span>
-                          )}
-                        </TableCell>
-                      ))}
-                      {config.voidable && (
-                        <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openVoidDialog(r.id)}
-                          >
-                            {r._voided ? "Un-void" : "Void"}
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <PaginationFooter
-            page={page}
-            pageCount={pageCount}
-            start={start}
-            pageSize={ROSTER_PAGE_SIZE}
-            total={filtered.length}
-            setPage={setPage}
-          />
-        </>
-      )}
+      {TABLE_CONFIGS.map((config) => (
+        <BrowserTableSection
+          key={config.table}
+          config={config}
+          count={counts[config.table] ?? 0}
+          supplierOptions={supplierOptions}
+          periods={periods}
+          reloadKey={config.voidable ? voidVersion : 0}
+          onVoid={config.voidable ? openVoidDialog : undefined}
+        />
+      ))}
 
       <Dialog open={impact !== null} onOpenChange={(o) => !busy && !o && setImpact(null)}>
         <DialogContent
@@ -493,6 +300,225 @@ export function DataBrowserCard({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * ONE table: its own fetch, its own filters, its own pagination. Nothing here is
+ * lifted to the parent, which is what keeps twelve of these independent.
+ */
+function BrowserTableSection({
+  config,
+  count,
+  supplierOptions,
+  periods,
+  reloadKey,
+  onVoid,
+}: {
+  config: TableConfig;
+  count: number;
+  supplierOptions: ComboOption[];
+  periods: string[];
+  reloadKey: number;
+  onVoid?: (poId: string) => void;
+}) {
+  const [fSupplier, setFSupplier] = useState("");
+  const [fPeriod, setFPeriod] = useState("all");
+
+  // Keyed result state rather than a loading flag set inside the effect — the same
+  // shape SpendOverviewClient uses, so nothing sets state synchronously on mount.
+  const key = `${config.table}#${reloadKey}`;
+  const [loaded, setLoaded] = useState<{ key: string; rows: BrowserRow[] } | null>(null);
+  const [errored, setErrored] = useState<{ key: string; msg: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/data-browser/${config.table}`)
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as {
+          rows?: BrowserRow[];
+          error?: string;
+        };
+        if (!res.ok || !data.rows) throw new Error(data.error ?? "Could not load this table.");
+        return data.rows;
+      })
+      .then((rows) => {
+        if (!cancelled) setLoaded({ key, rows });
+      })
+      .catch((e: unknown) => {
+        if (!cancelled)
+          setErrored({ key, msg: e instanceof Error ? e.message : String(e) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, config.table]);
+
+  const rows = loaded?.key === key ? loaded.rows : null;
+  const error = errored?.key === key ? errored.msg : null;
+  const loading = rows === null && error === null;
+
+  const filtered = useMemo(() => {
+    if (!rows) return [];
+    return rows.filter(
+      (r) =>
+        (fSupplier === "" || r._supplierId === fSupplier) &&
+        (fPeriod === "all" || r._period === fPeriod),
+    );
+  }, [rows, fSupplier, fPeriod]);
+
+  const { page, setPage, pageCount, start, pageItems } = usePagination(
+    filtered,
+    ROSTER_PAGE_SIZE,
+    `${fSupplier}|${fPeriod}`,
+  );
+
+  const colCount = config.columns.length + (config.voidable ? 1 : 0);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-base font-semibold">
+          {config.label}{" "}
+          <span className="text-sm font-normal text-muted-foreground">
+            ({count.toLocaleString()}
+            {rows && filtered.length !== rows.length
+              ? ` · ${filtered.length.toLocaleString()} shown`
+              : ""}
+            )
+          </span>
+        </h3>
+        <span className="font-mono text-[11px] text-muted-foreground">{config.table}</span>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4">
+        {config.supplierFilter && (
+          <div className="flex min-w-[220px] flex-col gap-1.5">
+            <Label htmlFor={`db-${config.table}-supplier`}>Supplier</Label>
+            <TypeableCombobox
+              id={`db-${config.table}-supplier`}
+              aria-label={`Supplier filter for ${config.label}`}
+              value={fSupplier}
+              onChange={setFSupplier}
+              options={supplierOptions}
+              placeholder="All suppliers"
+            />
+          </div>
+        )}
+
+        {/* Absent, not disabled, where the table has no period dimension at all. */}
+        {config.periodFilter && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`db-${config.table}-period`}>Period</Label>
+            <div
+              className="flex flex-wrap gap-1.5"
+              id={`db-${config.table}-period`}
+              role="radiogroup"
+            >
+              <Button
+                type="button"
+                role="radio"
+                aria-checked={fPeriod === "all"}
+                variant={fPeriod === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFPeriod("all")}
+              >
+                All
+              </Button>
+              {periods.map((p) => (
+                <Button
+                  key={p}
+                  type="button"
+                  role="radio"
+                  aria-checked={fPeriod === p}
+                  variant={fPeriod === p ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFPeriod(p)}
+                >
+                  {p}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {rows && (
+        <>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {config.columns.map((c) => (
+                    <TableHead
+                      key={c.key}
+                      className={
+                        c.type === "money" || c.type === "number" ? "text-right" : undefined
+                      }
+                    >
+                      {c.label ?? c.key}
+                    </TableHead>
+                  ))}
+                  {config.voidable && <TableHead className="text-right">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pageItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={colCount} className="text-center text-muted-foreground">
+                      No rows match the filters.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pageItems.map((r) => (
+                    // A voided row stays listed but reads as withdrawn.
+                    <TableRow key={r.id} className={r._voided ? "opacity-55" : undefined}>
+                      {config.columns.map((c, i) => (
+                        <TableCell key={c.key} className={cellClass(c)}>
+                          {renderCell(r.cells[c.key], c)}
+                          {/* The chip rides the first column so it reads with the id. */}
+                          {i === 0 && r._voided && (
+                            <span
+                              className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                              style={{
+                                color: "var(--destructive)",
+                                backgroundColor:
+                                  "color-mix(in srgb, var(--destructive) 14%, transparent)",
+                              }}
+                            >
+                              voided
+                            </span>
+                          )}
+                        </TableCell>
+                      ))}
+                      {config.voidable && (
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" onClick={() => onVoid?.(r.id)}>
+                            {r._voided ? "Un-void" : "Void"}
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <PaginationFooter
+            page={page}
+            pageCount={pageCount}
+            start={start}
+            pageSize={ROSTER_PAGE_SIZE}
+            total={filtered.length}
+            setPage={setPage}
+          />
+        </>
+      )}
+    </section>
   );
 }
 
