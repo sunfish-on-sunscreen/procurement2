@@ -6,7 +6,8 @@ import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
 import { SupplierAppendCard } from "@/components/SupplierAppendCard";
 import { TransactionAppendCard } from "@/components/TransactionAppendCard";
-import { CorrectionCard } from "@/components/CorrectionCard";
+import { CorrectionCard, type CorrectablePo } from "@/components/CorrectionCard";
+import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -111,6 +112,31 @@ export default async function ImportPage() {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((i) => ({ name: i.name, category: i.category, unit: i.unit, supplierIds: [...i.supplierIds] }));
 
+  // Every PO, as selectable options for the correction dialog — the same
+  // server-prop pattern the record-purchase form uses for suppliers/items, so the
+  // picker filters instantly instead of round-tripping per keystroke.
+  // `buyingMethod` is NOT on the PO-grain view, so it is merged in by id.
+  const [enrichedPos, poMethods] = await Promise.all([
+    getEnrichedPurchases(),
+    prisma.purchaseOrder.findMany({ select: { id: true, buyingMethod: true } }),
+  ]);
+  const methodByPo = new Map(poMethods.map((p) => [p.id, p.buyingMethod]));
+  const correctablePos: CorrectablePo[] = enrichedPos
+    .map((e) => ({
+      id: e.poId,
+      supplierId: e.supplierExternalId,
+      supplierName: e.supplierName,
+      category: e.category,
+      period: e.period,
+      buyingMethod: methodByPo.get(e.poId) ?? "",
+      totalValueUsd: e.totalValueUsd,
+      matchPass: e.threeWayMatchPass,
+      defectCount: e.defectCount,
+    }))
+    // Newest first: ids are PO-YYYY-NNNNN, so a lexical descending sort is
+    // chronological, and recent orders are the likelier correction targets.
+    .sort((a, b) => b.id.localeCompare(a.id));
+
   const corrections = await prisma.correction.findMany({
     take: 25,
     orderBy: { createdAt: "desc" },
@@ -160,7 +186,7 @@ export default async function ImportPage() {
         requesters={uniqSorted(prFacets.map((p) => p.requester))}
       />
 
-      <CorrectionCard />
+      <CorrectionCard pos={correctablePos} />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Correction ledger</h2>

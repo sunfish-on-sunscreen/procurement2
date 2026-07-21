@@ -58,6 +58,10 @@ export async function GET(request: Request) {
         orderedQty: l.quantityOrdered,
         netQty,
         unitPriceUsd: l.unitPriceUsd,
+        // Net billed quantity. Exposed so the dialog can price a billing
+        // correction client-side (value moved = billedQty × price change)
+        // without a server dry-run.
+        billedQty,
         // Value-weighted effective billed price — the same figure the view compares.
         billedPrice: billedQty !== 0 ? billedValue / billedQty : null,
         defects: l.grnLines.reduce((s, g) => s + g.defectCount, 0),
