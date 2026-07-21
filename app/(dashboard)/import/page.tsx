@@ -7,6 +7,7 @@ import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
 import { SupplierAppendCard } from "@/components/SupplierAppendCard";
 import { TransactionAppendCard } from "@/components/TransactionAppendCard";
 import { CorrectionCard, type CorrectablePo } from "@/components/CorrectionCard";
+import { DataBrowserCard } from "@/components/DataBrowserCard";
 import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -136,6 +137,43 @@ export default async function ImportPage() {
     // Newest first: ids are PO-YYYY-NNNNN, so a lexical descending sort is
     // chronological, and recent orders are the likelier correction targets.
     .sort((a, b) => b.id.localeCompare(a.id));
+
+  // Row counts for the data-browser picker. Twelve `COUNT(*)`s on indexed tables —
+  // metadata only, so the browser can label each table without loading any of them.
+  // No table's rows are fetched until one is picked.
+  const [
+    cSupplier, cFramework, cRequisition, cSourcingEvent, cResponse, cPurchaseOrder,
+    cPoLine, cGoodsReceipt, cGrnLine, cInvoice, cInvoiceLine, cPayment,
+  ] = await Promise.all([
+    prisma.supplier.count(),
+    prisma.framework.count(),
+    prisma.requisition.count(),
+    prisma.sourcingEvent.count(),
+    prisma.response.count(),
+    prisma.purchaseOrder.count(),
+    prisma.poLine.count(),
+    prisma.goodsReceipt.count(),
+    prisma.grnLine.count(),
+    prisma.invoice.count(),
+    prisma.invoiceLine.count(),
+    prisma.payment.count(),
+  ]);
+  const browserCounts: Record<string, number> = {
+    suppliers: cSupplier,
+    frameworks: cFramework,
+    requisitions: cRequisition,
+    sourcing_events: cSourcingEvent,
+    responses: cResponse,
+    purchase_orders: cPurchaseOrder,
+    po_lines: cPoLine,
+    goods_receipts: cGoodsReceipt,
+    grn_lines: cGrnLine,
+    invoices: cInvoice,
+    invoice_lines: cInvoiceLine,
+    payments: cPayment,
+  };
+  // Derived from the PO options already assembled above — no extra query.
+  const browserPeriods = [...new Set(correctablePos.map((p) => p.period))].sort();
 
   const corrections = await prisma.correction.findMany({
     take: 25,
@@ -324,6 +362,12 @@ export default async function ImportPage() {
           </Table>
         )}
       </div>
+
+      <DataBrowserCard
+        counts={browserCounts}
+        suppliers={suppliers.map((s) => ({ id: s.id, name: s.supplierName }))}
+        periods={browserPeriods}
+      />
     </div>
   );
 }
