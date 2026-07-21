@@ -189,7 +189,8 @@ export function MasterDataSection({
         categories={supplierCategories}
       />
 
-      <div className="flex flex-col gap-2">
+      {/* A bounded list of rows — the top border closes it off above the first row. */}
+      <div className="flex flex-col border-t">
         {TABLE_CONFIGS.map((config) => (
           <CollapsibleTable
             key={config.table}
@@ -372,7 +373,8 @@ function CollapsibleTable({
   const [hasOpened, setHasOpened] = useState(false);
 
   return (
-    <section className="rounded-lg border">
+    // A row in a list, not a card: a single divider separates it from the next.
+    <section className="border-b last:border-b-0">
       <button
         type="button"
         aria-expanded={open}
@@ -380,22 +382,22 @@ function CollapsibleTable({
           setOpen((o) => !o);
           setHasOpened(true);
         }}
-        className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+        className="group flex w-full items-center gap-2 py-2.5 text-left"
       >
         <ChevronRight
           className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
             open ? "rotate-90" : ""
           }`}
         />
-        <span className="text-base font-semibold">{label}</span>
+        <span className="text-sm font-medium underline-offset-4 group-hover:underline">
+          {label}
+        </span>
         <span className="text-sm text-muted-foreground">({count.toLocaleString()})</span>
         <span className="flex-1" />
         <span className="font-mono text-[11px] text-muted-foreground">{table}</span>
       </button>
 
-      {hasOpened && (
-        <div className={open ? "border-t p-3" : "hidden"}>{children}</div>
-      )}
+      {hasOpened && <div className={open ? "pb-4" : "hidden"}>{children}</div>}
     </section>
   );
 }
