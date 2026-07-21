@@ -543,9 +543,9 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
               <>
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[11px] text-muted-foreground">
-                    Fields shown in <span className="font-medium text-foreground">amber</span> can
-                    be corrected. Everything else is part of the posted record and cannot be
-                    changed here.
+                    <span className="font-medium text-foreground">Greyed-out fields</span> are part
+                    of the posted record and cannot be changed here — hover one to void the order
+                    instead. Everything still editable can be corrected.
                   </p>
                   <Button
                     type="button"
@@ -816,7 +816,14 @@ function LockedField({
   );
 }
 
-/** A correctable field. Amber, because it is the exception on this form. */
+/**
+ * A correctable field — an ORDINARY input, with no special treatment.
+ *
+ * ⚠️ Deliberately unstyled. Only the LOCKED fields carry a visual treatment, because
+ * a normal input already reads as "type here"; tinting the editable ones as well
+ * would mean every field on the form is marked, which marks nothing. The muted
+ * fields are the exception, not these.
+ */
 function EditableField({
   id,
   label,
@@ -833,22 +840,10 @@ function EditableField({
   const changed = value.trim() !== original.trim() && value.trim() !== "";
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id} style={{ color: "var(--warning)" }}>
-        {label}
-      </Label>
-      <Input
-        id={id}
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          borderColor: "color-mix(in srgb, var(--warning) 55%, transparent)",
-          backgroundColor: `color-mix(in srgb, var(--warning) ${changed ? 16 : 7}%, transparent)`,
-        }}
-      />
-      {changed && (
-        <p className="text-[11px] text-muted-foreground">was {original}</p>
-      )}
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type="number" value={value} onChange={(e) => onChange(e.target.value)} />
+      {/* Not decoration — it states what is being changed away from. */}
+      {changed && <p className="text-[11px] text-muted-foreground">was {original}</p>}
     </div>
   );
 }
