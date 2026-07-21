@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { CorrectionBody, postCorrection } from "@/lib/corrections";
+import {
+  CorrectionBody,
+  CorrectionBatchBody,
+  postCorrections,
+  type CorrectionBatchInput,
+} from "@/lib/corrections";
 import { recomputeAllPeriods } from "@/lib/recompute";
 
 export const runtime = "nodejs";
@@ -29,20 +34,37 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const parsed = CorrectionBody.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      {
-        error: parsed.error.issues[0]?.message ?? "Invalid input",
-        issues: parsed.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`),
-      },
-      { status: 400 },
-    );
+  /**
+   * Two accepted shapes: the multi-field batch, and the original single-correction
+   * body. The single form is normalised into a one-item batch, so there is exactly
+   * ONE write path regardless of which shape arrived.
+   */
+  let batch: CorrectionBatchInput;
+  const asBatch = CorrectionBatchBody.safeParse(body);
+  if (asBatch.success) {
+    batch = asBatch.data;
+  } else {
+    const single = CorrectionBody.safeParse(body);
+    if (!single.success) {
+      // Report against whichever shape the caller was closer to.
+      const err = (body as { items?: unknown })?.items !== undefined ? asBatch.error : single.error;
+      return NextResponse.json(
+        {
+          error: err.issues[0]?.message ?? "Invalid input",
+          issues: err.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`),
+        },
+        { status: 400 },
+      );
+    }
+    const { reason, ...item } = single.data;
+    batch = { reason, items: [item] };
   }
 
   let posted;
   try {
-    posted = await prisma.$transaction((tx) => postCorrection(tx, parsed.data, session.userId), {
+    // ONE transaction for every row in the post, and ONE recompute after it — a
+    // multi-field post is a single user action, so it succeeds or fails whole.
+    posted = await prisma.$transaction((tx) => postCorrections(tx, batch, session.userId), {
       timeout: TX_TIMEOUT_MS,
       maxWait: 10_000,
     });
@@ -55,18 +77,27 @@ export async function POST(request: Request) {
   }
 
   const recompute = await recomputeAllPeriods();
+  const label = posted.length === 1 ? posted[0].correctionId : `${posted.length} corrections`;
   if (!recompute.ok) {
     return NextResponse.json(
       {
-        error: `Correction ${posted.correctionId} was posted, but analytics failed to refresh. Re-run the recompute.`,
+        error: `${label} posted, but analytics failed to refresh. Re-run the recompute.`,
         detail: recompute.error,
-        correction: posted,
+        corrections: posted,
       },
       { status: 500 },
     );
   }
 
-  return NextResponse.json({ success: true, correction: posted, recompute: recompute.summary });
+  return NextResponse.json({
+    success: true,
+    corrections: posted,
+    // Retained so the existing single-correction dialog keeps working unchanged
+    // until it is replaced; a multi-field post reports through `corrections`.
+    correction: posted[0],
+    netEffect: posted.map((p) => p.netEffect).join("; "),
+    recompute: recompute.summary,
+  });
 }
 
 /** Correction history, newest first — for the admin page. */
