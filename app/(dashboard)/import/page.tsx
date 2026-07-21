@@ -149,6 +149,9 @@ export default async function ImportPage() {
       totalValueUsd: e.totalValueUsd,
       matchPass: e.threeWayMatchPass,
       defectCount: e.defectCount,
+      // ISO day for the PO-date range filter — a different axis from `period`,
+      // which is the order YEAR.
+      poDate: e.poDate.toISOString().slice(0, 10),
     }))
     // Newest first: ids are PO-YYYY-NNNNN, so a lexical descending sort is
     // chronological, and recent orders are the likelier correction targets.

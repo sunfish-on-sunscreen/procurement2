@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TypeableCombobox, type ComboOption } from "@/components/ui/typeable-combobox";
 import { panelElevation, formatCompactCurrency } from "@/lib/utils";
-import { CORRECTION_KINDS, CORRECTION_KIND_LABELS, type CorrectionKind } from "@/lib/corrections";
 
 /** One selectable purchase order, assembled server-side (see the import page). */
 export type CorrectablePo = {
@@ -23,11 +22,14 @@ export type CorrectablePo = {
   totalValueUsd: number;
   matchPass: boolean;
   defectCount: number;
+  /** ISO day, for the PO-date range filter. */
+  poDate?: string;
 };
 
 type Line = {
   id: string;
   itemName: string;
+  category: string;
   unit: string;
   orderedQty: number;
   netQty: number;
@@ -36,16 +38,46 @@ type Line = {
   billedPrice: number | null;
   defects: number;
   correctionCount: number;
+  receiptQuantities: { grnId: string; received: number; rejected: number }[];
 };
 
-const n2 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-
-/** Short labels for the segmented row; the full sentence is shown below it. */
-const KIND_SHORT: Record<CorrectionKind, string> = {
-  quantity: "Quantity",
-  price: "Price",
-  defect: "Defects",
+type Receipt = {
+  id: string;
+  receiptDate: string | null;
+  site: string;
+  receivedBy: string;
+  status: string;
 };
+
+type Chain = {
+  po: {
+    id: string;
+    supplierId: string;
+    supplierName: string;
+    buyingMethod: string;
+    frameworkId: string | null;
+    justification: string | null;
+    paymentTerms: string;
+    complaintCount: number;
+    period: string;
+    requester: string;
+    department: string;
+    supplierInvoiceNo: string;
+    dates: {
+      pr: string | null;
+      po: string | null;
+      promised: string | null;
+      invoice: string | null;
+      payment: string | null;
+    };
+  };
+  receipts: Receipt[];
+  lines: Line[];
+};
+
+/** What the user typed per line — absolute values, exactly as record-purchase shows them. */
+type Edit = { quantity: string; invoicePrice: string; defects: string };
+const EMPTY_EDIT: Edit = { quantity: "", invoicePrice: "", defects: "" };
 
 const METHOD_LABEL: Record<string, string> = {
   rfq: "RFQ",
@@ -55,9 +87,8 @@ const METHOD_LABEL: Record<string, string> = {
   direct: "Direct award",
 };
 
-type MatchFilter = "all" | "fail" | "pass";
+const n2 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-/** Blank -> null so an empty field is "not answered yet", not zero. */
 function parseNum(s: string): number | null {
   const t = s.trim();
   if (t === "") return null;
@@ -65,52 +96,42 @@ function parseNum(s: string): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
-function matchesFilters(
-  po: CorrectablePo,
-  period: string,
-  match: MatchFilter,
-  supplierId: string,
-): boolean {
-  if (period !== "all" && po.period !== period) return false;
-  if (match === "fail" && po.matchPass) return false;
-  if (match === "pass" && !po.matchPass) return false;
-  if (supplierId !== "" && po.supplierId !== supplierId) return false;
-  return true;
-}
+type MatchFilter = "all" | "fail" | "pass";
 
 /**
  * Post a correction against a posted transactional record.
  *
- * The original is never edited — the UI deliberately offers no "edit" affordance.
- * A correction is an appended signed entry, so the form asks for a CHANGE (a signed
- * delta or a corrected price) plus a reason, never a replacement value. The
- * Current -> Change -> Resulting read makes that signed convention self-evident
- * and previews the effect before an irreversible, un-deletable entry is written.
+ * The form MIRRORS the record-purchase layout field for field, so the order reads
+ * the same way it was entered. Almost everything is disabled: a correction can only
+ * move quantity, billed price and defects, and only at line level. A wrong supplier,
+ * date or buying method is not correctable at all — that order is voided and
+ * re-recorded.
+ *
+ * ⚠️ Fields hold ABSOLUTE values, like record-purchase; the signed deltas the
+ * correction API wants are derived on submit. Each changed field becomes its own
+ * signed correction row, so one submit can move several fields and the ledger still
+ * records them one by one.
  */
 export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
-  // Picker filters.
-  const [fPeriod, setFPeriod] = useState("all");
-  const [fMatch, setFMatch] = useState<MatchFilter>("all");
+  // Step 1 — finding the order.
   const [fSupplier, setFSupplier] = useState("");
-
+  const [fMatch, setFMatch] = useState<MatchFilter>("all");
+  const [fPeriod, setFPeriod] = useState("all");
+  const [fFrom, setFFrom] = useState("");
+  const [fTo, setFTo] = useState("");
   const [poId, setPoId] = useState("");
-  const [lines, setLines] = useState<Line[] | null>(null);
-  const [selected, setSelected] = useState<Line | null>(null);
-  const [kind, setKind] = useState<CorrectionKind>("quantity");
-  const [qtyDelta, setQtyDelta] = useState("");
-  const [price, setPrice] = useState("");
-  const [defectDelta, setDefectDelta] = useState("");
+
+  // Step 2 — the loaded order.
+  const [chain, setChain] = useState<Chain | null>(null);
+  const [edits, setEdits] = useState<Record<string, Edit>>({});
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const periods = useMemo(
-    () => [...new Set(pos.map((p) => p.period))].sort(),
-    [pos],
-  );
+  const periods = useMemo(() => [...new Set(pos.map((p) => p.period))].sort(), [pos]);
 
   const supplierOptions = useMemo<ComboOption[]>(() => {
     const byId = new Map<string, string>();
@@ -124,15 +145,21 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
   }, [pos]);
 
   const visiblePos = useMemo(
-    () => pos.filter((p) => matchesFilters(p, fPeriod, fMatch, fSupplier)),
-    [pos, fPeriod, fMatch, fSupplier],
+    () =>
+      pos.filter((p) => {
+        if (fSupplier !== "" && p.supplierId !== fSupplier) return false;
+        if (fMatch === "fail" && p.matchPass) return false;
+        if (fMatch === "pass" && !p.matchPass) return false;
+        if (fPeriod !== "all" && p.period !== fPeriod) return false;
+        // ⚠️ PO DATE is a separate axis from period. Period groups by order YEAR;
+        // this range finds orders placed inside a specific window, which may sit
+        // inside one year or straddle several.
+        if (fFrom && (!p.poDate || p.poDate < fFrom)) return false;
+        if (fTo && (!p.poDate || p.poDate > fTo)) return false;
+        return true;
+      }),
+    [pos, fSupplier, fMatch, fPeriod, fFrom, fTo],
   );
-
-  // Counts shown ON the filter buttons are what that button would actually yield —
-  // i.e. the other two filters stay applied — so a count never promises rows the
-  // click cannot deliver.
-  const countIf = (period: string, match: MatchFilter, supplier: string) =>
-    pos.filter((p) => matchesFilters(p, period, match, supplier)).length;
 
   const poOptions = useMemo<ComboOption[]>(
     () =>
@@ -147,64 +174,48 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
   );
 
   const poById = useMemo(() => new Map(pos.map((p) => [p.id, p])), [pos]);
-  const selectedPo = poId ? poById.get(poId) ?? null : null;
 
-  // Reset on open (render-time transition — avoids set-state-in-effect).
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
-    if (open) {
-      setFPeriod("all");
-      setFMatch("all");
-      setFSupplier("");
-      clearPo();
-      setError(null);
-      setBusy(false);
-    }
+    if (open) resetAll();
   }
 
-  function clearPo() {
+  function resetAll() {
+    setFSupplier("");
+    setFMatch("all");
+    setFPeriod("all");
+    setFFrom("");
+    setFTo("");
     setPoId("");
-    setLines(null);
-    setSelected(null);
-    setKind("quantity");
-    setQtyDelta("");
-    setPrice("");
-    setDefectDelta("");
+    setChain(null);
+    setEdits({});
     setReason("");
-  }
-
-  /**
-   * Applying a filter that excludes the chosen PO clears the choice — otherwise
-   * the combobox would show a blank field while the loaded lines below still
-   * belonged to the now-hidden order.
-   */
-  function applyFilter(next: { period?: string; match?: MatchFilter; supplier?: string }) {
-    const period = next.period ?? fPeriod;
-    const match = next.match ?? fMatch;
-    const supplier = next.supplier ?? fSupplier;
-    setFPeriod(period);
-    setFMatch(match);
-    setFSupplier(supplier);
-    const current = poId ? poById.get(poId) : undefined;
-    if (current && !matchesFilters(current, period, match, supplier)) clearPo();
-  }
-
-  async function selectPo(nextId: string) {
-    clearPo();
-    setPoId(nextId);
     setError(null);
-    if (!nextId) return;
+    setBusy(false);
+  }
+
+  async function selectPo() {
+    if (!poId) return;
     setBusy(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/corrections/lines?poId=${encodeURIComponent(nextId)}`);
-      const data = (await res.json().catch(() => ({}))) as { error?: string; lines?: Line[] };
-      if (res.ok && data.lines) {
-        setLines(data.lines);
-        // 301 of 647 orders have exactly one line — pre-selecting it removes a
-        // click that has no alternative.
-        if (data.lines.length === 1) setSelected(data.lines[0]);
-        if (data.lines.length === 0) setError("That purchase order has no correctable lines.");
+      const res = await fetch(`/api/corrections/lines?poId=${encodeURIComponent(poId)}`);
+      const data = (await res.json().catch(() => ({}))) as Partial<Chain> & { error?: string };
+      if (res.ok && data.lines && data.po) {
+        setChain(data as Chain);
+        setEdits(
+          Object.fromEntries(
+            data.lines.map((l) => [
+              l.id,
+              {
+                quantity: String(l.netQty),
+                invoicePrice: l.billedPrice !== null ? String(l.billedPrice) : "",
+                defects: String(l.defects),
+              },
+            ]),
+          ),
+        );
       } else {
         setError(data.error ?? "Could not load that purchase order.");
       }
@@ -215,85 +226,94 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
     }
   }
 
-  const qty = parseNum(qtyDelta);
-  const newPrice = parseNum(price);
-  const def = parseNum(defectDelta);
-
-  // Mirrors the zod refinements in lib/corrections.ts, so the form cannot submit
-  // something the server will reject after a round trip.
-  const valueValid =
-    kind === "quantity"
-      ? qty !== null && qty !== 0
-      : kind === "price"
-        ? newPrice !== null && newPrice >= 0
-        : def !== null && def !== 0 && Number.isInteger(def);
-
-  const reasonTooShort = reason.trim().length > 0 && reason.trim().length < 3;
-  const reasonValid = reason.trim().length >= 3;
-
-  /** Net ordered quantity would go below zero — surfaced, not blocked. */
-  const negativeResult =
-    kind === "quantity" && qty !== null && selected !== null && selected.netQty + qty < 0;
+  function setEdit(lineId: string, patch: Partial<Edit>) {
+    setEdits((prev) => ({ ...prev, [lineId]: { ...(prev[lineId] ?? EMPTY_EDIT), ...patch } }));
+  }
 
   /**
-   * The same string the server builds in postCorrection, computed client-side so
-   * the effect is visible BEFORE the write. Raw number stringification (not
-   * locale-formatted) so it lines up with the server's netEffect literally.
-   *
-   * ⚠️ For a price correction the server quotes the ORIGINAL invoice line's price
-   * and quantity; this uses the value-weighted effective billed price and net
-   * billed quantity. They coincide until a price correction already exists on the
-   * line, at which point the effective figures are the ones the view compares.
+   * Turn the typed absolute values into the signed items the API wants. A field is
+   * only sent when it actually differs from what is on record, so an untouched form
+   * posts nothing.
    */
-  const netEffect = useMemo(() => {
-    if (!selected || !valueValid) return null;
-    if (kind === "quantity" && qty !== null) {
-      const sign = qty > 0 ? "+" : "";
-      return `quantity ${sign}${qty} @ ${selected.unitPriceUsd} = ${(qty * selected.unitPriceUsd).toFixed(2)} USD`;
+  const items = useMemo(() => {
+    if (!chain) return [];
+    const out: {
+      po_line_id: string;
+      kind: "quantity" | "price" | "defect";
+      quantity_delta?: number;
+      corrected_unit_price?: number;
+      defect_delta?: number;
+      label: string;
+    }[] = [];
+    for (const l of chain.lines) {
+      const e = edits[l.id] ?? EMPTY_EDIT;
+      const q = parseNum(e.quantity);
+      if (q !== null && q !== l.netQty) {
+        out.push({
+          po_line_id: l.id,
+          kind: "quantity",
+          quantity_delta: q - l.netQty,
+          label: `${l.itemName}: quantity ${n2(l.netQty)} → ${n2(q)}`,
+        });
+      }
+      const p = parseNum(e.invoicePrice);
+      if (p !== null && l.billedPrice !== null && p !== l.billedPrice) {
+        out.push({
+          po_line_id: l.id,
+          kind: "price",
+          corrected_unit_price: p,
+          label: `${l.itemName}: billed price ${n2(l.billedPrice)} → ${n2(p)}`,
+        });
+      }
+      const d = parseNum(e.defects);
+      if (d !== null && Number.isInteger(d) && d !== l.defects) {
+        out.push({
+          po_line_id: l.id,
+          kind: "defect",
+          defect_delta: d - l.defects,
+          label: `${l.itemName}: defects ${l.defects} → ${d}`,
+        });
+      }
     }
-    if (kind === "price" && newPrice !== null) {
-      const from = selected.billedPrice ?? selected.unitPriceUsd;
-      return `billed price ${from} → ${newPrice} on ${selected.billedQty} units`;
-    }
-    if (kind === "defect" && def !== null) {
-      return `defects ${def > 0 ? "+" : ""}${def}`;
-    }
-    return null;
-  }, [selected, kind, qty, newPrice, def, valueValid]);
+    return out;
+  }, [chain, edits]);
 
-  /** USD the correction moves — shown alongside, since only the quantity string carries it. */
-  const valueMoved = useMemo(() => {
-    if (!selected || !valueValid) return null;
-    if (kind === "quantity" && qty !== null) return qty * selected.unitPriceUsd;
-    if (kind === "price" && newPrice !== null) {
-      const from = selected.billedPrice ?? selected.unitPriceUsd;
-      return selected.billedQty * (newPrice - from);
-    }
-    return null;
-  }, [selected, kind, qty, newPrice, valueValid]);
+  const reasonValid = reason.trim().length >= 3;
 
   async function submit() {
-    if (!selected) return;
+    if (!chain || items.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const payload: Record<string, unknown> = { po_line_id: selected.id, kind, reason };
-      if (kind === "quantity") payload.quantity_delta = qty;
-      if (kind === "price") payload.corrected_unit_price = newPrice;
-      if (kind === "defect") payload.defect_delta = def;
-
       const res = await fetch("/api/corrections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          reason,
+          // `label` is display-only; the API takes the signed values.
+          items: items.map((i) => ({
+            po_line_id: i.po_line_id,
+            kind: i.kind,
+            ...(i.quantity_delta !== undefined ? { quantity_delta: i.quantity_delta } : {}),
+            ...(i.corrected_unit_price !== undefined
+              ? { corrected_unit_price: i.corrected_unit_price }
+              : {}),
+            ...(i.defect_delta !== undefined ? { defect_delta: i.defect_delta } : {}),
+          })),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         success?: boolean;
-        correction?: { netEffect: string };
+        corrections?: { netEffect: string }[];
       };
-      if (res.ok && data.correction) {
-        toast.success(`Correction posted — ${data.correction.netEffect}.`);
+      if (res.ok && data.corrections) {
+        const n = data.corrections.length;
+        toast.success(
+          `${n} correction${n === 1 ? "" : "s"} posted — ${data.corrections
+            .map((c) => c.netEffect)
+            .join("; ")}.`,
+        );
         setOpen(false);
         router.refresh();
       } else {
@@ -306,50 +326,7 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
     }
   }
 
-  /** Rich two-line option row — the collapsed field can only show plain text. */
-  const renderPoOption = (o: ComboOption) => {
-    const p = poById.get(o.value);
-    if (!p) return o.label;
-    return (
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-xs">{p.id}</span>
-          <span className="truncate text-sm">{p.supplierName}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{p.category}</span>
-          <span>·</span>
-          <span>{p.period}</span>
-          <span>·</span>
-          <span>{formatCompactCurrency(p.totalValueUsd)}</span>
-          <span
-            className="rounded px-1.5 py-0.5"
-            style={{
-              color: p.matchPass ? "var(--success)" : "var(--destructive)",
-              backgroundColor: `color-mix(in srgb, ${
-                p.matchPass ? "var(--success)" : "var(--destructive)"
-              } 14%, transparent)`,
-            }}
-          >
-            {p.matchPass ? "Match pass" : "Match fail"}
-          </span>
-          {p.defectCount > 0 && (
-            <span
-              className="rounded px-1.5 py-0.5"
-              style={{
-                color: "var(--warning)",
-                backgroundColor: "color-mix(in srgb, var(--warning) 14%, transparent)",
-              }}
-            >
-              {p.defectCount} defect{p.defectCount === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const failingCount = countIf(fPeriod, "fail", fSupplier);
+  const selectedPo = poId ? poById.get(poId) ?? null : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -376,393 +353,464 @@ export function CorrectionCard({ pos }: { pos: CorrectablePo[] }) {
           <header className="flex items-start justify-between gap-2 border-b p-4">
             <div className="min-w-0">
               <DialogTitle className="truncate font-heading text-base font-medium leading-snug">
-                Post a correction
+                {chain ? `Correct ${chain.po.id}` : "Post a correction"}
               </DialogTitle>
               <p className="truncate text-xs text-muted-foreground">
-                The original entry stays exactly as posted.
+                {chain
+                  ? "Only quantity, billed price and defects can be corrected."
+                  : "Find the order first."}
               </p>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label="Close" onClick={() => setOpen(false)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              aria-label="Close"
+              onClick={() => setOpen(false)}
+            >
               <X className="h-4 w-4" />
             </Button>
           </header>
 
           <div className="flex flex-col gap-5 p-4">
-            {/* Find the purchase order */}
-            <div>
-              <p className="mb-2 text-sm font-medium">Find the purchase order</p>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="corr-period">Period</Label>
-                  <div className="flex flex-wrap gap-1.5" id="corr-period" role="radiogroup">
-                    <Button
-                      type="button"
-                      role="radio"
-                      aria-checked={fPeriod === "all"}
-                      variant={fPeriod === "all" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => applyFilter({ period: "all" })}
-                    >
-                      All {countIf("all", fMatch, fSupplier)}
-                    </Button>
-                    {periods.map((p) => (
-                      <Button
-                        key={p}
-                        type="button"
-                        role="radio"
-                        aria-checked={fPeriod === p}
-                        variant={fPeriod === p ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => applyFilter({ period: p })}
+            {/* ---------------- STEP 1: find the order ---------------- */}
+            {!chain && (
+              <>
+                <div>
+                  <p className="mb-2 text-sm font-medium">Find the purchase order</p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="corr-supplier">Supplier</Label>
+                      <TypeableCombobox
+                        id="corr-supplier"
+                        aria-label="Supplier"
+                        value={fSupplier}
+                        onChange={(v) => {
+                          setFSupplier(v);
+                          setPoId("");
+                        }}
+                        options={supplierOptions}
+                        placeholder="All suppliers"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="corr-match">Three-way match</Label>
+                      <select
+                        id="corr-match"
+                        value={fMatch}
+                        onChange={(e) => {
+                          setFMatch(e.target.value as MatchFilter);
+                          setPoId("");
+                        }}
+                        className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       >
-                        {p} {countIf(p, fMatch, fSupplier)}
-                      </Button>
-                    ))}
+                        <option value="all">All</option>
+                        <option value="fail">Failing only</option>
+                        <option value="pass">Passing only</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="corr-period">Period (order year)</Label>
+                      <div className="flex flex-wrap gap-1.5" id="corr-period" role="radiogroup">
+                        <Button
+                          type="button"
+                          role="radio"
+                          aria-checked={fPeriod === "all"}
+                          variant={fPeriod === "all" ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setFPeriod("all");
+                            setPoId("");
+                          }}
+                        >
+                          All
+                        </Button>
+                        {periods.map((p) => (
+                          <Button
+                            key={p}
+                            type="button"
+                            role="radio"
+                            aria-checked={fPeriod === p}
+                            variant={fPeriod === p ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              setFPeriod(p);
+                              setPoId("");
+                            }}
+                          >
+                            {p}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ⚠️ A DIFFERENT AXIS from period, and labelled as such. */}
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="corr-from">PO date from</Label>
+                      <Input
+                        id="corr-from"
+                        type="date"
+                        value={fFrom}
+                        onChange={(e) => {
+                          setFFrom(e.target.value);
+                          setPoId("");
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="corr-to">PO date to</Label>
+                      <Input
+                        id="corr-to"
+                        type="date"
+                        value={fTo}
+                        onChange={(e) => {
+                          setFTo(e.target.value);
+                          setPoId("");
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <p className="text-[11px] text-muted-foreground">
+                        The date the order was placed. Separate from period, which groups
+                        by order year — a range can sit inside one year or cross several.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="corr-match">Three-way match</Label>
-                  <div className="flex flex-wrap gap-1.5" id="corr-match" role="radiogroup">
-                    <Button
-                      type="button"
-                      role="radio"
-                      aria-checked={fMatch === "all"}
-                      variant={fMatch === "all" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => applyFilter({ match: "all" })}
-                    >
-                      All {countIf(fPeriod, "all", fSupplier)}
-                    </Button>
-                    {/* The usual reason to open this dialog — tinted so it reads as
-                        the primary entry point without being the default. */}
-                    <Button
-                      type="button"
-                      role="radio"
-                      aria-checked={fMatch === "fail"}
-                      variant={fMatch === "fail" ? "default" : "outline"}
-                      size="sm"
-                      style={
-                        fMatch === "fail"
-                          ? undefined
-                          : {
-                              color: "var(--destructive)",
-                              borderColor: "color-mix(in srgb, var(--destructive) 40%, transparent)",
-                              backgroundColor: "color-mix(in srgb, var(--destructive) 8%, transparent)",
-                            }
-                      }
-                      onClick={() => applyFilter({ match: "fail" })}
-                    >
-                      Failing {failingCount}
-                    </Button>
-                    <Button
-                      type="button"
-                      role="radio"
-                      aria-checked={fMatch === "pass"}
-                      variant={fMatch === "pass" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => applyFilter({ match: "pass" })}
-                    >
-                      Passing {countIf(fPeriod, "pass", fSupplier)}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="corr-supplier">Supplier</Label>
+                  <Label htmlFor="corr-po">Purchase order</Label>
                   <TypeableCombobox
-                    id="corr-supplier"
-                    aria-label="Supplier"
-                    value={fSupplier}
-                    onChange={(v) => applyFilter({ supplier: v })}
-                    options={supplierOptions}
-                    placeholder="All suppliers"
+                    id="corr-po"
+                    aria-label="Purchase order"
+                    value={poId}
+                    onChange={setPoId}
+                    options={poOptions}
+                    maxVisible={40}
+                    placeholder="Type a PO id, supplier or category"
+                    emptyText="No purchase orders match these filters"
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    {visiblePos.length} of {pos.length} orders selectable.
+                  </p>
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-col gap-1.5">
-                <Label htmlFor="corr-po">Purchase order</Label>
-                <TypeableCombobox
-                  id="corr-po"
-                  aria-label="Purchase order"
-                  value={poId}
-                  onChange={selectPo}
-                  options={poOptions}
-                  renderOption={renderPoOption}
-                  maxVisible={40}
-                  placeholder="Type a PO id, supplier or category"
-                  emptyText="No purchase orders match these filters"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {visiblePos.length} of {pos.length} orders selectable.
-                  {failingCount > 0 &&
-                    ` ${failingCount} fail the three-way match — the usual reason to post a correction.`}
-                </p>
-              </div>
-            </div>
+                {selectedPo && (
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span className="font-mono text-xs">{selectedPo.id}</span>
+                      <span className="font-medium">{selectedPo.supplierName}</span>
+                      <span className="text-muted-foreground">{selectedPo.category}</span>
+                      <span className="text-muted-foreground">{selectedPo.period}</span>
+                      <span className="text-muted-foreground">
+                        {formatCompactCurrency(selectedPo.totalValueUsd)}
+                      </span>
+                      <span
+                        className="rounded px-1.5 py-0.5 text-xs"
+                        style={{
+                          color: selectedPo.matchPass ? "var(--success)" : "var(--destructive)",
+                          backgroundColor: `color-mix(in srgb, ${
+                            selectedPo.matchPass ? "var(--success)" : "var(--destructive)"
+                          } 14%, transparent)`,
+                        }}
+                      >
+                        {selectedPo.matchPass ? "Match pass" : "Match fail"}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
-            {/* Chosen order — context the collapsed combobox field cannot show */}
-            {selectedPo && (
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span className="font-mono text-xs">{selectedPo.id}</span>
-                  <span className="font-medium">{selectedPo.supplierName}</span>
-                  <span className="text-muted-foreground">{selectedPo.category}</span>
-                  <span className="text-muted-foreground">{selectedPo.period}</span>
-                  <span className="text-muted-foreground">
-                    {formatCompactCurrency(selectedPo.totalValueUsd)}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {METHOD_LABEL[selectedPo.buyingMethod] ?? selectedPo.buyingMethod}
-                  </span>
-                  <span
-                    className="rounded px-1.5 py-0.5 text-xs"
-                    style={{
-                      color: selectedPo.matchPass ? "var(--success)" : "var(--destructive)",
-                      backgroundColor: `color-mix(in srgb, ${
-                        selectedPo.matchPass ? "var(--success)" : "var(--destructive)"
-                      } 14%, transparent)`,
+            {/* ---------------- STEP 2: the mirrored form ---------------- */}
+            {chain && (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Fields shown in <span className="font-medium text-foreground">amber</span> can
+                    be corrected. Everything else is part of the posted record and cannot be
+                    changed here.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setChain(null);
+                      setEdits({});
+                      setError(null);
                     }}
                   >
-                    {selectedPo.matchPass ? "Match pass" : "Match fail"}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Line picker */}
-            {lines && lines.length > 0 && (
-              <div>
-                <p className="mb-2 text-sm font-medium">
-                  Line to correct{" "}
-                  <span className="font-normal text-muted-foreground">
-                    · {lines.length} {lines.length === 1 ? "line" : "lines"}
-                    {lines.length === 1 ? " (selected)" : ""}
-                  </span>
-                </p>
-                <div className="grid grid-cols-12 gap-2 border-b px-2.5 pb-1.5 text-[11px] font-medium text-muted-foreground">
-                  <div className="col-span-3">Item</div>
-                  <div className="col-span-2 text-right">Ordered</div>
-                  <div className="col-span-2 text-right">Net</div>
-                  <div className="col-span-2 text-right">PO price</div>
-                  <div className="col-span-2 text-right">Billed</div>
-                  <div className="col-span-1 text-right">Defects</div>
-                </div>
-                <div className="flex flex-col gap-1.5 pt-1.5">
-                  {lines.map((l) => {
-                    const priceDiffers = l.billedPrice !== null && l.billedPrice !== l.unitPriceUsd;
-                    return (
-                      <button
-                        key={l.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected?.id === l.id}
-                        onClick={() => setSelected(l)}
-                        className={`grid grid-cols-12 items-center gap-2 rounded-lg border p-2.5 text-left text-sm transition-colors ${
-                          selected?.id === l.id ? "border-primary bg-muted/50" : "hover:bg-muted/30"
-                        }`}
-                      >
-                        <div className="col-span-3 min-w-0">
-                          <div className="truncate font-medium">{l.itemName}</div>
-                          <div className="truncate font-mono text-[11px] text-muted-foreground">
-                            {l.id}
-                            {l.correctionCount > 0 && ` · ${l.correctionCount} correction(s)`}
-                          </div>
-                        </div>
-                        <div className="col-span-2 text-right tabular-nums">
-                          {n2(l.orderedQty)}{" "}
-                          <span className="text-[11px] text-muted-foreground">{l.unit}</span>
-                        </div>
-                        <div
-                          className={`col-span-2 text-right tabular-nums ${
-                            l.netQty !== l.orderedQty ? "text-[var(--warning)]" : ""
-                          }`}
-                        >
-                          {n2(l.netQty)}
-                        </div>
-                        <div className="col-span-2 text-right tabular-nums">{n2(l.unitPriceUsd)}</div>
-                        <div
-                          className={`col-span-2 text-right tabular-nums ${
-                            priceDiffers ? "text-[var(--warning)]" : ""
-                          }`}
-                        >
-                          {l.billedPrice !== null ? n2(l.billedPrice) : "—"}
-                        </div>
-                        <div
-                          className={`col-span-1 text-right tabular-nums ${
-                            l.defects > 0 ? "text-[var(--warning)]" : "text-muted-foreground"
-                          }`}
-                        >
-                          {l.defects}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* The correction itself */}
-            {selected && (
-              <div>
-                <p className="mb-2 text-sm font-medium">Correction</p>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="corr-kind">Type</Label>
-                  <div className="flex flex-wrap gap-1.5" id="corr-kind" role="radiogroup">
-                    {CORRECTION_KINDS.map((k) => (
-                      <Button
-                        key={k}
-                        type="button"
-                        role="radio"
-                        aria-checked={kind === k}
-                        variant={kind === k ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setKind(k)}
-                      >
-                        {KIND_SHORT[k]}
-                      </Button>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">{CORRECTION_KIND_LABELS[kind]}</p>
+                    Change order
+                  </Button>
                 </div>
 
-                {/* Current -> Change -> Resulting */}
-                <div className="mt-4 grid items-start gap-4 sm:grid-cols-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label>Current</Label>
-                    <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm tabular-nums">
-                      {kind === "quantity" && `${n2(selected.netQty)} ${selected.unit}`}
-                      {kind === "price" &&
-                        (selected.billedPrice !== null ? n2(selected.billedPrice) : "—")}
-                      {kind === "defect" && selected.defects}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {kind === "quantity" && "Net ordered quantity today."}
-                      {kind === "price" && "Effective billed unit price today."}
-                      {kind === "defect" && "Defects recorded on this line."}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="corr-value">
-                      {kind === "quantity" && "Change (signed)"}
-                      {kind === "price" && "Corrected unit price"}
-                      {kind === "defect" && "Change (signed)"}
-                    </Label>
-                    {kind === "quantity" && (
-                      <Input
-                        id="corr-value"
-                        type="number"
-                        value={qtyDelta}
-                        onChange={(e) => setQtyDelta(e.target.value)}
-                        placeholder="e.g. -100"
-                      />
-                    )}
-                    {kind === "price" && (
-                      <Input
-                        id="corr-value"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={price}
-                        onChange={(e) => setPrice(e.target.value)}
-                        placeholder={n2(selected.unitPriceUsd)}
-                      />
-                    )}
-                    {kind === "defect" && (
-                      <Input
-                        id="corr-value"
-                        type="number"
-                        step={1}
-                        value={defectDelta}
-                        onChange={(e) => setDefectDelta(e.target.value)}
-                        placeholder="e.g. -2"
-                      />
-                    )}
-                    <p className="text-[11px] text-muted-foreground">
-                      {kind === "quantity" &&
-                        "Enter the CHANGE, not the new total. Negative returns or cancels units; positive adds."}
-                      {kind === "price" &&
-                        "Enter the price that should have been billed. The original is credited and re-billed at this price."}
-                      {kind === "defect" &&
-                        "Enter the CHANGE, not the new total. Negative removes defects; positive adds."}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <Label>Resulting</Label>
-                    <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm tabular-nums">
-                      {!valueValid && <span className="text-muted-foreground">—</span>}
-                      {valueValid && kind === "quantity" && qty !== null && (
-                        <span className={negativeResult ? "text-destructive" : undefined}>
-                          {n2(selected.netQty + qty)} {selected.unit}
-                        </span>
-                      )}
-                      {valueValid && kind === "price" && newPrice !== null && n2(newPrice)}
-                      {valueValid && kind === "defect" && def !== null && selected.defects + def}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {valueMoved !== null
-                        ? `${valueMoved >= 0 ? "+" : "−"}${formatCompactCurrency(Math.abs(valueMoved))} on this order`
-                        : "After the correction is posted."}
-                    </p>
-                  </div>
+                {/* Supplier + method */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <LockedField label="Supplier" value={chain.po.supplierName} />
+                  <LockedField
+                    label="Buying method"
+                    value={METHOD_LABEL[chain.po.buyingMethod] ?? chain.po.buyingMethod}
+                  />
                 </div>
-
-                {negativeResult && (
-                  <p className="mt-1.5 text-[11px] text-destructive">
-                    That change takes the net ordered quantity below zero. Check the sign —
-                    a negative number returns units.
-                  </p>
+                {chain.po.frameworkId && (
+                  <LockedField label="Framework agreement" value={chain.po.frameworkId} />
+                )}
+                {chain.po.justification && (
+                  <LockedField label="Justification" value={chain.po.justification} />
                 )}
 
-                <div className="mt-4 flex flex-col gap-1.5">
+                {/* Requisition + logistics */}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <LockedField label="Requester" value={chain.po.requester} />
+                  <LockedField label="Department" value={chain.po.department} />
+                  <LockedField label="Payment terms" value={chain.po.paymentTerms} />
+                  <LockedField label="Supplier invoice no." value={chain.po.supplierInvoiceNo} />
+                  <LockedField label="Complaints" value={String(chain.po.complaintCount)} />
+                </div>
+
+                {/* Dates */}
+                <div>
+                  <p className="mb-2 text-sm font-medium">Document dates</p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <LockedField label="Requisition" value={chain.po.dates.pr} />
+                    <LockedField label="PO" value={chain.po.dates.po} />
+                    <LockedField label="Promised delivery" value={chain.po.dates.promised} />
+                    <LockedField label="Invoice" value={chain.po.dates.invoice} />
+                    <LockedField label="Payment" value={chain.po.dates.payment} />
+                  </div>
+                </div>
+
+                {/* Order lines — the only correctable part */}
+                <div>
+                  <p className="mb-2 text-sm font-medium">
+                    Order lines{" "}
+                    <span className="font-normal text-muted-foreground">
+                      · quantity, billed price and defects can be corrected
+                    </span>
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    {chain.lines.map((l) => {
+                      const e = edits[l.id] ?? EMPTY_EDIT;
+                      return (
+                        <div key={l.id} className="rounded-lg border p-3">
+                          <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
+                            <span className="font-medium">{l.itemName}</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {l.id}
+                            </span>
+                            {l.correctionCount > 0 && (
+                              <span className="text-[11px] text-muted-foreground">
+                                {l.correctionCount} existing correction(s)
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-12">
+                            <div className="sm:col-span-3">
+                              <LockedField label="Category" value={l.category} />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <LockedField label="Unit" value={l.unit} />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <EditableField
+                                id={`corr-qty-${l.id}`}
+                                label="Quantity"
+                                value={e.quantity}
+                                onChange={(v) => setEdit(l.id, { quantity: v })}
+                                original={String(l.netQty)}
+                              />
+                            </div>
+                            {/* ⚠️ PO price is NOT correctable — only a void fixes it. */}
+                            <div className="sm:col-span-2">
+                              <LockedField label="PO price" value={n2(l.unitPriceUsd)} />
+                            </div>
+                            <div className="sm:col-span-3">
+                              <EditableField
+                                id={`corr-price-${l.id}`}
+                                label="Billed price"
+                                value={e.invoicePrice}
+                                onChange={(v) => setEdit(l.id, { invoicePrice: v })}
+                                original={l.billedPrice !== null ? String(l.billedPrice) : ""}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-12">
+                            <div className="sm:col-span-3">
+                              <LockedField label="Billed qty" value={n2(l.billedQty)} />
+                            </div>
+                            {/* ⚠️ DELIBERATE DIVERGENCE from record-purchase, which
+                                records defects per receipt: a defect correction is per
+                                PO LINE, aggregated across every GRN, so it belongs here. */}
+                            <div className="sm:col-span-3">
+                              <EditableField
+                                id={`corr-def-${l.id}`}
+                                label="Defects (all receipts)"
+                                value={e.defects}
+                                onChange={(v) => setEdit(l.id, { defects: v })}
+                                original={String(l.defects)}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Goods receipts — context only */}
+                {chain.receipts.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-sm font-medium">
+                      Goods receipts{" "}
+                      <span className="font-normal text-muted-foreground">
+                        · {chain.receipts.length}{" "}
+                        {chain.receipts.length === 1 ? "delivery" : "deliveries"}, not correctable
+                      </span>
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      {chain.receipts.map((r) => (
+                        <div key={r.id} className="rounded-lg border p-3">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <LockedField label="Receipt date" value={r.receiptDate} />
+                            <LockedField label="Receiving site" value={r.site} />
+                            <LockedField label="Received by" value={r.receivedBy} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* What will be posted */}
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-sm font-medium">
+                    {items.length === 0
+                      ? "No changes yet"
+                      : `${items.length} correction${items.length === 1 ? "" : "s"} will be posted`}
+                  </p>
+                  {items.length > 0 && (
+                    <ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">
+                      {items.map((i, n) => (
+                        <li key={n}>{i.label}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {items.length === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Change a quantity, billed price or defect count above. Each changed
+                      field is posted as its own signed entry.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
                   <Label htmlFor="corr-reason">Reason</Label>
                   <Input
                     id="corr-reason"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    placeholder="Why this correction is being posted"
+                    placeholder="Why these corrections are being posted"
                   />
-                  {reasonTooShort && (
+                  {reason.trim().length > 0 && !reasonValid && (
                     <p className="text-[11px] text-destructive">
                       A reason must be at least 3 characters.
                     </p>
                   )}
                 </div>
-              </div>
+              </>
             )}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
 
           <footer className="flex items-center justify-between gap-2 border-t bg-muted/50 p-4">
-            <div className="min-w-0 text-sm text-muted-foreground">
-              {netEffect ? (
-                <>
-                  <span className="font-medium text-foreground">{netEffect}</span>
-                  <span className="block text-[11px]">
-                    Posting appends this entry and recomputes every period — a few seconds.
-                  </span>
-                </>
-              ) : (
-                <span className="text-[11px]">
-                  Posting appends a signed entry and recomputes every period — a few seconds.
-                </span>
-              )}
-            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {chain
+                ? "Posting appends one signed entry per changed field and recomputes every period."
+                : "Posted records are never edited — a correction is appended beside the original."}
+            </span>
             <div className="flex shrink-0 gap-2">
               <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
                 Cancel
               </Button>
-              <Button onClick={submit} disabled={busy || !selected || !valueValid || !reasonValid}>
-                {busy ? "Posting…" : "Post correction"}
-              </Button>
+              {chain ? (
+                <Button
+                  onClick={submit}
+                  disabled={busy || items.length === 0 || !reasonValid}
+                >
+                  {busy ? "Posting…" : "Post correction"}
+                </Button>
+              ) : (
+                <Button onClick={selectPo} disabled={busy || !poId}>
+                  {busy ? "Loading…" : "Select PO"}
+                </Button>
+              )}
             </div>
           </footer>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * A field that is part of the posted record. Rendered as a real disabled input so
+ * it occupies the same space as its record-purchase counterpart — the mirror only
+ * works if the locked fields look like fields, not like text.
+ */
+function LockedField({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-muted-foreground">{label}</Label>
+      <Input
+        value={value ?? "—"}
+        disabled
+        readOnly
+        data-locked="true"
+        className="cursor-not-allowed bg-muted/60 text-muted-foreground"
+      />
+    </div>
+  );
+}
+
+/** A correctable field. Amber, because it is the exception on this form. */
+function EditableField({
+  id,
+  label,
+  value,
+  onChange,
+  original,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  original: string;
+}) {
+  const changed = value.trim() !== original.trim() && value.trim() !== "";
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} style={{ color: "var(--warning)" }}>
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          borderColor: "color-mix(in srgb, var(--warning) 55%, transparent)",
+          backgroundColor: `color-mix(in srgb, var(--warning) ${changed ? 16 : 7}%, transparent)`,
+        }}
+      />
+      {changed && (
+        <p className="text-[11px] text-muted-foreground">was {original}</p>
+      )}
     </div>
   );
 }
