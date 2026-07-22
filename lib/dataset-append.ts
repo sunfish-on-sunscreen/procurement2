@@ -386,6 +386,30 @@ export async function planTransactionAppend(
     }
   }
 
+  // Raising an order against a RETIRED supplier is blocked here exactly as the
+  // record-purchase dropdown (active-only) and POST /api/purchases both block it —
+  // otherwise a transactions file is a way around the same rule. Scoped to the PO
+  // supplier: that is the party an order is actually raised against (the invoice and
+  // the award resolve to the same supplier in a valid chain, and a losing bidder in
+  // `responses` is not "ordering"). Only suppliers that exist are checked — a missing
+  // one already errored above. Deduped per supplier, so one message names each.
+  const poSupplierIds = new Set<string>();
+  for (const r of rowsOf("purchase_orders")) {
+    const v = s(r.supplier_id);
+    if (v && knownSuppliers.has(v)) poSupplierIds.add(v);
+  }
+  if (poSupplierIds.size > 0) {
+    const supStatuses = await db.supplier.findMany({
+      where: { id: { in: [...poSupplierIds] } },
+      select: { supplierName: true, status: true },
+    });
+    for (const sup of supStatuses) {
+      if (sup.status !== "active") {
+        push(`${sup.supplierName} is inactive — reactivate it before ordering.`);
+      }
+    }
+  }
+
   const frameworkRefs = new Set<string>();
   for (const r of rowsOf("purchase_orders")) { const v = s(r.framework_id); if (v) frameworkRefs.add(v); }
   const knownFrameworks = await findExistingIds(db, "frameworks", [...frameworkRefs]);

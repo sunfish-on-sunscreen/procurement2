@@ -14,6 +14,9 @@ export type SupplierRankingRow = {
   // True when the supplier has no purchases in the selected period (rendered
   // muted, ranked last). The supplier still exists (identity + snapshot score).
   inactive: boolean;
+  // True when the supplier is RETIRED master data (status !== "active"). Distinct
+  // from `inactive` above: display-only badge, never filters or reorders.
+  retired: boolean;
 };
 
 /** Per-supplier spend decomposition (all-time) for the drill-down panel. */
@@ -23,6 +26,9 @@ export type SpendDetail = {
     name: string;
     category: string | null;
     country: string | null;
+    // True when the supplier is RETIRED master data (status !== "active").
+    // Display-only badge in the detail header; never filters or changes a figure.
+    retired: boolean;
     // ABC class + Kraljic quadrant for the SELECTED period (period-scoped, matches
     // the ranking table). Null when the supplier is absent from that period.
     abcClass: "A" | "B" | "C" | null;

@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { PerfBar, SortArrow } from "@/components/RankingCells";
+import { PerfBar, SortArrow, RetiredBadge } from "@/components/RankingCells";
 
 type SortKey =
   | "supplier_name"
@@ -161,9 +161,12 @@ export function SupplierClassificationTable({
                 >
                   <td className="py-3 text-right tabular-nums text-muted-foreground">{i + 1}</td>
                   <td className="py-3 font-medium">
-                    <span className="block max-w-[200px] truncate" title={r.supplier_name}>
-                      {r.supplier_name}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="block max-w-[200px] truncate" title={r.supplier_name}>
+                        {r.supplier_name}
+                      </span>
+                      {r.retired && <RetiredBadge />}
+                    </div>
                   </td>
                   <td className="py-3">
                     <span className="block max-w-[160px] truncate" title={r.category ?? undefined}>

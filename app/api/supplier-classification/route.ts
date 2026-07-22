@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { getRangeAnalyses } from "@/lib/range-analyses";
-import { getSupplierCategoryMap } from "@/lib/suppliers";
+import { getSupplierCategoryMap, getRetiredSupplierIds } from "@/lib/suppliers";
 import {
   getAnalysisResult,
   type AbcResult,
@@ -74,6 +74,10 @@ export async function POST(request: Request) {
     orderBy: { periodId: "desc" },
   });
 
+  // Master-data retirement (status !== "active"), for a display-only badge. Does
+  // NOT filter or reorder — retired suppliers keep their classification and rank.
+  const retiredIds = await getRetiredSupplierIds();
+
   const ranking: ClassificationRankingRow[] = roster
     .map((r) => {
       const ps = perfBySupplier.get(r.supplierExternalId);
@@ -86,6 +90,7 @@ export async function POST(request: Request) {
         performance_score: ps?.performance_score ?? null,
         total_spend: ps?.total_spend_usd ?? 0,
         inactive: !ps,
+        retired: retiredIds.has(r.supplierExternalId),
       };
     })
     .sort((a, b) => b.total_spend - a.total_spend);
