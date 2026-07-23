@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { CycleTimeResult, KraljicQuadrant } from "@/lib/analysis-types";
 import type { CycleSupplierRow, CycleCategoryRow } from "@/lib/cycle-time-types";
 import { cardElevation } from "@/lib/utils";
-import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL } from "@/lib/cycle-mix";
+import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL, comparisonSkipText } from "@/lib/cycle-mix";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const STAGES = [
@@ -114,6 +114,10 @@ export function CycleTimeGlancePanel({
           mde: cmp.mde_a ?? null,
         }
       : null;
+  // When no test ran, SAY WHY in the same words the report uses. Rendering nothing
+  // at all reads as a missing feature rather than an honest absence — e.g. a window
+  // where every order was placed in one half has no second group to compare.
+  const skipText = stability ? null : comparisonSkipText(cmp?.skip_reason);
 
   // The one per-method change that survives BH correction AND the power floor.
   const msig = cycleTime.method_significance;
@@ -253,7 +257,8 @@ export function CycleTimeGlancePanel({
                 ) : null}
                 ).
               </>
-            )}{" "}
+            )}
+            {skipText && <> {skipText}</>}{" "}
             This cadence is typical of capital-intensive procurement.
           </p>
 

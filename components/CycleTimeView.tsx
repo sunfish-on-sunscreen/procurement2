@@ -31,7 +31,7 @@ import type { ControlExposure } from "@/lib/cycle-time-types";
 import { SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { cardElevation, formatCompactCurrency } from "@/lib/utils";
-import { METHOD_LABEL } from "@/lib/cycle-mix";
+import { METHOD_LABEL, visibleTransitions } from "@/lib/cycle-mix";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -273,8 +273,85 @@ function CycleByMethodTable({ data }: { data: CycleTimeResult }) {
             ))}
           </TableBody>
         </Table>
+
+        <YoyTransitionTable data={data} />
       </CardContent>
     </Card>
+  );
+}
+
+// ---- Year-over-year transition table (second sub-table of the method card) --- #
+// LAYOUT: this lives INSIDE the buying-method card rather than as a fifth
+// standalone card on an already-dense page. The two tables are the same lens —
+// "how do the methods differ" and "how did they change" — and Control Exposure
+// already sets the precedent of one card holding two related sub-tables.
+//
+// ⚠️ DECOMPOSITION ONLY, no p-values. Shift-share is an arithmetic identity
+// (pooled = mix + within) with no distributional assumptions, so nothing here can
+// be misread as a test result. Per-cell tests would put ten hypotheses in a table
+// where nineteen of twenty are null after correction. The one result that survives
+// correction is stated once, in the glance, with its q-value and power.
+function YoyTransitionTable({ data }: { data: CycleTimeResult }) {
+  const rows = visibleTransitions(data, "total");
+  if (rows.length === 0) return null;
+  // Signed day + its share of the earlier period's pooled mean.
+  const cell = (d: number | null, pctv: number | null) =>
+    d == null
+      ? "—"
+      : `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(2)}d${
+          pctv == null ? "" : ` (${pctv >= 0 ? "+" : "−"}${Math.abs(pctv).toFixed(1)}%)`
+        }`;
+  const NOTE: Record<string, string> = {
+    magnitude_masked: "Pooled looks flat — the methods moved",
+    sign_reversal: "Pooled points the opposite way to the methods",
+  };
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-medium">Year over year</h3>
+      <p className="mb-2 text-sm text-muted-foreground">
+        The pooled change split into the part explained by a shift in method
+        <span> </span>mix and the part the methods actually moved. These two always sum to the
+        pooled change. Percentages are of the earlier year&rsquo;s pooled mean.
+      </p>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Transition</TableHead>
+            <TableHead className="text-right">Pooled change</TableHead>
+            <TableHead className="text-right">Mix effect</TableHead>
+            <TableHead className="text-right">Within effect</TableHead>
+            <TableHead>Note</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((t) => (
+            <TableRow key={`${t.from}-${t.to}`}>
+              <TableCell className="font-medium">
+                {t.from} → {t.to}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {cell(t.pooled_change, t.pooled_change_pct)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {cell(t.mix_effect, t.mix_effect_pct)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {cell(t.within_effect, t.within_effect_pct)}
+              </TableCell>
+              <TableCell
+                className={t.pooled_misleading ? "text-[var(--warning)]" : "text-muted-foreground"}
+              >
+                {t.reason ? NOTE[t.reason] : "Pooled and methods agree"}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Mix + within equals the pooled change exactly; the displayed figures are each
+        rounded to 2 decimals, so a column may differ from the total by 0.01.
+      </p>
+    </div>
   );
 }
 

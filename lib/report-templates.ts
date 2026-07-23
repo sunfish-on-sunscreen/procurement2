@@ -10,7 +10,7 @@ import type {
   Recommendation,
 } from "@/lib/analysis-types";
 import type { ReportTone } from "@/lib/report-config";
-import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL } from "@/lib/cycle-mix";
+import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL, comparisonSkipText } from "@/lib/cycle-mix";
 
 /**
  * Shape of a persisted report's `metricsJson`. The report renders LIVE from the
@@ -328,9 +328,8 @@ type SectionTemplates = {
 /** Why no pooled test ran. "empty_group" means one half of the window contains no
  *  orders at all, so no comparison exists — never phrase that as stability. */
 function skipClause(c: ReportContext): string {
-  return c.cmpSkipReason === "empty_group"
-    ? " No within-window comparison is possible: every order in this window was placed in one half of it, so there is no second group to compare against."
-    : " There is not yet enough data in this window to compare two halves, so the trend is reported as monitoring only.";
+  // Shared wording — the dashboard glance says the same thing via the same helper.
+  return ` ${comparisonSkipText(c.cmpSkipReason) ?? comparisonSkipText("too_few")}`;
 }
 
 /** A null reported WITH its minimum detectable effect, so the silence is informative. */

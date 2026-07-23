@@ -186,6 +186,29 @@ def load_roster_category_counts(conn):
 # what _cost_premium_points selects (supplierExternalId, itemName, unitPriceUsd,
 # quantity) plus poId so each compute_supply_risk call can scope to its PO subset.
 # None => fall back to the PO-grain frame (e.g. a direct unit-test call).
+# ALL cycle rows with their buying method + order year, loaded ONCE in main() from
+# the whole EnrichedPurchase view (which already carries the void exclusion), so the
+# year-over-year mix decomposition is WINDOW-INDEPENDENT. Same convention as
+# _ROSTER_CAT_COUNTS above. This makes a transition's numbers identical no matter
+# which period is selected — they move only when the DATA moves, which removes the
+# "closed periods become mutable" concern rather than introducing it. None => fall
+# back to the window frame (a direct unit-test call).
+_ALL_METHOD_CYCLES = None
+
+
+def load_all_method_cycles(conn):
+    """Every PO's order-year, buying method and cycle days — the whole table, no
+    window filter. Reads the EnrichedPurchase VIEW, so voided orders are already
+    excluded and no new void-filter site is created."""
+    return _df(
+        conn,
+        'SELECT "poId", period, "buyingMethod", "totalCycleDays", "prToPoDays", '
+        '"deliveryToInvoiceDays", "invoiceToPaymentDays" '
+        'FROM "EnrichedPurchase" ORDER BY "poId"',
+        (),
+    )
+
+
 _PO_LINES = None
 
 
@@ -570,7 +593,7 @@ def _method_significance(pmeth, periods, alpha=0.05, min_power=0.80):
     return out
 
 
-def _mix_adjusted_trend(pmeth):
+def _mix_adjusted_trend(pmeth, window_periods=None):
     """Shift-share decomposition of the pooled cycle-time change per period pair.
 
     pooled(b) - pooled(a) == MIX effect + WITHIN effect, exactly:
@@ -581,16 +604,34 @@ def _mix_adjusted_trend(pmeth):
     contribution to mix (a method appearing/vanishing IS a composition change)
     and keeps the identity exact.
 
-    ⚠️ Transitions are built ONLY from the periods present in the window, so this
-    stays period-scoped like every other analysis — a single-year window yields
-    `insufficient_data` rather than reaching for data outside its own span.
+    ⚠️ WINDOW-INDEPENDENT. `pmeth` is the WHOLE table (_ALL_METHOD_CYCLES), not the
+    selected window, so every transition carries identical numbers no matter which
+    period is selected — they move only when the data moves. `window_periods` is
+    carried through purely as a DISPLAY hint: the UI shows transitions that END
+    inside the selected window (2024 -> none, 2025 -> 2024→2025, 2026 -> 2025→2026,
+    a full range -> both). Filtering in the UI rather than the compute keeps the
+    numbers stable and puts the "what am I looking at" decision where the window is.
+
+    ⚠️ DECOMPOSITION ONLY — deliberately no p-values per row. Shift-share is an
+    arithmetic identity with no distributional assumptions, so nothing here can be
+    misread as inference. Per-cell tests would put ten hypotheses in a table where
+    nineteen of twenty are null after correction and every cell would read as a
+    finding; the one result that survives correction lives in the glance with its
+    q-value and power.
 
     `pooled_misleading` marks the cases the UI must not report naively: a SIGN
     REVERSAL (pooled says better, methods say worse) or MAGNITUDE MASKING (pooled
-    looks flat while the methods moved materially).
+    looks flat while the methods moved materially). Each day figure also carries a
+    percentage of the earlier period's pooled mean, so "+4.96d" reads as "+5.7%"
+    and the reader gets a sense of scale without any inference.
     """
     periods = sorted(str(x) for x in pmeth["period"].dropna().unique())
-    out = {"insufficient_data": len(periods) < 2, "periods": periods, "metrics": {}}
+    out = {
+        "insufficient_data": len(periods) < 2,
+        "periods": periods,
+        "window_periods": sorted(str(x) for x in (window_periods or [])),
+        "metrics": {},
+    }
     if len(periods) < 2:
         return out
 
@@ -647,12 +688,20 @@ def _mix_adjusted_trend(pmeth):
                 and abs(within) >= 1.0
                 and abs(pooled_change) < abs(within) / 2
             )
+            # Scale: each effect as a share of the EARLIER period's pooled mean.
+            base = A["pooled"] or 0.0
+            as_pct = (lambda v: num(v / base * 100, 1)) if base else (lambda v: None)
             transitions.append({
                 "from": a,
                 "to": b,
+                "from_pooled_mean": num(A["pooled"], 2),
+                "to_pooled_mean": num(B["pooled"], 2),
                 "pooled_change": num(pooled_change, 2),
                 "mix_effect": num(mix, 2),
                 "within_effect": num(within, 2),
+                "pooled_change_pct": as_pct(pooled_change),
+                "mix_effect_pct": as_pct(mix),
+                "within_effect_pct": as_pct(within),
                 "pooled_misleading": bool(sign_flip or masked),
                 "reason": "sign_reversal" if sign_flip else ("magnitude_masked" if masked else None),
                 "per_method": per_method,
@@ -859,10 +908,27 @@ def cycle_time_analysis(
                     "invoice_to_payment": _desc_stats(sub["invoiceToPaymentDays"]),
                 },
             }
-        mix_adjusted_trend = _mix_adjusted_trend(pmeth)
-        method_significance = _method_significance(
-            pmeth, sorted(str(x) for x in pmeth["period"].dropna().unique())
-        )
+        window_periods = sorted(str(x) for x in pmeth["period"].dropna().unique())
+        # ⚠️ The decomposition runs over the WHOLE table (window-independent), so a
+        # transition reads the same on every window; `window_periods` only tells the
+        # UI which rows to show. Falls back to the window frame for a direct
+        # unit-test call that never set the global (the _ROSTER_CAT_COUNTS
+        # convention).
+        if _ALL_METHOD_CYCLES is not None and len(_ALL_METHOD_CYCLES) > 0:
+            allm = _ALL_METHOD_CYCLES.copy()
+            allm["_method"] = allm["buyingMethod"].astype(str)
+            allm["_cycle"] = pd.to_numeric(allm["totalCycleDays"], errors="coerce")
+            allm["_internal"] = (
+                pd.to_numeric(allm["prToPoDays"], errors="coerce")
+                + pd.to_numeric(allm["deliveryToInvoiceDays"], errors="coerce")
+                + pd.to_numeric(allm["invoiceToPaymentDays"], errors="coerce")
+            )
+        else:
+            allm = pmeth
+        mix_adjusted_trend = _mix_adjusted_trend(allm, window_periods=window_periods)
+        # Significance stays WINDOW-scoped: it is inference, and its multiplicity
+        # family must match what the reader is actually looking at.
+        method_significance = _method_significance(pmeth, window_periods)
 
     return {
         "monthly_trend": monthly_trend,
@@ -1734,6 +1800,14 @@ def main():
         log(
             f"Loaded roster category sizes: {len(_ROSTER_CAT_COUNTS)} categories, "
             f"{sum(_ROSTER_CAT_COUNTS.values())} suppliers (full roster)"
+        )
+
+        # Window-INDEPENDENT year-over-year mix decomposition (see _ALL_METHOD_CYCLES).
+        global _ALL_METHOD_CYCLES
+        _ALL_METHOD_CYCLES = load_all_method_cycles(conn)
+        log(
+            f"Loaded all-period method cycles: {len(_ALL_METHOD_CYCLES)} POs across "
+            f"{_ALL_METHOD_CYCLES['period'].nunique()} periods (window-independent)"
         )
 
         suppliers, purchases, metrics = load_frames(conn, start_ts, end_ts)

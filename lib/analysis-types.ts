@@ -191,9 +191,16 @@ export type CycleMethodDescriptive = CycleDescriptive & {
 export type MixAdjustedTransition = {
   from: string;
   to: string;
+  from_pooled_mean: number | null;
+  to_pooled_mean: number | null;
   pooled_change: number | null;
   mix_effect: number | null;
   within_effect: number | null;
+  /** Each effect as a share of the EARLIER period's pooled mean, so a day figure
+   *  carries a sense of scale ("+4.96d" = "+5.7%") without implying inference. */
+  pooled_change_pct: number | null;
+  mix_effect_pct: number | null;
+  within_effect_pct: number | null;
   pooled_misleading: boolean;
   reason: "sign_reversal" | "magnitude_masked" | null;
   per_method: {
@@ -220,9 +227,15 @@ export type MixAdjustedMetric = {
 };
 
 export type MixAdjustedTrend = {
-  /** true when the window holds < 2 periods, so no transition can be computed. */
+  /** true when fewer than 2 periods exist IN THE DATA (not in the window). */
   insufficient_data: boolean;
+  /** Every period in the data — transitions are computed across all of them,
+   *  WINDOW-INDEPENDENTLY, so a transition reads the same on every window. */
   periods: string[];
+  /** Periods inside the SELECTED window. Display hint only: show transitions whose
+   *  `to` is in here (2024 -> none, 2025 -> 2024→2025, 2026 -> 2025→2026,
+   *  full range -> both). */
+  window_periods: string[];
   metrics: { total?: MixAdjustedMetric; internal?: MixAdjustedMetric };
 };
 

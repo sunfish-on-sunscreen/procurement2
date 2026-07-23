@@ -1,4 +1,4 @@
-import type { CycleTimeResult } from "@/lib/analysis-types";
+import type { CycleTimeResult, MixAdjustedTransition } from "@/lib/analysis-types";
 
 /** Display labels for the five buying methods. Shared so the per-method table and
  *  the glance prose can never disagree about how a method is named. */
@@ -48,12 +48,46 @@ export type MixNoteFacts = {
   pooledWord: "was nearly flat" | "rose" | "fell";
 };
 
-export function buildMixNoteFacts(cycleTime: CycleTimeResult | null | undefined): MixNoteFacts | null {
+/**
+ * Transitions the SELECTED window should display: those that END inside it.
+ * 2024 -> none (no 2023 to compare against) · 2025 -> 2024→2025 · 2026 -> 2025→2026 ·
+ * a full range -> both.
+ *
+ * ⚠️ The transitions themselves are computed WINDOW-INDEPENDENTLY over the whole
+ * table, so their numbers are identical on every window — only which rows are shown
+ * changes. THE single filter, shared by the table and the glance sentence so they can
+ * never show different transitions.
+ */
+export function visibleTransitions(
+  cycleTime: CycleTimeResult | null | undefined,
+  metric: "total" | "internal" = "total",
+): MixAdjustedTransition[] {
   const mt = cycleTime?.mix_adjusted_trend;
-  if (!mt || mt.insufficient_data) return null;
-  const trs = mt.metrics.total?.transitions;
-  // The most recent transition in the window is the one the headline trend refers to.
-  const t = trs && trs.length ? trs[trs.length - 1] : null;
+  if (!mt || mt.insufficient_data) return [];
+  const inWindow = new Set(mt.window_periods ?? []);
+  return (mt.metrics[metric]?.transitions ?? []).filter((t) => inWindow.has(t.to));
+}
+
+/**
+ * Why no within-window comparison ran, in the SAME words everywhere. An
+ * "empty_group" window (e.g. every order placed in one half) must say so — silence
+ * with no explanation reads as a missing feature rather than an honest absence.
+ * Returns null when a test DID run.
+ */
+export function comparisonSkipText(
+  reason: "empty_group" | "too_few" | null | undefined,
+): string | null {
+  if (reason === "empty_group")
+    return "No within-window comparison is possible: every order in this window was placed in one half of it, so there is no second group to compare against.";
+  if (reason === "too_few")
+    return "There is not yet enough data in this window to compare two halves, so the trend is reported as monitoring only.";
+  return null;
+}
+
+export function buildMixNoteFacts(cycleTime: CycleTimeResult | null | undefined): MixNoteFacts | null {
+  // The most recent transition ENDING IN THE WINDOW is the one the headline refers to.
+  const trs = visibleTransitions(cycleTime, "total");
+  const t = trs.length ? trs[trs.length - 1] : null;
   if (!t || !t.pooled_misleading || !t.reason) return null;
 
   const pooled = t.pooled_change ?? 0;
