@@ -90,9 +90,120 @@ migration; all are live again:
   $0.57M) — on `TND-` events, 2024×28 / 2025×24 / 2026×23. Distribution: rfq 151 ·
   tender 75 · spot_buy 194 · call_off 129 · direct 98 = 647.
   ⚠️ **The conversion left the BASELINE byte-identical** (no PO added, no line value
-  changed): analytics reads NEITHER `buying_method` NOR the sourcing documents —
-  `python/` has zero references, the view never joins `SourcingEvent`, and zero of the
-  18 `AnalysisResult` payloads mention either.
+  changed). ⚠️ **The "analytics reads NEITHER `buying_method` NOR the sourcing
+  documents" claim that stood here is SUPERSEDED** — `cycle_time` reads the method
+  (`fa9f83c`) and `sourcing_coverage` reads the method AND the bid graph (`35dfd50`).
+  The baseline is still byte-identical; both are purely additive.
+
+**SOURCING COVERAGE — the 7th analysis (`sourcing_coverage`).** 2026-07-23, commits
+`35dfd50` → `be89782` → `bc74109` → `b934e53`. Measures how spend reached the market
+from existing columns. No schema change, no migration, no locked-formula change.
+
+- ⚠️ **THREE BUCKETS, and `framework` is PERMANENT — never fold it into either side.**
+  `Framework` carries NO sourcing linkage (no awarding event, no responses), so the
+  data cannot say whether a call-off's agreement was competed. A binary would be wrong
+  by the whole call-off share **whichever way it fell**. Competed (rfq+tender)
+  **25.11% / $177,714,190.31** · framework (call_off) **44.78% / $316,883,132.56** ·
+  uncompeted (direct+spot_buy) **30.11% / $213,089,993.33**. `COVERAGE_BUCKETS` in
+  `compute_analyses.py` is the single definition — never re-inline a method literal.
+- **That inability to verify is emitted as a FINDING** (`unverifiable_share`), not a
+  footnote: it names a concrete schema fix (link Framework → its awarding event),
+  which is more actionable than any coverage percentage.
+- **Surfaces:** a `CompetitiveCoverageCard` on Spend Overview between the category
+  donut and `AbcParetoCard`, two `InsightsPanel` glance paragraphs, and a 7th report
+  appendix toggle (`sourcingCoverage`). **Appendix EVIDENCE only — it contributes no
+  ranked finding to the report argument**, and there is deliberately NO Action
+  Priorities recommendation (one would have to rest on a dead metric — see below).
+
+⚠️ **EIGHT DEGENERATE METRICS — MEASURED, THEN DELIBERATELY NOT BUILT. Read this
+before "adding the obvious missing KPI"; every one of these looks like a free win and
+is dead on this data:**
+1. **Award-to-cheapest** — 226/226 awards at price rank 1. Universal pass.
+2. **Single-bid exposure** — minimum bid count is **2** (31 events at 2, 165 at 3, 30
+   at 4). Zero single-bid events, so it is permanently $0.
+3. **Bid response rate** — `numSuppliersInvited` always equals the response count
+   (2→2, 3→3, 4→4). A constant 100%.
+4. ⚠️ **Quote-spread BREAKDOWNS** — spread is an ORDER STATISTIC OF THE BID COUNT:
+   9.22% at 2 bids, 12.80% at 3, 13.06% at 4. Hold bid count at 3 and every other cut
+   goes flat — category 11.15–13.44 against a *within*-category sd of 3.2–4.4 (the
+   between-category range is under half one within-category sd), period 12.85/12.71/
+   12.84, supplier within sampling noise. **The PORTFOLIO number (12.35%) is fine; ANY
+   cut of it reports the bid-count mix wearing a category label.** "Conveyor & Belt has
+   the tightest bidding" is false — all its events simply have two bidders.
+5. **Savings-vs-field cuts** — the award is always the minimum, so this is a
+   deterministic re-expression of #4. ⚠️ Plus a scoping trap: a `Response` carries ONE
+   quoted price matching ONE PO line, and that line averages **64.66% of PO value**, so
+   the **$7.36M** advantage (against $113.3M of awarded-line value) **must NEVER be
+   scaled onto the $177.7M of competed spend** — it would overstate by ~1.5×.
+6. **Competed-vs-uncompeted price premium** — the most dangerous one, because it is
+   computable on the 26 items bought both ways and looks like the flagship finding.
+   It is noise: mean **+4.58%**, median **−6.98%**, sd **61.96%**, with **14 of 26
+   items CHEAPER uncompeted** against 12 dearer. Scatter ~13× the effect; the sign is
+   decided by which items you pick.
+7. **Sole-source challengeability** — every direct PO carries a proprietary/OEM
+   justification. The category-roster count is far too coarse a proxy for item
+   substitutability: the 8 suppliers in Heavy Equipment OEM are 8 different OEMs, and
+   a Volvo part is not a Liebherr part.
+8. **Pre-close PO dates** — fires on 51 of 226 events, but close→PO spans **−8 to +15
+   days** (independent draws). Flagging a quarter of all competitive events would
+   manufacture an accusation from noise.
+
+⚠️ **THE D/E ASYMMETRY — the two readings are NOT interchangeable, and the code
+encodes which is which:**
+- **D (year-over-year coverage) is BEHAVIOURAL.** Competed coverage fell **9.89 points**
+  in 2025 — **−6.37 within vs −3.51 mix**, i.e. ~2/3 is the same categories bought less
+  competitively. 2026 recovered +7.43, almost all within. This is the ONLY behavioural
+  signal in the feature. ⚠️ **Never hardcode which side dominates** — an early draft of
+  the emitter's docstring asserted "mostly a purchasing-mix shift" and the emitter it
+  documented disproved it. `_coverage_mix_shift` decomposes by CATEGORY
+  (`mix + within == pooled_change`, exact); a mix-dominated window carries
+  `reason: "mix_dominated"` and the copy must flip.
+- **E (value-vs-method) is STRUCTURAL ONLY.** Median PO value spot_buy $57.8K → rfq
+  $608.5K → tender $1.21M → direct $2.08M → call_off $2.37M. **All 98 direct POs carry
+  OEM/proprietary sole-source justification**, so an OEM part cannot be competed by
+  definition — describe the shape, NEVER attribute it to buyer discipline.
+- ⚠️ **`lib/coverage-copy.ts` holds the SHARED classifier** (`classifyCoverageMove` /
+  `visibleCoverageMoves`) consumed by BOTH the card and the report appendix, so a
+  generated report cannot silently contradict the page it came from. Each surface
+  picks its own words; only the verdict is shared. The card is a REGRESSION SURFACE
+  for any change here. The constraints are also written into the TS types
+  (`CoverageBucket`, `CoverageBidding`, `CoverageMixTransition`).
+
+⚠️ **FOUR TRAPS THIS FEATURE HAD TO CLEAR — they generalize to any new analysis:**
+- **VOID INHERITANCE — the site count stays FOUR, not five.** `load_sourcing_events` /
+  `load_calloff_frameworks` carry NO `NOT EXISTS "PurchaseOrderVoid"`; they are keyed
+  by poId and INTERSECTED against the window frame, which comes from the view and is
+  already void-excluded. Re-spelling the filter would have created a fifth site — the
+  trap CLAUDE.md flags on `load_po_lines`. Verified: removing one PO from the frame
+  removes exactly one bidding event.
+- **Mode A's gate is `succeeded == len(all_types)`**, so a new emitter that THROWS on a
+  thin window turns EVERY recompute (supplier CRUD, imports, corrections, voids) into
+  exit 1. `sourcing_coverage` returns a structurally complete zero payload instead
+  (`_empty_coverage`), and an unknown buying method is COUNTED in `unclassified` rather
+  than absorbed into a bucket, so a vocabulary regression stays visible.
+- **`RANGE_TYPES` must list EVERY emitted type.** It governs both halves of the range
+  cache, so if it lags Python a cache MISS returns the full output while a cache HIT
+  returns the shorter cached set — the same span yielding different key sets depending
+  only on whether it was computed before. Self-healing on addition: existing cached
+  spans fail the completeness check and recompute.
+- ⚠️ **THE `jsonb` KEY-ORDER TRAP.** `AnalysisResult.resultJson` is `jsonb`, which
+  NORMALISES object key order. A cached-vs-fresh comparison by plain `JSON.stringify`
+  reports **every** analysis as changed — all six pre-existing ones included — when no
+  value moved. **Compare canonically (key-sorted) or the check is meaningless.** Cost a
+  false alarm before being pinned down.
+
+- **Methodology §9** documents the split, the shift-share identity, and all eight
+  exclusions with their numbers — but ⚠️ **`/methodology` is gated behind
+  `SHOW_METHODOLOGY = false`, so §9 is currently UNREACHABLE.** A condensed tone-aware
+  exclusions paragraph is therefore ALSO carried in the report appendix (a surface the
+  flag does not affect). **Keep the two in sync**; if the flag flips, both are live.
+- **⚠️ VERIFIED (2026-07-23).** Baseline byte-identical at every stage and all SIX
+  pre-existing analyses byte-identical across 2024/2025/2026/range in BOTH modes (Mode
+  A 18 stored payloads, Mode B 24 comparisons) — the control proving the type is purely
+  additive. Every displayed figure independently recomputed in SQL; the shift-share
+  identity holds to full float precision on all 6 transitions × 3 buckets; 13 edge
+  tests; determinism (5 identical runs, row-order independent, no wall-clock field).
+  Adversarially reviewed across 7 dimensions. tsc + ESLint clean.
 
 **RECORD-PURCHASE FORM (`RecordPurchaseCard` + `CreateTransactionBody`).** Group A,
 2026-07-20. Form paths only — no analytics, compute, schema or migration change.
@@ -297,7 +408,7 @@ then re-records a correct order via the record-purchase dialog.
   po.id)`. FOUR SITES CARRY IT. Miss one and a voided order still counts:**
   1. **The `EnrichedPurchase` view's `FROM "PurchaseOrder"`** — the primary chokepoint,
      covering NINE consumers: `seed_compute` (every SupplierMetric), `compute_analyses`
-     `load_frames` (**all six analyses**), `getEnrichedPurchases` + its 4 callers
+     `load_frames` (**all seven analyses**), `getEnrichedPurchases` + its 4 callers
      (cycle-breakdown, stage-occupancy, cycle supplier-detail, spend-detail), and the
      two raw spend queries (`spend-overview`, `spend-detail` rank).
   2. ⚠️ **`python/compute_analyses.py` `load_po_lines`** — raw `PoLine JOIN
