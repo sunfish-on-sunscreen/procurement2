@@ -74,8 +74,6 @@ def _df(conn, query):
 # `kraljic` AnalysisResult payload, which every consumer already reads.)
 _METRIC_INSERT_COLS = [
     "id", "supplierExternalId", "supplierName", "category",
-    "totalSpendUsd", "numPos", "avgPoValueUsd", "avgLeadTimeDays",
-    "avgCycleTimeDays", "onTimeDeliveryPct", "threeWayMatchPct",
     "qualityScore", "deliveryScore", "processScore", "riskScore",
     "compositeScore", "periodId",
 ]
@@ -162,9 +160,6 @@ def write_supplier_metrics(conn):
             sid = str(r["supplier_id"])
             records.append((
                 f"sm-{pid}-{sid}", sid, str(r["supplier_name"]), str(r["category"]),
-                float(r["total_spend_usd"]), int(r["num_pos"]), float(r["avg_po_value_usd"]),
-                float(r["avg_lead_time_days"]), float(r["avg_cycle_time_days"]),
-                float(r["on_time_delivery_pct"]), float(r["three_way_match_pct"]),
                 float(r["quality_score"]), float(r["delivery_score"]),
                 float(r["process_score"]), float(r["risk_score"]),
                 float(r["composite_score"]), pid,

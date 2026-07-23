@@ -382,13 +382,12 @@ model SupplierMetric {
   supplierExternalId String
   supplierName       String
   category           String
-  totalSpendUsd      Float
-  numPos             Int
-  avgPoValueUsd      Float
-  avgLeadTimeDays    Float
-  avgCycleTimeDays   Float
-  onTimeDeliveryPct  Float
-  threeWayMatchPct   Float
+  // Operational aggregates (totalSpendUsd / numPos / avgPoValueUsd / avgLeadTimeDays /
+  // avgCycleTimeDays / onTimeDeliveryPct / threeWayMatchPct) were DROPPED: they were
+  // rewritten on every recompute and read by nothing — every surface derives them live
+  // from the EnrichedPurchase view. ⚠️ The identically-named snake_case fields in
+  // python/scores.py are NOT these columns and are load-bearing (on_time_delivery_pct,
+  // avg_lead_time_days and three_way_match_pct build delivery_score / process_score).
   qualityScore       Float
   deliveryScore      Float
   processScore       Float

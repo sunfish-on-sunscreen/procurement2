@@ -380,12 +380,10 @@ def abc_analysis(purchases, suppliers, metrics):
         st = sub["total"].sum()
         summary[cls] = {
             "n": int(len(sub)),
-            "total_spend": num(st),
             "pct_of_spend": num((st / grand) if grand else 0.0, 6),
         }
 
     return {
-        "thresholds": [0.80, 0.95],
         "classifications": classifications,
         "summary": summary,
     }
@@ -605,7 +603,6 @@ def cycle_time_analysis(
     }
 
     return {
-        "metric": "total_cycle_days",
         "monthly_trend": monthly_trend,
         "rolling_avg_trend": rolling_avg_trend,
         "distribution": distribution,
@@ -666,7 +663,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         "axis_thresholds": {"spend_median": 0, "performance_median": 0},
         "top_critical_issues": [],
         "top_hidden_gems": [],
-        "performance_by_quadrant": {},
     }
 
     # Suppliers needing both spend AND a performance score (and a quadrant).
@@ -728,13 +724,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         reverse=True,
     )[:5]
 
-    performance_by_quadrant = {}
-    for q in ["Strategic", "Leverage", "Bottleneck", "Routine"]:
-        qmembers = [s for s in sids if quad_map[s] == q]
-        performance_by_quadrant[q] = (
-            num(np.mean([perf_of(s) for s in qmembers])) if qmembers else 0
-        )
-
     return {
         "suppliers": rows,
         "zone_profiles": zone_profiles,
@@ -744,7 +733,6 @@ def performance_spend_analysis(purchases, suppliers, metrics):
         },
         "top_critical_issues": top_critical_issues,
         "top_hidden_gems": top_hidden_gems,
-        "performance_by_quadrant": performance_by_quadrant,
     }
 
 
@@ -1026,8 +1014,6 @@ def kraljic_analysis(purchases, suppliers, metrics):
                 "total_spend": num(tot),
                 "pct_of_total_spend": num((tot / grand_total) * 100),
                 "avg_performance_score": num(np.mean(perfs)) if perfs else None,
-                "median_risk": num(np.median([risk_map[s] for s in members])) if members else None,
-                "median_spend": num(np.median([spend_map[s] for s in members])) if members else None,
             }
         )
 
@@ -1057,8 +1043,6 @@ TAIL_SPEND_SHARE = 0.01  # a single supplier < 1% of total
 
 
 def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
-    from datetime import datetime, timezone
-
     spend_raw = purchases.groupby("supplierExternalId")["totalValueUsd"].sum()
     total_spend_map = {sid: float(v) for sid, v in spend_raw.items()}
     log_spend_map = {sid: float(np.log1p(v)) for sid, v in spend_raw.items()}
@@ -1140,12 +1124,11 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         key=lambda s: total_spend_map[s],
         reverse=True,
     )[:5]
-    for i, s in enumerate(crit):
+    for s in crit:
         gap = max(0.0, perf_med - perf_of(s))
         recs.append({
             "type": "critical_issues_engagement",
             "action": "engage",
-            "priority_rank": i + 1,
             "supplier_id": s,
             "supplier_name": name_of(s),
             "reasoning": (
@@ -1167,12 +1150,11 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         reverse=True,
     )[:5]
     denom = (100.0 - perf_med) or 1.0
-    for i, s in enumerate(gems):
+    for s in gems:
         surplus = max(0.0, perf_of(s) - perf_med)
         recs.append({
             "type": "hidden_gems_promotion",
             "action": "promote",
-            "priority_rank": i + 1,
             "supplier_id": s,
             "supplier_name": name_of(s),
             "reasoning": (
@@ -1191,12 +1173,11 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         key=lambda s: risk_map.get(s, 0.0),
         reverse=True,
     )[:5]
-    for i, s in enumerate(bottleneck):
+    for s in bottleneck:
         ctry = country_of(s)
         recs.append({
             "type": "bottleneck_risk",
             "action": "mitigate",
-            "priority_rank": i + 1,
             "supplier_id": s,
             "supplier_name": name_of(s),
             "reasoning": (
@@ -1237,8 +1218,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     # Improve is now COMPLIANCE-ONLY: the per-stage timing items moved to the
     # dedicated slow_stage category (CATEGORY 4b) so a slow stage isn't listed
     # under two Process-group categories at once.
-    for i, r in enumerate(proc):
-        r["priority_rank"] = i + 1
     recs.extend(proc)
 
     # CATEGORY 4b: slowest stage — the internal P2P stages above the 8-day flag,
@@ -1252,11 +1231,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         ("deliveryToInvoiceDays", "Delivery to Invoice"),
         ("invoiceToPaymentDays", "Invoice to Payment"),
     ]
-    all_stage_means = []
-    for col in ("prToPoDays", "poToDeliveryDays", "deliveryToInvoiceDays", "invoiceToPaymentDays"):
-        sv = pd.to_numeric(purchases[col], errors="coerce").dropna()
-        all_stage_means.append(float(sv.mean()) if len(sv) else 0.0)
-    cycle_sum = sum(all_stage_means) or 1.0
     slow = []
     for col, label in internal_stages:
         sv = pd.to_numeric(purchases[col], errors="coerce").dropna()
@@ -1273,12 +1247,10 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         recs.append({
             "type": "slow_stage",
             "action": "streamline",
-            "priority_rank": i + 1,
             "scope": f"Stage: {label}",
             "reasoning": f"{label} averages {avg:.1f} days — {lead}.",
             "impact_score": num(min(100.0, avg / 18.0 * 100.0)),
             "avg_days": num(avg),
-            "cycle_share_pct": num(avg / cycle_sum * 100.0),
         })
 
     # CATEGORY 5: concentration (resilience exposure — distinct from performance).
@@ -1304,8 +1276,7 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
                     "_share": share,
                 })
         conc_items.sort(key=lambda r: r["_share"], reverse=True)
-        for i, r in enumerate(conc_items):
-            r["priority_rank"] = i + 1
+        for r in conc_items:
             del r["_share"]
         recs.extend(conc_items)
 
@@ -1317,12 +1288,11 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         key=lambda c: c["total"],
         reverse=True,
     )
-    for i, c in enumerate(a_items):
+    for c in a_items:
         share_pct = float(c["pct"]) * 100.0
         recs.append({
             "type": "critical_spend",
             "action": "steward",
-            "priority_rank": i + 1,
             "supplier_id": c["supplier_id"],
             "supplier_name": c["supplier_name"],
             "abc_class": "A",
@@ -1354,7 +1324,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
         recs.append({
             "type": "tail_spend",
             "action": "consolidate",
-            "priority_rank": 1,
             "scope": "Tail spend",
             "reasoning": (
                 f"{tail_count} suppliers each under 1% of spend account for "
@@ -1410,8 +1379,6 @@ def recommendations_analysis(purchases, suppliers, metrics, period_label=""):
     slowest_stage_avg = num(slow[0][1]) if slow else None
 
     return {
-        "period_label": period_label,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
         "recommendations": recs,
         "summary_stats": {
             "total_recommendations": len(recs),

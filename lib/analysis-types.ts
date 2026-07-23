@@ -49,7 +49,6 @@ export type AbcClassification = {
 };
 
 export type AbcResult = {
-  thresholds: [number, number];
   classifications: AbcClassification[];
   summary: {
     A: { n: number; total_spend: number; pct_of_spend: number };
@@ -121,7 +120,6 @@ export type ThreeWayMatchQuadrant = {
 };
 
 export type CycleTimeResult = {
-  metric: string;
   // `median_cycle_days` added in Batch 6c (monthly median for KPI sparklines);
   // optional for pre-6c cached rows.
   monthly_trend: {
@@ -188,8 +186,6 @@ export interface QuadrantProfile {
   total_spend: number;
   pct_of_total_spend: number;
   avg_performance_score: number;
-  median_risk: number;
-  median_spend: number;
 }
 
 export interface KraljicResult {
@@ -234,7 +230,6 @@ export interface PerformanceSpendResult {
   };
   top_critical_issues: PerformanceSpendSupplier[]; // top 5 by spend
   top_hidden_gems: PerformanceSpendSupplier[]; // top 5 by performance
-  performance_by_quadrant: Record<KraljicQuadrant, number>;
 }
 
 export type RecommendationCategory =
@@ -262,9 +257,6 @@ export type RecommendationAction =
 export type Recommendation = {
   type: RecommendationCategory;
   action: RecommendationAction;
-  // 1-based rank WITHIN this recommendation's category (presentation: "Priority N
-  // of M"). The cross-category `impact_score` is retained for reports + ranking.
-  priority_rank?: number;
   supplier_id?: string; // absent for process_improvement + category-level concentration
   supplier_name?: string;
   reasoning: string;
@@ -284,7 +276,6 @@ export type Recommendation = {
   abc_class?: "A" | "B" | "C";
   // Slowest stage:
   avg_days?: number; // this stage's average duration
-  cycle_share_pct?: number; // this stage's share of the total cycle
   // Tail spend (portfolio summary):
   tail_supplier_count?: number;
   tail_spend_share_pct?: number; // combined tail spend as % of total
@@ -305,8 +296,6 @@ export type RecommendationsNarrative = {
 };
 
 export interface RecommendationsResult {
-  period_label: string;
-  generated_at: string;
   recommendations: Recommendation[];
   summary_stats: {
     total_recommendations: number;

@@ -143,9 +143,9 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
   const top10 = (s?.top_suppliers ?? []).reduce((x, t) => x + t.total, 0);
 
   const abc = a.abc;
-  const A = abc?.summary.A ?? { n: 0, total_spend: 0, pct_of_spend: 0 };
-  const B = abc?.summary.B ?? { n: 0, total_spend: 0, pct_of_spend: 0 };
-  const C = abc?.summary.C ?? { n: 0, total_spend: 0, pct_of_spend: 0 };
+  const A = abc?.summary.A ?? { n: 0, pct_of_spend: 0 };
+  const B = abc?.summary.B ?? { n: 0, pct_of_spend: 0 };
+  const C = abc?.summary.C ?? { n: 0, pct_of_spend: 0 };
   const kr = a.kraljic;
   const qprof = (q: KraljicQuadrant): QuadrantProfile =>
     kr?.quadrant_profiles.find((p) => p.quadrant === q) ?? {
@@ -154,8 +154,6 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
       total_spend: 0,
       pct_of_total_spend: 0,
       avg_performance_score: 0,
-      median_risk: 0,
-      median_spend: 0,
     };
   const strat = qprof("Strategic");
   const lev = qprof("Leverage");
