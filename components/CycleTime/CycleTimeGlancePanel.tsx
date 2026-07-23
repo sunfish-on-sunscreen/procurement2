@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { CycleTimeResult, KraljicQuadrant } from "@/lib/analysis-types";
 import type { CycleSupplierRow, CycleCategoryRow } from "@/lib/cycle-time-types";
 import { cardElevation } from "@/lib/utils";
+import { buildMixNoteFacts, mixDays, mixBecause } from "@/lib/cycle-mix";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const STAGES = [
@@ -105,6 +106,22 @@ export function CycleTimeGlancePanel({
     cmp && !cmp.insufficient_data && cmp.p_value != null
       ? { p: cmp.p_value, significant: cmp.p_value < 0.05 }
       : null;
+
+  // --- Mix-adjusted reading of the trend -------------------------------- #
+  // The pooled median is a WEIGHTED MIXTURE of the buying methods (spot_buy ~44d ->
+  // direct ~130d), so a change in method composition can move it while the methods
+  // themselves go the other way. This sentence is rendered ONLY when the
+  // decomposition actually contradicts the pooled reading — when they agree, the
+  // trend clause above is already honest and a second sentence would just restate it.
+  // Single-year windows carry no transition (insufficient_data) and render nothing.
+  const mixFacts = buildMixNoteFacts(cycleTime);
+  const mixNote = mixFacts
+    ? `From ${mixFacts.from} to ${mixFacts.to}, pooled cycle time ${mixFacts.pooledWord} (${mixDays(
+        mixFacts.pooled,
+      )}), but ${mixFacts.quantifier} buying methods ${mixFacts.withinWord} (${mixDays(
+        mixFacts.within,
+      )}); ${mixBecause(mixFacts)}.`
+    : null;
 
   // Slowest Kraljic-matrix quadrant by median cycle (empty quadrants excluded).
   const quads = QUAD_ORDER.map((q) => ({
@@ -213,6 +230,12 @@ export function CycleTimeGlancePanel({
             )}{" "}
             This cadence is typical of capital-intensive procurement.
           </p>
+
+          {mixNote && (
+            <p className="text-muted-foreground">
+              <strong className="text-foreground">Read the trend with care:</strong> {mixNote}
+            </p>
+          )}
 
           {slowest.mean > 0 && (
             <div className="space-y-1">

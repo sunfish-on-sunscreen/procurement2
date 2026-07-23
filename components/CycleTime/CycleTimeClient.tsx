@@ -189,6 +189,7 @@ export function CycleTimeClient({
         showStatGrid={false}
         showStageDecomposition={false}
         showDistributionInsight
+        showMethodBreakdown
         controlExposure={breakdown?.controlExposure}
         onOutlierClick={setSelectedSupplierId}
       />

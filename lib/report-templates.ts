@@ -10,6 +10,7 @@ import type {
   Recommendation,
 } from "@/lib/analysis-types";
 import type { ReportTone } from "@/lib/report-config";
+import { buildMixNoteFacts, mixDays, mixBecause } from "@/lib/cycle-mix";
 
 /**
  * Shape of a persisted report's `metricsJson`. The report renders LIVE from the
@@ -113,6 +114,14 @@ export type ReportContext = {
   cmpNB: number;
   cmpLabelA: string;
   cmpLabelB: string;
+  /**
+   * Mix-adjusted corrective for the cycle-time trend, or null when the pooled
+   * reading is safe. Pooled cycle time is a WEIGHTED MIXTURE of the buying methods,
+   * so a shift in composition can move it while the methods themselves go the other
+   * way. Non-null ONLY when the shift-share decomposition contradicts the pooled
+   * direction — so a report can never assert a trend the decomposition reverses.
+   */
+  mixNote: string | null;
   // recommendations
   recTotal: number;
   recByCategory: Record<string, number>;
@@ -197,6 +206,18 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
 
   const recs = a.recommendations;
 
+  // Mix-adjusted corrective — see ReportContext.mixNote. Uses the most recent
+  // transition in the window; null when the window holds < 2 periods or when the
+  // decomposition agrees with the pooled reading.
+  const mixFacts = buildMixNoteFacts(ct);
+  const mixNote = mixFacts
+    ? ` Read that trend with care: from ${mixFacts.from} to ${mixFacts.to} pooled cycle time ${
+        mixFacts.pooledWord
+      } (${mixDays(mixFacts.pooled, " days")}), but ${mixFacts.quantifier} buying methods ${
+        mixFacts.withinWord
+      } (${mixDays(mixFacts.within, " days")}) — ${mixBecause(mixFacts, true)}.`
+    : null;
+
   return {
     period,
     totalSpend: s?.total_spend ?? 0,
@@ -266,6 +287,7 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
     cmpNB: cmp?.period_b.n ?? 0,
     cmpLabelA: cmp ? `${cmp.period_a.start} – ${cmp.period_a.end}` : "—",
     cmpLabelB: cmp ? `${cmp.period_b.start} – ${cmp.period_b.end}` : "—",
+    mixNote,
     recTotal: recs?.summary_stats.total_recommendations ?? 0,
     recByCategory: recs?.summary_stats.by_category ?? {},
     topRec: recs?.summary_stats.highest_impact ?? null,
@@ -364,7 +386,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         0,
       )} to ${c.cmpMedianB.toFixed(0)} days${
         c.cmpSignificant ? "" : " (not a statistically meaningful shift)"
-      }. Sustained monitoring keeps working-capital efficiency on track.`;
+      }. Sustained monitoring keeps working-capital efficiency on track.${c.mixNote ?? ""}`;
     },
     keyFindings: (c) => [
       `Value is concentrated: the top ten suppliers carry ${pct(c.top10Pct)} of spend.`,
@@ -373,10 +395,10 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       `Procure-to-pay cycle time holds at a median of ${c.cycleMedian.toFixed(
         0,
       )} days${
-        c.cmpSignificant
+        c.cmpSignificant && !c.mixNote
           ? `, ${c.cmpDelta > 0 ? "improving" : "deteriorating"} across the period`
           : ""
-      }.`,
+      }.${c.mixNote ? " Method mix moved; see the cycle-time note." : ""}`,
     ],
     recommendedPriorities: (c) =>
       `The actions below are organised by the three diagnostic analyses — Spend, Suppliers, and Process — with the highest-exposure items first in each. They concentrate on the suppliers and processes where exposure — in spend, risk, or working capital — is greatest. We recommend owning the top ${Math.min(
@@ -446,7 +468,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
                 : "trace the regression to its process stage"
             }.`
           : ` The two halves of the period show no statistically significant cycle-time difference.`;
-      return `${bottleneck}${outlier}${cmp}`;
+      return `${bottleneck}${outlier}${cmp}${c.mixNote ?? ""}`;
     },
     keyFindings: (c) => [
       `${usdM(c.totalSpend)} total spend across ${intl.format(c.totalPos)} purchase orders.`,
@@ -548,7 +570,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           } (${c.cmpEffect} effect); ${
             c.cmpSignificant ? "significant" : "not significant"
           } at α = 0.05. The non-parametric test is used because cycle-time distributions are right-skewed and violate normality.`;
-      return `${shape}${anom}${test}`;
+      return `${shape}${anom}${test}${c.mixNote ?? ""}`;
     },
     keyFindings: (c) => [
       `Spend is heavy-tailed: top-decile share ≈ ${pct(c.top10Pct)}; Class A share ${pct(

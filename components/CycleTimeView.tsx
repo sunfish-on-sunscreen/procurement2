@@ -185,6 +185,105 @@ const joinQuads = (qs: string[]): string =>
 // the gap, and whether the supply-risk clause even applies) is DERIVED from the live
 // per-quadrant medians. No hardcoded quadrant names: if the ranking shifts on a
 // different period, the wording follows it; flat/degenerate cases self-omit.
+// ---- Cycle time by BUYING METHOD (sibling of CycleByQuadrantTable) -------- #
+// Same shape and slot as the quadrant table — cycle_by_method mirrors
+// cycle_by_quadrant's descriptives, plus the internal-cycle column (total minus
+// PO->Delivery physical lead time). This is the cut that explains the pooled
+// number: cycle time is near-deterministic in buying method, so the portfolio
+// mean is a weighted mixture of these five rows.
+type MethodCycleRow = {
+  order: number;
+  method: string;
+  internal_mean: number | null;
+  internal_median: number | null;
+} & CycleDescriptive;
+
+const METHOD_ORDER = ["spot_buy", "call_off", "rfq", "tender", "direct"];
+const METHOD_LABEL: Record<string, string> = {
+  spot_buy: "Spot buy",
+  call_off: "Call-off",
+  rfq: "RFQ",
+  tender: "Tender",
+  direct: "Direct",
+};
+
+function CycleByMethodTable({ data }: { data: CycleTimeResult }) {
+  const byMethod = data.cycle_by_method ?? {};
+  // Known methods first (procurement order), then any unknown ones. Computed
+  // unconditionally — the "no data" guard sits AFTER the hook below, because
+  // useTableSort must run in the same order on every render (rules-of-hooks).
+  const keys = [
+    ...METHOD_ORDER.filter((m) => byMethod[m]),
+    ...Object.keys(byMethod).filter((m) => !METHOD_ORDER.includes(m)).sort(),
+  ];
+  const rows: MethodCycleRow[] = keys.map((m, i) => ({
+    order: i,
+    method: m,
+    mean: byMethod[m].mean,
+    median: byMethod[m].median,
+    p25: byMethod[m].p25,
+    p75: byMethod[m].p75,
+    n: byMethod[m].n,
+    internal_mean: byMethod[m].internal?.mean ?? null,
+    internal_median: byMethod[m].internal?.median ?? null,
+  }));
+  const { sorted, sort, toggle } = useTableSort<MethodCycleRow, string>(
+    rows,
+    (r, k) => (r as unknown as Record<string, number | string | null>)[k],
+    "order",
+    "asc",
+  );
+  const slowest = (() => {
+    const withData = rows.filter((r) => r.n > 0 && r.median != null);
+    if (withData.length === 0) return null;
+    return withData.reduce((a, b) => ((b.median as number) > (a.median as number) ? b : a)).method;
+  })();
+  // Analyses cached before cycle_by_method existed carry no methods — render nothing.
+  if (rows.length === 0) return null;
+  return (
+    <Card className={cardElevation}>
+      <CardHeader>
+        <CardTitle>Cycle Time by Buying method</CardTitle>
+        <CardDescription>
+          Total cycle days per buying method, and the internal portion (excluding
+          PO&nbsp;to&nbsp;Delivery supplier lead time). The portfolio average is a weighted
+          mixture of these rows, so a change in method mix moves it on its own.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortHead label="Method" sortKey="order" active={sort.key === "order"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+              <SortHead label="N" sortKey="n" active={sort.key === "n"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Average" sortKey="mean" active={sort.key === "mean"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Median" sortKey="median" active={sort.key === "median"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Internal avg" sortKey="internal_mean" active={sort.key === "internal_mean"} dir={sort.dir} onSort={toggle} align="right" />
+              <SortHead label="Internal median" sortKey="internal_median" active={sort.key === "internal_median"} dir={sort.dir} onSort={toggle} align="right" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((r) => (
+              <TableRow key={r.method}>
+                <TableCell className="font-medium">{METHOD_LABEL[r.method] ?? r.method}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{r.n}</TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${r.method === slowest ? "font-semibold text-destructive" : ""}`}
+                >
+                  {r.mean != null ? r.mean.toFixed(2) : "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{r.median != null ? r.median.toFixed(2) : "—"}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.internal_mean != null ? r.internal_mean.toFixed(2) : "—"}</TableCell>
+                <TableCell className="text-right tabular-nums">{r.internal_median != null ? r.internal_median.toFixed(2) : "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CycleInsight({ rows }: { rows: QuadMedianRow[] }) {
   const withData = rows.filter(
     (r): r is QuadMedianRow & { median: number } => r.n > 0 && r.median != null,
@@ -514,6 +613,7 @@ export function CycleTimeView({
   showStatGrid = true,
   showStageDecomposition = true,
   showDistributionInsight = false,
+  showMethodBreakdown = false,
   controlExposure,
   onOutlierClick,
 }: {
@@ -534,6 +634,9 @@ export function CycleTimeView({
   // Dashboard-only interpretation lines below the box plot (skew + outlier
   // direction). Off by default so reports/range-compute keep the box plot as-is.
   showDistributionInsight?: boolean;
+  /** Dashboard-only: the per-buying-method cycle table. Default false so reports +
+   *  range-compute keep their existing layout unchanged. */
+  showMethodBreakdown?: boolean;
   // Dashboard-only spend-at-risk data for the 3-way-match section. Omitted in
   // reports/range-compute → the bare pass-rate table renders as before.
   controlExposure?: ControlExposure;
@@ -609,6 +712,8 @@ export function CycleTimeView({
           <ThreeWayMatchTable data={data} />
         </div>
       )}
+
+      {showMethodBreakdown && <CycleByMethodTable data={data} />}
 
       {showAnomaliesTable && <AnomaliesTable data={data.anomalies} />}
     </>
