@@ -146,6 +146,21 @@ export type CycleBreakdown = {
   // share, unrelated to distance from the mean TOTAL cycle. Displaying one next to
   // the other would imply a relationship that does not exist.
   stageAnomalies?: CycleAnomaly[];
+  /**
+   * Invoice->Payment split into the contractual term vs the discretionary lag.
+   *
+   * ⚠️ PORTFOLIO-LEVEL ONLY — never cut by supplier, category or period. The lag
+   * past terms is a uniform random draw on {0..15} with no discrimination
+   * whatsoever, so any breakdown would rank on noise (Methodology 9.5, entry 9).
+   * Undefined when no order in the window carries a parseable term.
+   */
+  paymentTermsSplit?: {
+    n: number;
+    stage_mean_days: number;
+    contractual_days: number;
+    discretionary_days: number;
+    contractual_pct: number;
+  };
   // buying method per PO, for labelling the slowest-order lists. Derived here
   // because the Python payload does not carry it and must not change.
   methodByPo?: Record<string, string>;

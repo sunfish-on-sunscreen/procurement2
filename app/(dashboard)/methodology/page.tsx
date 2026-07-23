@@ -1083,11 +1083,13 @@ export default async function MethodologyPage() {
               9.5 Measured but NOT shown, and why
             </h3>
             <p>
-              Several standard-looking competitive-sourcing metrics are computable from
-              this data and are deliberately not displayed, because on this dataset they
-              are <strong>degenerate</strong>: they return the same answer for every
-              input, or they measure an artifact rather than the thing they name. Each
-              was tested before the decision was taken, not assumed.
+              Several standard-looking metrics are computable from this data and are
+              deliberately not displayed, because on this dataset they are{" "}
+              <strong>degenerate</strong>: they return the same answer for every input,
+              or they measure an artifact rather than the thing they name. Each was
+              tested before the decision was taken, not assumed. The first eight concern
+              competitive sourcing; the ninth (payment discipline) is recorded here
+              because it is the same failure mode and belongs in one catalogue.
             </p>
             <ul className="list-disc space-y-2 pl-5">
               <li>
@@ -1149,6 +1151,31 @@ export default async function MethodologyPage() {
                 sourcing dates are drawn independently — close-to-order spans −8 to +15
                 days — so flagging a quarter of all competitive events would manufacture
                 an accusation out of noise.
+              </li>
+              <li>
+                <strong>Payment discipline against contractual terms.</strong> The
+                most convincing dead metric of the set, because unlike a percentile
+                threshold it has a real contractual benchmark:{" "}
+                <code>paymentTerms</code> carries Net 14 / Net 30 / Net 45, so
+                &ldquo;days paid past terms&rdquo; looks rigorous and needs no
+                distributional assumption. Measured, it is a{" "}
+                <strong>uniform random draw</strong>. Days late is an integer on
+                exactly [0, 15] with χ² <em>p</em> = 0.336 against Uniform{"{"}0..15{"}"},
+                an observed mean of <strong>7.27</strong> against the theoretical
+                7.50 and sd 4.54 against 4.61. Nothing explains any of its variance —
+                supplier <em>p</em> = 0.92, category 0.96, period 0.64, buying method
+                0.55, term bucket 0.49. A permutation test settles it: the observed
+                spread of supplier means (1.59) is <em>below</em> what random
+                reassignment produces (1.72), <em>p</em> = 0.747 — supplier
+                differences are not weak signal, they are less varied than chance.
+                Zero of 22 large suppliers reject uniformity on a test of their full
+                distribution shape (≈1.1 expected by chance), and no supplier reaches
+                |z| &gt; 2 against the grand mean. ⚠️ The observation that the
+                organisation &ldquo;pays about 7 days late and never early&rdquo; is
+                arithmetically correct but describes the generator&rsquo;s
+                non-negative lower bound, not payment discipline: a draw from [0, 15]
+                has no early tail by construction. A worst-payers league table built
+                on this would render beautifully and name innocent suppliers.
               </li>
             </ul>
             <p>

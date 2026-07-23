@@ -1048,6 +1048,37 @@ export function ReportDocument({
                     <p className="text-sm leading-relaxed text-muted-foreground">
                       {T.cycleTime(ctx)}
                     </p>
+                    {/* ⚠️ The prose above names the slowest process stage. When that
+                        stage is Invoice→Payment, most of it is the agreed payment
+                        term rather than delay — stated here so the report cannot
+                        imply a recoverable target five times larger than it is.
+                        Portfolio-level only: the discretionary lag carries no
+                        supplier / category / period signal (Methodology 9.5, #9). */}
+                    {analyses.breakdown?.paymentTermsSplit &&
+                      analyses.cycle_time &&
+                      (() => {
+                        const sp = analyses.breakdown!.paymentTermsSplit!;
+                        const sb = analyses.cycle_time!.stage_breakdown;
+                        const internal = [
+                          ["pr_to_po", sb.pr_to_po?.mean ?? 0],
+                          ["delivery_to_invoice", sb.delivery_to_invoice?.mean ?? 0],
+                          ["invoice_to_payment", sb.invoice_to_payment?.mean ?? 0],
+                        ] as const;
+                        const slowest = internal.reduce((a, b) => (b[1] > a[1] ? b : a));
+                        if (slowest[0] !== "invoice_to_payment") return null;
+                        return (
+                          <p className="text-sm leading-relaxed text-muted-foreground">
+                            Note that Invoice to Payment is largely contractual rather
+                            than delay: {sp.contractual_days.toFixed(0)} of its{" "}
+                            {sp.stage_mean_days.toFixed(0)} days are the payment terms
+                            already agreed with suppliers (
+                            {sp.contractual_pct.toFixed(0)}%), leaving roughly{" "}
+                            {sp.discretionary_days.toFixed(0)} days of discretionary lag.
+                            Shortening this stage is a terms renegotiation or a
+                            working-capital decision, not purely a process fix.
+                          </p>
+                        );
+                      })()}
                   </ReportSection>
                 )
               ))}

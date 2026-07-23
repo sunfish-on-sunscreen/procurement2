@@ -424,14 +424,34 @@ function slowStage(ctx: InsightCtx): InsightModel | null {
   const slowestInternal = internal.reduce((a, b) => (b.mean > a.mean ? b : a), internal[0]);
   const flagged = slowestInternal && slowestInternal.mean > 8;
 
+  // ⚠️ Invoice->Payment is mostly the payment TERM the organisation agreed to, not
+  // delay. Without this qualifier the panel points a reader at a target roughly
+  // five times bigger than what can actually be acted on. Portfolio-level only —
+  // the discretionary lag is a uniform random draw with no supplier, category or
+  // period signal (Methodology 9.5, entry 9), so it is never broken down.
+  const split = ctx.breakdown?.paymentTermsSplit;
+  const splitApplies = flagged && slowestInternal.key === "invoice_to_payment" && split != null;
+
   const lead = flagged
-    ? `${slowestInternal.label} averages ${slowestInternal.mean.toFixed(1)} days — the longest internal stage in your procure-to-pay cycle, above the 8-day flag.`
+    ? `${slowestInternal.label} averages ${slowestInternal.mean.toFixed(1)} days — the longest internal stage in your procure-to-pay cycle, above the 8-day flag.` +
+      (splitApplies
+        ? ` Most of that is contractual, not delay: ${split.contractual_days.toFixed(0)} of the ${split.stage_mean_days.toFixed(0)} days are the agreed payment terms (${split.contractual_pct.toFixed(0)}%), leaving about ${split.discretionary_days.toFixed(0)} days of discretionary lag. Shortening the stage means renegotiating terms, not just working faster.`
+        : "")
     : `No internal stage clears the 8-day flag — your procure-to-pay cadence is balanced across the stages you control.`;
 
   const stats: InsightStat[] = [
     { label: "Slowest internal stage", value: flagged ? slowestInternal.label : "—", sub: flagged ? `${slowestInternal.mean.toFixed(1)}d` : "balanced" },
     { label: "Share of internal cycle", value: flagged ? pct0((slowestInternal.mean / internalSum) * 100) : "—" },
     { label: "8-day flag", value: flagged ? "exceeded" : "clear" },
+    ...(splitApplies
+      ? [
+          {
+            label: "Of which addressable",
+            value: `${split.discretionary_days.toFixed(1)}d`,
+            sub: `${split.contractual_days.toFixed(0)}d is the agreed term`,
+          } as InsightStat,
+        ]
+      : []),
   ];
 
   const table: InsightTable = {
@@ -448,7 +468,9 @@ function slowStage(ctx: InsightCtx): InsightModel | null {
         !m.internal
           ? "excluded — physical lead time"
           : flagged && m.key === slowestInternal.key
-            ? "slowest internal stage"
+            ? splitApplies
+              ? `slowest internal stage — ${split.contractual_days.toFixed(0)}d contractual, ${split.discretionary_days.toFixed(0)}d discretionary`
+              : "slowest internal stage"
             : m.mean > 8
               ? "above 8-day flag"
               : "",
@@ -459,7 +481,11 @@ function slowStage(ctx: InsightCtx): InsightModel | null {
     caption: "PO→Delivery is the physical supplier lead time — deliberately excluded from the internal-stage flag.",
   };
 
-  const why = `This is time inside your own accounts-payable process, not supplier lead time — fully within your control to fix. PO→Delivery, the physical wait for goods, is excluded from the flag for exactly that reason: it isn't yours to shorten.`;
+  // ⚠️ The old wording here claimed this stage was "fully within your control to
+  // fix". For Invoice->Payment that is false: ~80% of it is the contractual term.
+  const why = splitApplies
+    ? `PO→Delivery, the physical wait for goods, is excluded from the flag because it isn't yours to shorten. But Invoice→Payment is not fully yours either: ${split.contractual_pct.toFixed(0)}% of it is the payment term already agreed with the supplier. The genuinely discretionary part is about ${split.discretionary_days.toFixed(0)} days, so treating the full ${split.stage_mean_days.toFixed(0)} days as recoverable process waste overstates the opportunity roughly ${(split.stage_mean_days / Math.max(split.discretionary_days, 0.1)).toFixed(0)}-fold. Paying earlier than terms is a working-capital decision, not a process fix.`
+    : `This is time inside your own accounts-payable process, not supplier lead time — largely within your control. PO→Delivery, the physical wait for goods, is excluded from the flag for exactly that reason: it isn't yours to shorten.`;
 
   return { title: "Slowest stage — where the cycle drags", lead, stats, table, why };
 }

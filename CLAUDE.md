@@ -169,6 +169,51 @@ encodes which is which:**
   for any change here. The constraints are also written into the TS types
   (`CoverageBucket`, `CoverageBidding`, `CoverageMixTransition`).
 
+⚠️⚠️ **STANDING CHECK — BEFORE BUILDING ANY BREAKDOWN, TEST WHETHER
+`buying_method` DETERMINES IT.** This has now bitten THREE times, and each time the
+proposed cut turned out to be buying method wearing a different label:
+1. **Pooled cycle time is a five-population MIXTURE** (spot_buy ~44d → direct ~130d),
+   so a shift in method mix moves the pooled number while every method individually
+   goes the other way. Fixed with the mix-adjusted decomposition (`fa9f83c`).
+2. **The cycle-time anomaly threshold is reachable only by `direct`.** It sits near
+   160 days, above the MAXIMUM cycle of every other method (spot_buy 68, call_off
+   109, rfq/tender 149; direct 171). All flagged orders are direct — the "anomaly"
+   flag is a proxy for the channel (`778f9c4`).
+3. **`paymentTerms` is near-deterministic in method** — spot_buy→Net 14 (194/194),
+   rfq→Net 30 (151/151), tender→Net 30 (75/75), direct→Net 45 (98/98); only
+   `call_off` splits (Net 30 63 / Net 45 66). Four of five methods carry exactly ONE
+   term, so a per-term cut is a per-method cut.
+
+**The check is cheap: cross-tabulate the proposed dimension against `buying_method`
+before building anything.** If most methods map to one value of it, the breakdown
+will re-report method under another name — and because cycle time, order value and
+payment terms are all near-deterministic in method on this data, that is the DEFAULT
+outcome, not an edge case. Say so in the plan rather than shipping the cut.
+
+⚠️ **PAYMENT DISCIPLINE IS DEAD — measured 2026-07-23, NOT built.** Days paid past
+terms is a uniform random draw on {0..15}: χ² p = 0.336 against Uniform, mean 7.27 vs
+theoretical 7.50, sd 4.54 vs 4.61, and NOTHING explains its variance (supplier
+p = 0.92, category 0.96, period 0.64, method 0.55, term 0.49). The permutation test is
+decisive — the spread of supplier means (1.59) is BELOW what random reassignment gives
+(1.72), p = 0.747, i.e. less varied than chance; 0 of 22 large suppliers reject
+uniformity on shape. "Pays ~7 days late and never early" is the generator's
+non-negative lower bound, not discipline. Full evidence in Methodology 9.5 entry 9.
+⚠️ **`paymentTerms` is NOT on the `EnrichedPurchase` view.** Any future build must
+read it from `PurchaseOrder` keyed by `poId` and INTERSECT against the view-derived
+frame — never re-spell `NOT EXISTS "PurchaseOrderVoid"`. The site count stays at FOUR.
+`lib/cycle-breakdown.ts` already does exactly this for the one salvaged finding below.
+
+⚠️ **THE ONE REAL FINDING IT PRODUCED — 80% of Invoice→Payment is CONTRACTUAL.** The
+stage averages 36.3 days and is flagged as the slowest, which reads as ~36 days of
+addressable process delay. It is not: 29.0 days is the spend-weighted mean payment
+term the organisation AGREED to, leaving ~7.3 days discretionary (stable at 80.2 /
+79.7 / 80.0% across 2024/2025/2026). Surfaced on the Process Health glance, the
+Action Priorities "Slowest stage" panel and the report cycle prose, so a reader is not
+pointed at a target 5x bigger than what can be acted on. ⚠️ Computed in
+`lib/cycle-breakdown.ts` (`paymentTermsSplit`) — TS-only, NOT an AnalysisResult
+payload, so no md5 moves. **PORTFOLIO-LEVEL ONLY: never cut it by supplier, category
+or period** — that is the dead metric above.
+
 ⚠️ **FOUR TRAPS THIS FEATURE HAD TO CLEAR — they generalize to any new analysis:**
 - **VOID INHERITANCE — the site count stays FOUR, not five.** `load_sourcing_events` /
   `load_calloff_frameworks` carry NO `NOT EXISTS "PurchaseOrderVoid"`; they are keyed

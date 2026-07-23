@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { getRangeAnalyses } from "@/lib/range-analyses";
 import type {
@@ -233,5 +235,61 @@ export async function computeCycleBreakdown(
   const methodByPo: Record<string, string> = {};
   for (const p of purchases) if (p.buyingMethod) methodByPo[p.poId] = p.buyingMethod;
 
-  return { bySupplier, byCategory, stageAnomalies, controlExposure, methodByPo };
+  // ---- Invoice->Payment: contractual vs discretionary --------------------- #
+  // The Invoice->Payment stage is the largest in the cycle and is flagged as the
+  // slowest, which reads as ~36 days of addressable process delay. It is not: four
+  // fifths of it is the payment term the organisation AGREED to. Splitting it stops
+  // a reader being pointed at a target five times bigger than what can be acted on.
+  //
+  // ⚠️ paymentTerms is NOT on the EnrichedPurchase view, so it is read from
+  // PurchaseOrder and keyed by poId, then INTERSECTED against the view-derived
+  // frame below. That inherits the view's void exclusion instead of re-spelling
+  // `NOT EXISTS "PurchaseOrderVoid"` — the void-filter site count stays at FOUR.
+  // Same contract as load_sourcing_events / load_calloff_frameworks.
+  //
+  // ⚠️ PORTFOLIO-LEVEL ONLY. There is deliberately no supplier / category / period
+  // cut of the discretionary lag and none may be added: the lag past terms is a
+  // uniform random draw on {0..15} (chi-square p = 0.34 against Uniform, permutation
+  // p = 0.75 on supplier means, 0 of 22 large suppliers rejecting uniformity). Any
+  // breakdown of it would rank suppliers on noise. See Methodology 9.5 entry 9.
+  let paymentTermsSplit: CycleBreakdown["paymentTermsSplit"];
+  const poIds = purchases.map((p) => p.poId);
+  if (poIds.length > 0) {
+    const termRows = await prisma.$queryRaw<{ id: string; paymentTerms: string }[]>(
+      Prisma.sql`SELECT id, "paymentTerms" FROM "PurchaseOrder" WHERE id IN (${Prisma.join(poIds)})`,
+    );
+    const termByPo = new Map(termRows.map((r) => [r.id, r.paymentTerms]));
+    let termSum = 0;
+    let stageSum = 0;
+    let n = 0;
+    for (const p of purchases) {
+      const raw = termByPo.get(p.poId);
+      const days = raw ? Number(/(\d+)/.exec(raw)?.[1]) : NaN;
+      if (!Number.isFinite(days)) continue; // unparseable term -> excluded, not assumed
+      termSum += days;
+      stageSum += p.invoiceToPaymentDays;
+      n += 1;
+    }
+    if (n > 0) {
+      const stageMean = stageSum / n;
+      const contractualMean = termSum / n;
+      paymentTermsSplit = {
+        n,
+        stage_mean_days: Math.round(stageMean * 100) / 100,
+        contractual_days: Math.round(contractualMean * 100) / 100,
+        discretionary_days: Math.round((stageMean - contractualMean) * 100) / 100,
+        contractual_pct:
+          stageMean > 0 ? Math.round((contractualMean / stageMean) * 1000) / 10 : 0,
+      };
+    }
+  }
+
+  return {
+    bySupplier,
+    byCategory,
+    stageAnomalies,
+    controlExposure,
+    methodByPo,
+    paymentTermsSplit,
+  };
 }

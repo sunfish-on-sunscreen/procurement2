@@ -161,6 +161,7 @@ export function CycleTimeClient({
         previousLabel={previousLabel}
         periodLabel={periodLabel}
         isRangeMode={isRangeMode}
+        paymentTermsSplit={breakdown?.paymentTermsSplit}
       />
 
       {/* Stat grid (Change 4: sits above the anomaly flags; 5th "Slowest stage" card). */}

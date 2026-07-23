@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { CycleTimeResult, KraljicQuadrant } from "@/lib/analysis-types";
-import type { CycleSupplierRow, CycleCategoryRow } from "@/lib/cycle-time-types";
+import type { CycleSupplierRow, CycleCategoryRow, CycleBreakdown } from "@/lib/cycle-time-types";
 import { cardElevation } from "@/lib/utils";
 import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL, comparisonSkipText } from "@/lib/cycle-mix";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,10 +57,15 @@ export function CycleTimeGlancePanel({
   previousLabel,
   periodLabel,
   isRangeMode,
+  paymentTermsSplit,
 }: {
   cycleTime: CycleTimeResult;
   roster: CycleSupplierRow[];
   categories: CycleCategoryRow[];
+  /** Invoice->Payment contractual vs discretionary. PORTFOLIO-LEVEL ONLY — the
+   *  discretionary lag has no supplier/category/period signal (Methodology 9.5
+   *  entry 9), so it is never broken down. */
+  paymentTermsSplit?: CycleBreakdown["paymentTermsSplit"];
   previousMedian: number | null;
   previousLabel: string | null;
   periodLabel: string;
@@ -312,6 +317,20 @@ export function CycleTimeGlancePanel({
                     </>
                   ))}
                 .
+                {/* ⚠️ Invoice->Payment is mostly the agreed term, not delay. Stated
+                    here because this sentence names the "binding constraint" — a
+                    reader would otherwise size the opportunity at the full stage. */}
+                {paymentTermsSplit && slowest.label === "Invoice to Payment" && (
+                  <>
+                    {" "}
+                    Most of that is contractual rather than delay:{" "}
+                    <strong>{d0(paymentTermsSplit.contractual_days)}</strong> of the{" "}
+                    {d0(paymentTermsSplit.stage_mean_days)} days are the agreed payment
+                    terms, leaving about{" "}
+                    <strong>{d0(paymentTermsSplit.discretionary_days)}</strong> days that
+                    are genuinely discretionary.
+                  </>
+                )}
                 {slowestQuad && (
                   <>
                     {" "}
