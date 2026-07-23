@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
-import type { SpendOverviewResult, AbcResult } from "@/lib/analysis-types";
+import type {
+  SpendOverviewResult,
+  AbcResult,
+  SourcingCoverageResult,
+} from "@/lib/analysis-types";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import {
   Card,
@@ -37,6 +41,9 @@ function periodPhrase(periodLabel: string, isRangeMode: boolean): string {
 type PageData = {
   spend_overview: SpendOverviewResult;
   abc: AbcResult | null;
+  // Nullable at the boundary like `abc` — a span served from a pre-existing cache
+  // row set won't carry it, so every consumer must guard rather than assume.
+  sourcing_coverage: SourcingCoverageResult | null;
   ranking: SupplierRankingRow[];
 };
 

@@ -3,7 +3,16 @@ import { Prisma } from "@/lib/generated/prisma/client";
 import { runComputeRange } from "@/lib/python";
 import type { RangeAnalyses } from "@/lib/analysis-types";
 
-// The six analyses a range compute produces (Python Mode B output keys).
+// The SEVEN analyses a range compute produces (Python Mode B output keys).
+//
+// ⚠️ THIS LIST MUST MATCH `all_types` IN python/compute_analyses.py. It governs BOTH
+// halves of the cache: the read side requires every entry to be present before a
+// cached set is accepted, and the write side persists only these keys. Let it fall
+// behind Python and the two halves disagree — a cache MISS returns the full Python
+// output while a cache HIT returns the shorter cached set, so the same span yields a
+// different key set depending only on whether it had been computed before. Adding an
+// entry is self-healing: existing cached spans now fail the completeness check below
+// and are recomputed on next read.
 export const RANGE_TYPES = [
   "spend_overview",
   "abc",
@@ -11,6 +20,7 @@ export const RANGE_TYPES = [
   "performance_spend",
   "kraljic",
   "recommendations",
+  "sourcing_coverage",
 ] as const;
 
 /**

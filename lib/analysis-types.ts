@@ -408,6 +408,172 @@ export interface RecommendationsResult {
   };
 }
 
+// --- Competitive sourcing coverage ----------------------------------------- #
+
+/**
+ * ⚠️ THREE BUCKETS, and `framework` is PERMANENT — never fold it into either side.
+ * A call-off draws against a framework agreement that in real procurement was
+ * competed once, at framework award, but `Framework` carries NO sourcing linkage in
+ * this schema, so the data cannot say whether it was. A competed/uncompeted binary
+ * would be wrong by the whole call-off share (44.78% of spend) whichever way it fell.
+ */
+export type CoverageBucket = "competed" | "framework" | "uncompeted";
+
+export type CoverageSplit = {
+  spend: number;
+  pos: number;
+  spend_pct: number;
+  pos_pct: number;
+};
+
+export type CoverageMethod = CoverageSplit & {
+  /** Which bucket this method rolls into; null if the vocabulary ever drifts. */
+  bucket: CoverageBucket | null;
+  median_po_value: number | null;
+  avg_po_value: number | null;
+};
+
+/** Per-category / per-supplier coverage. ⚠️ COMPLETE — the compute layer emits every
+ *  row and the DISPLAY decides what to truncate. Never derive a COUNT from a sliced
+ *  copy of these arrays (the documented cap trap that poisoned three counts). */
+export type CoverageCategory = {
+  category: string;
+  spend: number;
+  pos: number;
+  competed_pct: number;
+  framework_pct: number;
+  uncompeted_pct: number;
+};
+
+export type CoverageSupplier = {
+  supplier_id: string;
+  supplier_name: string;
+  spend: number;
+  pos: number;
+  /** Distinct buying methods used — 1 means the supplier is bought one way only. */
+  methods_used: number;
+  competed_pct: number;
+  framework_pct: number;
+  uncompeted_pct: number;
+};
+
+/**
+ * ⚠️ PORTFOLIO-LEVEL ONLY, AND DELIBERATELY SO. There is no by-category / by-supplier
+ * / by-period cut of quote spread and one must never be added: spread is an order
+ * statistic of the BID COUNT (9.22% at 2 bids, 12.80% at 3, 13.06% at 4) and is flat
+ * across every other dimension once bid count is held fixed. A breakdown would report
+ * the bid-count mix wearing a category label.
+ */
+export type CoverageBidding = {
+  events: number;
+  responses: number;
+  avg_bids: number | null;
+  min_bids: number | null;
+  max_bids: number | null;
+  /** bid count -> number of events, e.g. {"2": 31, "3": 165, "4": 30}. */
+  bids_distribution: Record<string, number>;
+  avg_quote_spread_pct: number | null;
+  median_quote_spread_pct: number | null;
+};
+
+/** One category's contribution to a coverage transition. */
+export type CoverageMixCategory = {
+  category: string;
+  from_rate_pct: number | null;
+  to_rate_pct: number | null;
+  within_change_pct: number | null;
+  from_share_pct: number | null;
+  to_share_pct: number | null;
+};
+
+/**
+ * Shift-share of one bucket's spend share between two periods, in PERCENTAGE POINTS:
+ * `pooled_change_pct == mix_effect_pct + within_effect_pct` (exactly, up to the 2dp
+ * rounding of each field independently — reconcile in the UI by DERIVING the third
+ * from the other two rather than rendering all three raw).
+ *
+ * mix = what was bought changed · within = how it was bought changed.
+ *
+ * ⚠️ Read the split; never assume which side dominates. On the seeded data the 2025
+ * competed fall is -3.51 mix / -6.37 within — i.e. mostly BEHAVIOUR, not mix.
+ */
+export type CoverageMixTransition = {
+  from: string;
+  to: string;
+  from_pooled_pct: number | null;
+  to_pooled_pct: number | null;
+  pooled_change_pct: number | null;
+  mix_effect_pct: number | null;
+  within_effect_pct: number | null;
+  /** 0 except where a category nets to zero spend while holding bucket spend.
+   *  Surfaced rather than swallowed so a broken decomposition cannot hide behind a
+   *  correct-looking total. */
+  residual_pct: number | null;
+  /** True when the pooled number must NOT be reported naively. */
+  pooled_misleading: boolean;
+  reason: "sign_reversal" | "magnitude_masked" | "mix_dominated" | null;
+  per_category: CoverageMixCategory[];
+};
+
+export type CoverageMixMetric = {
+  per_period: Record<
+    string,
+    {
+      n: number;
+      spend: number | null;
+      pooled_pct: number | null;
+      shares_pct: Record<string, number | null>;
+      rates_pct: Record<string, number | null>;
+    }
+  >;
+  transitions: CoverageMixTransition[];
+};
+
+export type CoverageMixAdjusted = {
+  insufficient_data: boolean;
+  /** Every period in the DATA — transitions are computed window-independently, so a
+   *  transition reads the same on every period selection. */
+  periods: string[];
+  /** Periods inside the SELECTED window. Display hint only: show transitions whose
+   *  `to` falls in here. */
+  window_periods: string[];
+  metrics: Partial<Record<CoverageBucket, CoverageMixMetric>>;
+};
+
+export type SourcingCoverageResult = {
+  total_spend: number;
+  total_pos: number;
+  by_bucket: Record<CoverageBucket, CoverageSplit>;
+  by_method: Record<string, CoverageMethod>;
+  by_category: CoverageCategory[];
+  by_supplier: CoverageSupplier[];
+  bidding: CoverageBidding;
+  framework_leakage: {
+    calloffs: number;
+    with_framework: number;
+    outside_window: number;
+    outside_window_spend: number;
+  };
+  /**
+   * ⚠️ A FINDING, not a caveat: the share of spend whose competitive basis cannot be
+   * established from this schema. Surfaced as a number because it names a concrete
+   * fix (link Framework to the sourcing event that awarded it), which is more
+   * actionable than any coverage percentage.
+   */
+  unverifiable_share: {
+    spend: number;
+    spend_pct: number;
+    pos: number;
+    /** Stable machine code, not display copy. */
+    reason: "framework_has_no_sourcing_linkage";
+  };
+  /** Orders whose buying_method is outside the vocabulary. Always 0 (both import
+   *  paths reject unknown/blank), COUNTED rather than absorbed so a regression is
+   *  visible instead of silently inflating a bucket. */
+  unclassified: { spend: number; pos: number };
+  mix_adjusted_coverage: CoverageMixAdjusted;
+};
+
 /** Full payload returned by /api/analyses/compute-range (Python Mode B). */
 export type RangeAnalyses = {
   spend_overview: SpendOverviewResult;
@@ -416,6 +582,7 @@ export type RangeAnalyses = {
   performance_spend: PerformanceSpendResult;
   kraljic: KraljicResult;
   recommendations: RecommendationsResult;
+  sourcing_coverage: SourcingCoverageResult;
 };
 
 /**

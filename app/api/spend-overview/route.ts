@@ -117,6 +117,10 @@ export async function POST(request: Request) {
   return NextResponse.json({
     spend_overview: analyses.spend_overview,
     abc: analyses.abc ?? null,
+    // Competitive sourcing coverage — how the spend reached the market. Nullable at
+    // the boundary like `abc`: a span computed before this analysis existed can be
+    // served from a cache row set that predates it, and the page renders without it.
+    sourcing_coverage: analyses.sourcing_coverage ?? null,
     ranking,
   });
 }
