@@ -33,6 +33,10 @@ export async function getSupplierDirectory(): Promise<
     prisma.purchaseOrder.groupBy({
       by: ["supplierId"],
       _count: { _all: true },
+      // Voided orders are excluded, as everywhere else analytics reads POs. This is
+      // the third reader that does not go through the EnrichedPurchase view, so the
+      // exclusion has to be stated here too.
+      where: { voidRecord: { is: null } },
     }),
   ]);
   const numPosById = new Map(
@@ -46,6 +50,23 @@ export async function getSupplierDirectory(): Promise<
     };
   }
   return out;
+}
+
+/**
+ * Set of supplier externalIds that are RETIRED (master-data status !== "active").
+ *
+ * ⚠️ Display-only. This drives the "retired" badge on the analytics supplier views
+ * and must NEVER be used to filter or reweight anything — deactivation is
+ * analytically neutral by design (the compute layer never reads Supplier.status;
+ * see app/api/suppliers/[id]/deactivate). "Retired" is deliberately a different word
+ * from the tables' `inactive`, which means "no activity in the selected period".
+ */
+export async function getRetiredSupplierIds(): Promise<Set<string>> {
+  const rows = await prisma.supplier.findMany({
+    where: { status: { not: "active" } },
+    select: { id: true },
+  });
+  return new Set(rows.map((r) => r.id));
 }
 
 /** Distinct supplier categories (for the report customization modal). */

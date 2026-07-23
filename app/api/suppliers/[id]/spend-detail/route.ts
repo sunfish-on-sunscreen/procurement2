@@ -80,7 +80,7 @@ export async function GET(
     }),
     prisma.supplier.findUnique({
       where: { id },
-      select: { supplierName: true, country: true, category: true },
+      select: { supplierName: true, country: true, category: true, status: true },
     }),
     prisma.reportingPeriod.findMany({
       orderBy: { startDate: "asc" },
@@ -309,6 +309,9 @@ export async function GET(
       name: metric?.supplierName ?? supplier?.supplierName ?? purchases[0]?.supplierName ?? id,
       category: metric?.category ?? supplier?.category ?? null,
       country: supplier?.country ?? null,
+      // Master-data retirement (display-only badge). Unknown-status fallback is
+      // false so a purchases-only supplier (no master row) never reads as retired.
+      retired: supplier ? supplier.status !== "active" : false,
       abcClass,
       kraljicQuadrant,
       zone,

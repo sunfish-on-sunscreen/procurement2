@@ -36,7 +36,14 @@ type Row = {
 type Filters = { id: string; name: string; country: string; category: string };
 const EMPTY_FILTERS: Filters = { id: "", name: "", country: "", category: "" };
 
-export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
+export function SupplierRosterTable({
+  suppliers,
+  hideHeading = false,
+}: {
+  suppliers: Row[];
+  /** Set when a collapsible wrapper already names the table, to avoid two headings. */
+  hideHeading?: boolean;
+}) {
   const router = useRouter();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -68,12 +75,21 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reactivate }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+        status?: string;
+      };
       if (res.ok && data.status) {
         toast.success(`${row.supplierName} is now ${data.status}.`);
         router.refresh();
       } else {
-        toast.error(data.error || "Could not change the supplier status.");
+        // The generic string is now only a last resort — for a response that carried
+        // no JSON at all (a crash, or a 404 from a torn build). Anything the server
+        // could explain, it explains, and `detail` carries the underlying cause.
+        toast.error(data.error || "Could not change the supplier status.", {
+          description: data.detail,
+        });
       }
     } catch {
       toast.error("Could not change the supplier status.");
@@ -84,13 +100,15 @@ export function SupplierRosterTable({ suppliers }: { suppliers: Row[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold">
-        Suppliers{" "}
-        <span className="text-sm font-normal text-muted-foreground">
-          ({filtered.length}
-          {filtered.length !== suppliers.length ? ` of ${suppliers.length}` : ""})
-        </span>
-      </h2>
+      {!hideHeading && (
+        <h2 className="text-lg font-semibold">
+          Suppliers{" "}
+          <span className="text-sm font-normal text-muted-foreground">
+            ({filtered.length}
+            {filtered.length !== suppliers.length ? ` of ${suppliers.length}` : ""})
+          </span>
+        </h2>
+      )}
 
       {suppliers.length === 0 ? (
         <p className="text-sm text-muted-foreground">

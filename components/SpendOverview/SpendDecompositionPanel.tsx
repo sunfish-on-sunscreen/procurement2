@@ -18,6 +18,7 @@ import { formatCompactCurrency, panelElevation } from "@/lib/utils";
 import { periodSpanLabel } from "@/lib/panel-format";
 import { Button } from "@/components/ui/button";
 import { CountryFlag } from "@/components/CountryFlag";
+import { RetiredBadge } from "@/components/RankingCells";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { StatBlock } from "@/components/ui/stat-block";
 import { ChartFrame } from "@/components/charts/ChartFrame";
@@ -332,7 +333,10 @@ export function SpendDecompositionPanel({
       >
         <header className="flex items-start justify-between gap-2 border-b p-4">
           <div className="min-w-0">
-            <DialogTitle className="truncate font-heading text-base font-medium leading-snug">{s?.name ?? "Loading…"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle className="truncate font-heading text-base font-medium leading-snug">{s?.name ?? "Loading…"}</DialogTitle>
+              {s?.retired && <RetiredBadge />}
+            </div>
             {s && (
               <p className="truncate text-xs text-muted-foreground">
                 {(() => {

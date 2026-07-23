@@ -19,6 +19,9 @@ export type ClassificationRankingRow = {
   // True when the supplier has no activity/classification in the selected period
   // (rendered muted, ranked last) — mirrors the Spend Overview ranking pattern.
   inactive: boolean;
+  // True when the supplier is RETIRED master data (status !== "active"). Distinct
+  // from `inactive`: display-only badge, never filters or reorders.
+  retired: boolean;
 };
 
 /** The four cross-classification synthesis buckets (Kraljic × performance median). */

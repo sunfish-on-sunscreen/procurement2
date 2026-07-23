@@ -1,12 +1,13 @@
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { nextSupplierId } from "@/lib/supplier-import";
-import { SupplierAdminPanel } from "@/components/SupplierAdminPanel";
+import { MasterDataSection } from "@/components/MasterDataSection";
 import { DatasetImportCard } from "@/components/DatasetImportCard";
 import { RecordPurchaseCard } from "@/components/RecordPurchaseCard";
 import { SupplierAppendCard } from "@/components/SupplierAppendCard";
 import { TransactionAppendCard } from "@/components/TransactionAppendCard";
-import { CorrectionCard } from "@/components/CorrectionCard";
+import { CorrectionCard, type CorrectablePo } from "@/components/CorrectionCard";
+import { getEnrichedPurchases } from "@/lib/enriched-purchase";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -83,13 +84,30 @@ export default async function ImportPage() {
       select: { id: true, supplierId: true, title: true },
       orderBy: { id: "asc" },
     }),
-    prisma.poLine.findMany({ select: { category: true, unit: true }, distinct: ["category", "unit"] }),
-    prisma.goodsReceipt.findMany({ select: { site: true, receivedBy: true }, distinct: ["site", "receivedBy"] }),
-    prisma.requisition.findMany({ select: { department: true, requester: true }, distinct: ["department", "requester"] }),
+    // ⚠️ Voided orders are excluded from every vocabulary below. A void usually means
+    // the order was entered wrong, so its item names, sites and requester spellings
+    // are exactly the values that should NOT be offered as suggestions next time.
+    prisma.poLine.findMany({
+      where: { po: { voidRecord: { is: null } } },
+      select: { category: true, unit: true },
+      distinct: ["category", "unit"],
+    }),
+    prisma.goodsReceipt.findMany({
+      where: { po: { voidRecord: { is: null } } },
+      select: { site: true, receivedBy: true },
+      distinct: ["site", "receivedBy"],
+    }),
+    prisma.requisition.findMany({
+      // Requisition is 1:1 with its order, so "has a non-voided PO" is exact.
+      where: { purchaseOrders: { some: { voidRecord: { is: null } } } },
+      select: { department: true, requester: true },
+      distinct: ["department", "requester"],
+    }),
     // Item vocabulary for the record-purchase form, carrying each item's supplier(s).
     // Item -> category and item -> unit are both strictly 1:1 in the data, so picking
     // an item determines both; the form auto-fills them.
     prisma.poLine.findMany({
+      where: { po: { voidRecord: { is: null } } },
       select: { itemName: true, category: true, unit: true, po: { select: { supplierId: true } } },
     }),
   ]);
@@ -110,6 +128,71 @@ export default async function ImportPage() {
   const items = [...itemMap.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((i) => ({ name: i.name, category: i.category, unit: i.unit, supplierIds: [...i.supplierIds] }));
+
+  // Every PO, as selectable options for the correction dialog — the same
+  // server-prop pattern the record-purchase form uses for suppliers/items, so the
+  // picker filters instantly instead of round-tripping per keystroke.
+  // `buyingMethod` is NOT on the PO-grain view, so it is merged in by id.
+  const [enrichedPos, poMethods] = await Promise.all([
+    getEnrichedPurchases(),
+    prisma.purchaseOrder.findMany({ select: { id: true, buyingMethod: true } }),
+  ]);
+  const methodByPo = new Map(poMethods.map((p) => [p.id, p.buyingMethod]));
+  const correctablePos: CorrectablePo[] = enrichedPos
+    .map((e) => ({
+      id: e.poId,
+      supplierId: e.supplierExternalId,
+      supplierName: e.supplierName,
+      category: e.category,
+      period: e.period,
+      buyingMethod: methodByPo.get(e.poId) ?? "",
+      totalValueUsd: e.totalValueUsd,
+      matchPass: e.threeWayMatchPass,
+      defectCount: e.defectCount,
+      // ISO day for the PO-date range filter — a different axis from `period`,
+      // which is the order YEAR.
+      poDate: e.poDate.toISOString().slice(0, 10),
+    }))
+    // Newest first: ids are PO-YYYY-NNNNN, so a lexical descending sort is
+    // chronological, and recent orders are the likelier correction targets.
+    .sort((a, b) => b.id.localeCompare(a.id));
+
+  // Row counts for the Master-data table headings. Twelve `COUNT(*)`s on indexed
+  // tables — metadata only, so every heading can state its size while collapsed.
+  // No table's rows are fetched until it is expanded.
+  const [
+    cSupplier, cFramework, cRequisition, cSourcingEvent, cResponse, cPurchaseOrder,
+    cPoLine, cGoodsReceipt, cGrnLine, cInvoice, cInvoiceLine, cPayment,
+  ] = await Promise.all([
+    prisma.supplier.count(),
+    prisma.framework.count(),
+    prisma.requisition.count(),
+    prisma.sourcingEvent.count(),
+    prisma.response.count(),
+    prisma.purchaseOrder.count(),
+    prisma.poLine.count(),
+    prisma.goodsReceipt.count(),
+    prisma.grnLine.count(),
+    prisma.invoice.count(),
+    prisma.invoiceLine.count(),
+    prisma.payment.count(),
+  ]);
+  const browserCounts: Record<string, number> = {
+    suppliers: cSupplier,
+    frameworks: cFramework,
+    requisitions: cRequisition,
+    sourcing_events: cSourcingEvent,
+    responses: cResponse,
+    purchase_orders: cPurchaseOrder,
+    po_lines: cPoLine,
+    goods_receipts: cGoodsReceipt,
+    grn_lines: cGrnLine,
+    invoices: cInvoice,
+    invoice_lines: cInvoiceLine,
+    payments: cPayment,
+  };
+  // Derived from the PO options already assembled above — no extra query.
+  const browserPeriods = [...new Set(correctablePos.map((p) => p.period))].sort();
 
   const corrections = await prisma.correction.findMany({
     take: 25,
@@ -160,7 +243,7 @@ export default async function ImportPage() {
         requesters={uniqSorted(prFacets.map((p) => p.requester))}
       />
 
-      <CorrectionCard />
+      <CorrectionCard pos={correctablePos} />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Correction ledger</h2>
@@ -211,10 +294,13 @@ export default async function ImportPage() {
       </div>
 
       <div className="overflow-x-auto">
-        <SupplierAdminPanel
-          suppliers={suppliers}
-          nextId={nextId}
-          categories={categories}
+        <MasterDataSection
+          counts={browserCounts}
+          suppliers={suppliers.map((s) => ({ id: s.id, name: s.supplierName }))}
+          supplierRoster={suppliers}
+          nextSupplierId={nextId}
+          supplierCategories={categories}
+          periods={browserPeriods}
         />
       </div>
 
@@ -298,6 +384,7 @@ export default async function ImportPage() {
           </Table>
         )}
       </div>
+
     </div>
   );
 }

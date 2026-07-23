@@ -30,6 +30,23 @@ export function PerfBar({ score }: { score: number | null }) {
   );
 }
 
+// --- Retired (deactivated master-data) badge -------------------------------- #
+// Surfaces Supplier.status !== "active" on the analytics supplier views. ⚠️
+// Display-only: it never filters or changes a figure — deactivation is
+// analytically neutral by design. Deliberately the word "Retired", NOT "inactive"
+// (which already means "no activity in this period" on these tables).
+export function RetiredBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      title="Deactivated in master data — retired from future ordering. Historical figures are unaffected."
+      className={`no-print inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground ${className}`}
+      style={{ backgroundColor: "color-mix(in srgb, var(--muted-foreground) 12%, transparent)" }}
+    >
+      Retired
+    </span>
+  );
+}
+
 // --- Sortable column header arrow (decision L) ------------------------------ #
 // All sortable columns show a faint up/down glyph; the active column shows a
 // prominent directional arrow. (Non-sortable columns don't render this.)

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { getRangeAnalyses } from "@/lib/range-analyses";
+import { getRetiredSupplierIds } from "@/lib/suppliers";
 import type { AbcResult, KraljicResult } from "@/lib/analysis-types";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import { Prisma } from "@/lib/generated/prisma/client";
@@ -85,6 +86,10 @@ export async function POST(request: Request) {
     orderBy: { periodId: "desc" },
   });
 
+  // Master-data retirement (status !== "active"), for a display-only badge. Does
+  // NOT filter or reorder — retired suppliers keep their spend and rank.
+  const retiredIds = await getRetiredSupplierIds();
+
   const ranking: SupplierRankingRow[] = roster
     .map((s) => {
       const a = aggById.get(s.supplierExternalId);
@@ -103,6 +108,7 @@ export async function POST(request: Request) {
         kraljic_quadrant: krRow?.quadrant ?? null,
         rank: 0,
         inactive: poCount === 0,
+        retired: retiredIds.has(s.supplierExternalId),
       };
     })
     .sort((a, b) => b.total_spend - a.total_spend)

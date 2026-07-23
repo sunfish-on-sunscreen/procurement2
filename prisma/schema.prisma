@@ -25,6 +25,7 @@ model User {
   reports           ExecutiveSummary[]
   supplierChanges   SupplierChangeLog[]
   corrections       Correction[]
+  voids             PurchaseOrderVoid[]
 }
 
 enum Role {
@@ -201,6 +202,7 @@ model PurchaseOrder {
   goodsReceipts GoodsReceipt[]
   invoices      Invoice[]
   correctionsPosted Correction[]
+  voidRecord        PurchaseOrderVoid?
 
   @@index([prId])
   @@index([sourcingEventId])
@@ -211,6 +213,34 @@ model PurchaseOrder {
 
 /// Audit header for ONE logical correction. It records who/why/when and groups the
 /// signed rows a correction produces across PoLine / GrnLine / InvoiceLine.
+/// A VOID: this order was entered in error and is excluded from every analytic.
+///
+/// Appended, never a mutation — the posted PurchaseOrder row is untouched, so the
+/// immutability triggers stay intact and no bypass exists. Nothing is deleted: the
+/// order and its whole chain remain in the database and the data browser.
+///
+/// ⚠️ UNLIKE `Correction`, this table IS read by the EnrichedPurchase view — void
+/// exclusion is `NOT EXISTS (SELECT 1 FROM "PurchaseOrderVoid" v WHERE v."poId" =
+/// po.id)`. Two analytics readers bypass the view because they join PoLine to
+/// PurchaseOrder directly (`python/compute_analyses.load_po_lines` and
+/// `lib/po-lines.ts`), plus `lib/suppliers.getSupplierDirectory`; all three repeat
+/// the same NOT EXISTS. The data browser and the import-page counts deliberately do
+/// NOT filter — a voided order must stay visible.
+///
+/// This row is its own audit record (who / when / why); there is no separate log.
+/// Un-voiding is a plain DELETE, which no trigger blocks.
+model PurchaseOrderVoid {
+  /// PK = poId: an order is either void or it is not.
+  poId     String        @id
+  po       PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  reason   String
+  voidedBy String
+  user     User          @relation(fields: [voidedBy], references: [id])
+  voidedAt DateTime      @default(now())
+
+  @@index([voidedAt])
+}
+
 ///
 /// ⚠️ This is METADATA ONLY — the EnrichedPurchase view never reads it. Netting is
 /// done purely by the signed line rows themselves, so the correction mechanism does

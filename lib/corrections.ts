@@ -56,6 +56,84 @@ export const CorrectionBody = z
 
 export type CorrectionInput = z.infer<typeof CorrectionBody>;
 
+/** One field-change within a multi-field post. Same per-kind rules as above. */
+export const CorrectionItem = z
+  .object({
+    po_line_id: z.string().trim().min(1, "A PO line is required"),
+    kind: z.enum(CORRECTION_KINDS),
+    quantity_delta: z.number().optional(),
+    corrected_unit_price: z.number().nonnegative().optional(),
+    defect_delta: z.number().int().optional(),
+  })
+  .refine((v) => v.kind !== "quantity" || (v.quantity_delta !== undefined && v.quantity_delta !== 0), {
+    message: "A quantity correction needs a non-zero quantity change.",
+    path: ["quantity_delta"],
+  })
+  .refine((v) => v.kind !== "price" || v.corrected_unit_price !== undefined, {
+    message: "A price correction needs the corrected unit price.",
+    path: ["corrected_unit_price"],
+  })
+  .refine((v) => v.kind !== "defect" || (v.defect_delta !== undefined && v.defect_delta !== 0), {
+    message: "A defect correction needs a non-zero defect change.",
+    path: ["defect_delta"],
+  });
+
+/**
+ * A MULTI-FIELD post: several changed fields, possibly across several lines,
+ * submitted together. Each item becomes its own Correction header with its own
+ * signed rows, so the ledger records one entry per field changed rather than one
+ * opaque entry per submit — every row stays atomic and individually traceable.
+ * One shared reason applies to all of them, which is what the user actually typed.
+ */
+export const CorrectionBatchBody = z
+  .object({
+    reason: z.string().trim().min(3, "A reason is required"),
+    items: z.array(CorrectionItem).min(1, "At least one change is required"),
+  })
+  .refine(
+    (v) => {
+      // At most one correction per (line, kind): two quantity corrections on one
+      // line in a single post have no meaning the user could have intended, and
+      // would race each other's id sequence.
+      const seen = new Set(v.items.map((i) => `${i.po_line_id}|${i.kind}`));
+      return seen.size === v.items.length;
+    },
+    { message: "Each line can take at most one correction of each kind per post." },
+  );
+
+export type CorrectionBatchInput = z.infer<typeof CorrectionBatchBody>;
+
+/**
+ * ⚠️ APPLY ORDER IS LOAD-BEARING, NOT COSMETIC.
+ *
+ * A price correction re-prices whatever is billed AT THE MOMENT IT RUNS, so any
+ * quantity change on the same line has to be in place first — otherwise the price
+ * correction re-prices the pre-correction quantity and the quantity delta keeps the
+ * old rate. Defects touch neither quantity nor value, so they sit harmlessly in the
+ * middle.
+ */
+const APPLY_ORDER: Record<CorrectionKind, number> = { quantity: 0, defect: 1, price: 2 };
+
+/**
+ * Post every field-change in one submit. MUST run inside a transaction: the whole
+ * set is one user action, and a partial write would leave the document chain
+ * inconsistent in exactly the way corrections exist to prevent.
+ */
+export async function postCorrections(
+  tx: Prisma.TransactionClient,
+  input: CorrectionBatchInput,
+  userId: string,
+): Promise<PostedCorrection[]> {
+  const ordered = [...input.items].sort((a, b) => APPLY_ORDER[a.kind] - APPLY_ORDER[b.kind]);
+  const posted: PostedCorrection[] = [];
+  for (const item of ordered) {
+    // Sequential, never parallel: each call reads the state the previous one wrote,
+    // both for its id sequence and for the net billed figures above.
+    posted.push(await postCorrection(tx, { ...item, reason: input.reason }, userId));
+  }
+  return posted;
+}
+
 /** `PO-2024-00001-010` + 1 existing correction -> `PO-2024-00001-010-C02`. */
 function correctionId(originalId: string, seq: number): string {
   return `${originalId}-C${String(seq).padStart(2, "0")}`;
@@ -178,8 +256,8 @@ export async function postCorrection(
     created.push(newPoLineId);
     netEffect = `quantity ${delta > 0 ? "+" : ""}${delta} @ ${line.unitPriceUsd} = ${(delta * line.unitPriceUsd).toFixed(2)} USD`;
   } else if (input.kind === "price") {
-    // A billing correction: credit the original invoice line and re-bill at the
-    // corrected price, both against the ORIGINAL po line. Billed quantity is
+    // A billing correction: credit what is currently billed and re-bill it at the
+    // corrected price, both against the ORIGINAL po line. Net billed quantity is
     // unchanged; the view's value-weighted price becomes the corrected one.
     const invLine = await tx.invoiceLine.findFirst({
       where: { poLineId: line.id, correctsLineId: null },
@@ -188,13 +266,52 @@ export async function postCorrection(
     if (!invLine) throw new Error("The original line has no invoice line to correct.");
     const price = input.corrected_unit_price!;
 
+    /**
+     * ⚠️ THE CREDIT MUST MATCH WHAT IS ACTUALLY BILLED NOW, NOT WHAT WAS BILLED
+     * ORIGINALLY. A quantity correction adds its own signed invoice row (on a NEW
+     * PoLine linked back to this one), so after one the original quantity is no
+     * longer what stands billed. Crediting the original and re-billing it would
+     * leave the quantity delta priced at the OLD rate, and the view's
+     * value-weighted price would land between the two — e.g. 48 units meant to be
+     * at 1444.00 came out at 1443.58, the difference being exactly the 20
+     * corrected-away units that never got re-priced.
+     *
+     * So: gather every invoice row for this line INCLUDING those hanging off its
+     * correction lines, and credit the net.
+     */
+    const relatedInv = await tx.invoiceLine.findMany({
+      where: { poLine: { OR: [{ id: line.id }, { correctsLineId: line.id }] } },
+      select: { quantityBilled: true, unitPriceUsd: true },
+    });
+    const hasPriorCorrections = relatedInv.length > 1;
+
+    /**
+     * With NO prior correction on this line the net IS the original, so the rows
+     * written below are byte-identical to the previous behaviour. That case is
+     * branched explicitly rather than left to arithmetic, so inertness is
+     * guaranteed by construction and cannot drift on a floating-point division.
+     */
+    let creditQty = invLine.quantityBilled;
+    let creditPrice = invLine.unitPriceUsd;
+    if (hasPriorCorrections) {
+      const netQty = relatedInv.reduce((s, r) => s + r.quantityBilled, 0);
+      const netVal = relatedInv.reduce((s, r) => s + r.quantityBilled * r.unitPriceUsd, 0);
+      if (netQty === 0) {
+        throw new Error(
+          "Nothing is billed on that line any more, so there is no price to correct.",
+        );
+      }
+      creditQty = netQty;
+      creditPrice = netVal / netQty;
+    }
+
     await tx.invoiceLine.create({
       data: {
         id: correctionId(invLine.id, existingInv + 1),
         invoiceId: invLine.invoiceId,
         poLineId: line.id,
-        quantityBilled: -invLine.quantityBilled,
-        unitPriceUsd: invLine.unitPriceUsd,
+        quantityBilled: -creditQty,
+        unitPriceUsd: creditPrice,
         correctsLineId: invLine.id,
         correctionId: header.id,
       },
@@ -204,14 +321,14 @@ export async function postCorrection(
         id: correctionId(invLine.id, existingInv + 2),
         invoiceId: invLine.invoiceId,
         poLineId: line.id,
-        quantityBilled: invLine.quantityBilled,
+        quantityBilled: creditQty,
         unitPriceUsd: price,
         correctsLineId: invLine.id,
         correctionId: header.id,
       },
     });
     created.push(correctionId(invLine.id, existingInv + 1), correctionId(invLine.id, existingInv + 2));
-    netEffect = `billed price ${invLine.unitPriceUsd} → ${price} on ${invLine.quantityBilled} units`;
+    netEffect = `billed price ${creditPrice} → ${price} on ${creditQty} units`;
   } else {
     // Defects only — no value or quantity movement.
     const delta = input.defect_delta!;
