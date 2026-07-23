@@ -210,11 +210,15 @@ export function renderCoverageAppendix(
   // ---- 5. bidding descriptives — NO CUTS, in any tone -------------------- #
   const depth =
     b.min_bids != null && b.max_bids != null ? ` (range ${b.min_bids}–${b.max_bids})` : "";
+  // A narrow window can hold exactly one event ("1 sourcing event drew 3 bids").
+  // `bids` needs no such guard: the minimum bid count per event is 2, so a window
+  // with any event at all has at least two responses.
+  const ev = `sourcing event${b.events === 1 ? "" : "s"}`;
   const bidding =
     b.events === 0
       ? "No competitive sourcing events fall in this period."
       : tone === "analytical"
-        ? `${int.format(b.events)} sourcing events drew ${int.format(b.responses)} bids, ` +
+        ? `${int.format(b.events)} ${ev} drew ${int.format(b.responses)} bids, ` +
           `averaging ${b.avg_bids?.toFixed(1) ?? "—"}${depth}. Mean intra-event quote ` +
           `spread is ${pct2(b.avg_quote_spread_pct)} (median ` +
           `${pct2(b.median_quote_spread_pct)}). Reported at portfolio level only and ` +
@@ -222,7 +226,7 @@ export function renderCoverageAppendix(
           `so it rises mechanically with the number of bidders and is flat across ` +
           `category, supplier and period once bid count is held constant. Any ` +
           `breakdown would report the bid-count mix under another label.`
-        : `${int.format(b.events)} sourcing events drew ${int.format(b.responses)} bids ` +
+        : `${int.format(b.events)} ${ev} drew ${int.format(b.responses)} bids ` +
           `— an average of ${b.avg_bids?.toFixed(1) ?? "—"}${depth}. Quotes within an ` +
           `event spread ${pct2(b.avg_quote_spread_pct)} on average. These are ` +
           `descriptive only: spread widens with the number of bidders, so it is not ` +
