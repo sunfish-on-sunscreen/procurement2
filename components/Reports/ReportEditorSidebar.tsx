@@ -50,6 +50,7 @@ const EVIDENCE_OPTIONS: { label: string; keys: SectionKey[] }[] = [
   { label: "Kraljic exposure", keys: ["kraljic"] },
   { label: "Performance vs spend", keys: ["performanceSpend"] },
   { label: "Cycle time", keys: ["cycleTime"] },
+  { label: "Competitive coverage", keys: ["sourcingCoverage"] },
   { label: "Cross-analysis anomalies", keys: ["actionDashboard"] },
   { label: "Methodology", keys: ["methodology"] },
 ];

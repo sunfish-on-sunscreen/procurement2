@@ -913,10 +913,234 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 9. References */}
+      {/* 9. Competitive sourcing coverage */}
       <Card className={cardElevation}>
         <CardHeader>
-          <CardTitle>9. References</CardTitle>
+          <CardTitle>9. Competitive Sourcing Coverage</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5 text-sm leading-relaxed text-muted-foreground">
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.1 Three buckets, not two
+            </h3>
+            <p>
+              Every purchase order carries a <strong>buying method</strong>, one of five
+              values. Coverage groups them into three mutually exclusive buckets by
+              spend: <strong>competed</strong> (RFQ, tender — the order ran its own
+              sourcing event with bids and an award), <strong>under framework</strong>{" "}
+              (call-off against a standing agreement), and <strong>uncompeted</strong>{" "}
+              (direct award, spot buy — no sourcing event).
+            </p>
+            <p>
+              <strong className="text-foreground">
+                The framework bucket is permanent and is never folded into either side.
+              </strong>{" "}
+              A call-off draws on an agreement that in real procurement was competed
+              once, at framework award. This schema records no sourcing linkage on the
+              framework — no awarding event, no responses — so the data cannot establish
+              whether any given framework was competitively awarded. Folding call-offs
+              into &ldquo;competed&rdquo; would overstate competitive coverage by the
+              whole framework share; folding them into &ldquo;uncompeted&rdquo; would
+              overstate that side by the same amount. Reporting a single
+              &ldquo;competitive %&rdquo; is therefore not possible without introducing
+              an error equal to the largest bucket in the portfolio.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.2 The measurement gap, stated as a finding
+            </h3>
+            <p>
+              The share of spend whose competitive basis{" "}
+              <strong>cannot be verified</strong> is emitted as a number rather than a
+              footnote, because it names a concrete and achievable improvement: add a
+              nullable reference from <strong>Framework</strong> to the sourcing event
+              that awarded it. That one field would convert the largest single bucket of
+              spend from unverifiable to measurable, without altering any existing
+              measure. No coverage percentage on the dashboard is as actionable as
+              closing that gap.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.3 Mix versus behaviour
+            </h3>
+            <p>
+              Competitive coverage is strongly <em>associated</em> with category —
+              proprietary OEM parts are bought direct because they cannot be competed,
+              not because anyone declined to compete them — so part of any year-over-year
+              move is simply a change in what was bought. Coverage is therefore
+              decomposed by category using <strong>shift-share</strong>. For each bucket,
+              with <code>w</code> = a category&rsquo;s share of period spend and{" "}
+              <code>r</code> = the bucket&rsquo;s share of that category&rsquo;s spend:
+            </p>
+            <div className="rounded-md bg-muted/50 p-3 font-mono text-xs text-foreground">
+              pooled = Σ w · r
+              <br />
+              mix = Σ (w₂ − w₁) · r₁ — what was bought changed
+              <br />
+              within = Σ w₂ · (r₂ − r₁) — how it was bought changed
+              <br />
+              mix + within = pooled₂ − pooled₁ (exact, by construction)
+            </div>
+            <p>
+              <strong className="text-foreground">
+                The split must be read, never assumed.
+              </strong>{" "}
+              On the current dataset competed coverage fell 9.89 points in 2025, of which{" "}
+              <strong>−3.51 was mix and −6.37 within</strong> — about two thirds of it a
+              genuine change in how the same categories were bought. The 2026 recovery
+              (+7.43) is almost entirely within-category. An earlier draft of the
+              emitter&rsquo;s own documentation asserted the opposite, that the move was
+              mostly a mix shift, and the decomposition disproved it. The dashboard and
+              the report share one classifier so they cannot disagree about which it was.
+            </p>
+            <p>
+              This is an arithmetic identity with no distributional assumptions. There
+              are deliberately no p-values on it, and nothing in it may be read as
+              inference. The decomposition runs over the whole dataset, so a transition
+              reads the same on every period selection.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.4 What coverage does not claim
+            </h3>
+            <p>
+              Coverage is <strong>descriptive</strong>. High-value spend concentrates in
+              the sole-source and framework channels — median order value runs roughly
+              $58K for spot buys, $608K for RFQs, $1.2M for tenders, $2.1M for direct
+              awards and $2.4M for call-offs. That is a fact about the shape of the
+              portfolio, <em>not</em> a finding about buyer discipline: every direct
+              award in this data carries a proprietary/OEM sole-source justification, and
+              an OEM component has no substitutable competing supply. There is
+              consequently no coverage score, no ranking of categories or suppliers by
+              coverage, and no recommendation derived from it.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.5 Measured but NOT shown, and why
+            </h3>
+            <p>
+              Several standard-looking competitive-sourcing metrics are computable from
+              this data and are deliberately not displayed, because on this dataset they
+              are <strong>degenerate</strong>: they return the same answer for every
+              input, or they measure an artifact rather than the thing they name. Each
+              was tested before the decision was taken, not assumed.
+            </p>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>
+                <strong>Awarded the cheapest bid?</strong> 226 of 226 awards went to the
+                lowest quote — price rank 1 in every event without exception. A universal
+                pass communicates nothing.
+              </li>
+              <li>
+                <strong>Single-bid exposure.</strong> The minimum bid count per event is
+                2 (31 events drew 2 bids, 165 drew 3, 30 drew 4). There are no single-bid
+                events at all, so the measure is permanently zero.
+              </li>
+              <li>
+                <strong>Bid response rate.</strong> Suppliers invited always equals
+                responses received — 2→2, 3→3, 4→4 in every event. A constant 100%.
+              </li>
+              <li>
+                <strong>Quote spread by category, supplier or period.</strong> Spread is
+                an order statistic of the number of bids: 9.22% at 2 bids, 12.80% at 3,
+                13.06% at 4. Holding bid count fixed at 3, the between-category range
+                (11.15–13.44) is under half a single within-category standard deviation
+                (3.2–4.4), and the period cut is flat at 12.85 / 12.71 / 12.84. Any
+                breakdown would report the bid-count mix wearing a category label —
+                &ldquo;Conveyor &amp; Belt has the tightest bidding&rdquo; is false; all
+                its events simply have two bidders. The <em>portfolio</em> figure
+                (12.35%) is shown; no cut of it is.
+              </li>
+              <li>
+                <strong>Savings versus the field.</strong> Because the award is always
+                the minimum quote, this is a deterministic re-expression of the spread
+                and carries no independent information. It also has a scoping trap: a bid
+                quotes ONE unit price matching ONE order line, and that line averages{" "}
+                <strong>64.66%</strong> of the order&rsquo;s value. The measured
+                advantage of $7.36M sits against $113.3M of awarded-line value — it must
+                never be scaled onto the $177.7M of competed spend, which would overstate
+                it by roughly half.
+              </li>
+              <li>
+                <strong>Do we pay more when we don&rsquo;t compete?</strong> Computable
+                on the 26 items bought both ways, and pure noise: mean +4.58%, median
+                −6.98%, standard deviation <strong>61.96%</strong>, with{" "}
+                <strong>14 of the 26 items CHEAPER</strong> when uncompeted against only
+                12 dearer. The scatter is roughly thirteen times the effect, and a
+                majority-cheaper split makes the exclusion stronger, not weaker: the sign
+                of the &ldquo;premium&rdquo; is decided by which items happen to be
+                picked. A headline built on this would be fabricated.
+              </li>
+              <li>
+                <strong>Challengeable sole-source awards.</strong> Every direct award
+                carries a proprietary/OEM justification. Counting alternatives from the
+                category roster suggests some are challengeable, but the roster is far
+                too coarse a proxy for item-level substitutability — the eight suppliers
+                in &ldquo;Heavy Equipment OEM&rdquo; are eight different OEMs, and a
+                Volvo part is not a Liebherr part.
+              </li>
+              <li>
+                <strong>Purchase orders dated before bid close.</strong> A genuine audit
+                red flag in practice, and it fires on 51 of 226 events. On inspection the
+                sourcing dates are drawn independently — close-to-order spans −8 to +15
+                days — so flagging a quarter of all competitive events would manufacture
+                an accusation out of noise.
+              </li>
+            </ul>
+            <p>
+              The bidding descriptives that <em>are</em> shown — bid depth (2–4 bidders,
+              averaging 3.0) and the portfolio quote spread (12.35%) — describe how the
+              competitive processes ran, with no breakdown and no inference.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.6 Framework discipline
+            </h3>
+            <p>
+              Of 129 call-offs, all reference a framework belonging to the ordering
+              supplier and none reference an inactive framework.{" "}
+              <strong>
+                15 orders ($36.9M) fall outside their framework&rsquo;s validity window
+              </strong>{" "}
+              — the one genuine exception the sourcing records contain, all of them in
+              2026. The validity window is deliberately not enforced when an order is
+              written, so this is a live check reporting a known property of the current
+              data rather than a newly detected breach.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              9.7 Reproducibility note
+            </h3>
+            <p>
+              Coverage results are cached per period and per date range. The cache column
+              is Postgres <code>jsonb</code>, which{" "}
+              <strong>normalises object key order</strong> — so comparing a cached
+              payload against a freshly computed one with a plain string comparison
+              reports every analysis as changed even when no value moved. Such
+              comparisons must be done canonically (key-sorted). The coverage payload
+              itself carries no wall-clock field, so the same data computes to the same
+              result on every run.
+            </p>
+          </section>
+        </CardContent>
+      </Card>
+
+      {/* 10. References */}
+      <Card className={cardElevation}>
+        <CardHeader>
+          <CardTitle>10. References</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">

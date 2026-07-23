@@ -1,17 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import type {
-  SourcingCoverageResult,
-  CoverageBucket,
-  CoverageMixTransition,
-} from "@/lib/analysis-types";
+import type { SourcingCoverageResult, CoverageBucket } from "@/lib/analysis-types";
+import {
+  visibleCoverageMoves,
+  pts,
+  type CoverageMoveVerdict,
+} from "@/lib/coverage-copy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 
 const num0 = new Intl.NumberFormat("en-US");
 const pct2 = (v: number | null) => (v == null ? "—" : `${v.toFixed(2)}%`);
-const pts = (v: number) => `${Math.abs(v).toFixed(2)} point${Math.abs(v) === 1 ? "" : "s"}`;
 
 /**
  * ⚠️ DELIBERATELY NEUTRAL HUES — blue / cyan / violet, NOT green-amber-red.
@@ -90,86 +90,49 @@ function MiniBar({ c, f, u }: { c: number; f: number; u: number }) {
 }
 
 /**
- * Builds the year-over-year coverage sentence.
+ * Renders one move verdict in the dashboard's register.
  *
- * ⚠️ THE FRAMING IS DERIVED, NEVER HARDCODED. Whether a coverage move is a change in
- * BEHAVIOUR (the same categories bought differently) or a change in MIX (different
- * categories bought) is exactly what the shift-share decomposition answers, and the
- * answer moves with the data. On the current dataset the 2025 fall is roughly
- * two-thirds within-category, so it reads as behaviour — but a window whose move is
- * mostly composition carries `pooled_misleading` with reason `mix_dominated`, and
- * this must then say so instead. An earlier draft of the emitter's own docstring
- * asserted mix dominance and was wrong; do not re-introduce a fixed claim here.
- *
- * ⚠️ Prints `pooled_change` and `within_effect` as emitted and calls mix "the rest",
- * rather than printing all three. The three fields are each rounded to 2dp
- * independently, so a rendered triple can be a cent off adding up; describing the
- * remainder in words is additive by construction.
+ * ⚠️ The behaviour-vs-mix CLASSIFICATION is not made here — it comes from
+ * `classifyCoverageMove` in lib/coverage-copy, shared with the report appendix, so
+ * a generated report can never contradict the page it came from. This function only
+ * chooses words for a verdict already reached.
  */
-function coverageMove(t: CoverageMixTransition): {
-  headline: string;
-  detail: string;
-  behavioural: boolean;
-} | null {
-  const change = t.pooled_change_pct;
-  const within = t.within_effect_pct;
-  const from = t.from_pooled_pct;
-  const to = t.to_pooled_pct;
-  if (change == null || within == null || from == null || to == null) return null;
-  if (Math.abs(change) < 0.01) return null;
-
-  const dir = change < 0 ? "fell" : "rose";
+function moveCopy(v: CoverageMoveVerdict): { headline: string; detail: string } {
   const headline =
-    `Competitive coverage ${dir} ${pts(change)} between ${t.from} and ${t.to} — ` +
-    `${pct2(from)} to ${pct2(to)}.`;
+    `Competitive coverage ${v.direction} ${pts(v.changePts)} between ${v.from} and ` +
+    `${v.to} — ${pct2(v.fromPct)} to ${pct2(v.toPct)}.`;
 
-  const mixDominated = t.pooled_misleading && t.reason === "mix_dominated";
-  if (mixDominated) {
+  if (v.mixDominated) {
     return {
       headline,
-      behavioural: false,
       detail:
-        "Almost all of that is a change in WHAT was bought, not how. The categories " +
+        "Almost all of that is a change in what was bought, not how. The categories " +
         "that grew are ones this organisation does not compete, so the move reflects " +
         "the purchasing mix rather than a change in sourcing behaviour.",
     };
   }
 
-  // mix is DERIVED so the two printed figures always reconcile with the headline —
-  // the three emitted effects are each rounded to 2dp independently, so rendering
-  // them raw can show a triple that does not add up.
-  const mix = change - within;
-  const behavioural = Math.abs(within) >= Math.abs(mix);
-  const lessMore = within < 0 ? "less" : "more";
-
-  // ⚠️ The remainder clause is SHAPE-DETECTED, not fixed. When the within effect
-  // exceeds the whole move (2025→2026: +7.45 against +7.43) the remainder is
-  // NEGATIVE — mix pulled the other way — and a flat "the rest is a shift in what
-  // was bought" would assert a contribution that ran backwards. Three shapes:
-  // negligible, same-direction, opposing.
-  const NEGLIGIBLE = 0.5; // percentage points
+  const lessMore = v.withinPts < 0 ? "less" : "more";
   const remainder =
-    Math.abs(mix) < NEGLIGIBLE
+    v.shape === "negligible"
       ? "Almost none of it came from a change in what was bought."
-      : mix * change > 0
-        ? `The remaining ${pts(mix)} is a shift in what was bought.`
-        : `A shift in what was bought pulled ${pts(mix)} the other way.`;
+      : v.shape === "aligned"
+        ? `The remaining ${pts(v.mixPts)} is a shift in what was bought.`
+        : `A shift in what was bought pulled ${pts(v.mixPts)} the other way.`;
 
-  if (behavioural) {
+  if (v.behavioural) {
     return {
       headline,
-      behavioural: true,
       detail:
-        `${pts(within)} of that is the same categories bought ${lessMore} competitively — ` +
-        `a change in how buying was done. ${remainder}`,
+        `${pts(v.withinPts)} of that is the same categories bought ${lessMore} ` +
+        `competitively — a change in how buying was done. ${remainder}`,
     };
   }
   return {
     headline,
-    behavioural: false,
     detail:
-      `Most of the move is a shift in what was bought; ${pts(within)} of it is the ` +
-      `same categories bought ${lessMore} competitively.`,
+      `Most of the move is a shift in what was bought; ${pts(v.withinPts)} of it is ` +
+      `the same categories bought ${lessMore} competitively.`,
   };
 }
 
@@ -180,22 +143,14 @@ export function CompetitiveCoverageCard({ data }: { data: SourcingCoverageResult
   const bidding = data.bidding;
   const leak = data.framework_leakage;
 
-  // Transitions ENDING inside the selected window. The decomposition itself is
-  // window-independent (identical numbers on every selection); `window_periods` is
-  // the display hint for which of them the reader is actually looking at.
-  // ⚠️ EVERY in-window transition, not just the most recent one. Keeping only the
-  // latest would silently discard the largest finding on this card whenever the
-  // window spans more than one step — on the current data the full range would
-  // show the 2026 recovery and drop the 2025 fall entirely.
-  const competedMetric = data.mix_adjusted_coverage.metrics.competed;
-  const visible = (competedMetric?.transitions ?? []).filter((t) =>
-    data.mix_adjusted_coverage.window_periods.includes(t.to),
-  );
-  const moves = visible
-    .map((t) => ({ key: `${t.from}-${t.to}`, ...(coverageMove(t) ?? {}) }))
-    .filter((m): m is { key: string; headline: string; detail: string; behavioural: boolean } =>
-      "headline" in m,
-    );
+  // Shared with the report appendix — see lib/coverage-copy. Returns every
+  // in-window transition (not just the latest) so a multi-step window cannot
+  // silently drop its largest finding.
+  const moves = visibleCoverageMoves(data).map((v) => ({
+    key: `${v.from}-${v.to}`,
+    behavioural: v.behavioural,
+    ...moveCopy(v),
+  }));
 
   const methods = [...Object.entries(data.by_method)].sort(
     (a, b) => METHOD_ORDER.indexOf(a[0]) - METHOD_ORDER.indexOf(b[0]),

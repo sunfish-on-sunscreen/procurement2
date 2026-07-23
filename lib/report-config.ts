@@ -17,6 +17,7 @@ export type SectionKey =
   | "kraljic"
   | "performanceSpend"
   | "cycleTime"
+  | "sourcingCoverage"
   | "actionDashboard"
   | "methodology";
 
@@ -50,6 +51,7 @@ export interface ReportConfig {
     kraljic: boolean;
     performanceSpend: boolean;
     cycleTime: boolean;
+    sourcingCoverage: boolean;
     actionDashboard: boolean;
     methodology: boolean;
   };
@@ -63,6 +65,7 @@ export const SECTION_LABELS: Record<SectionKey, string> = {
   kraljic: "Supplier Quadrant",
   performanceSpend: "Performance vs Spend",
   cycleTime: "Cycle Time",
+  sourcingCoverage: "Competitive Coverage",
   actionDashboard: "Action Priorities",
   methodology: "Methodology",
 };
@@ -74,6 +77,7 @@ const ALL_SECTIONS_ON: ReportConfig["sections"] = {
   kraljic: true,
   performanceSpend: true,
   cycleTime: true,
+  sourcingCoverage: true,
   actionDashboard: true,
   methodology: true,
 };

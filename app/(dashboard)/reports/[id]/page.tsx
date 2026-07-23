@@ -9,6 +9,7 @@ import {
   type CycleTimeResult,
   type PerformanceSpendResult,
   type RecommendationsResult,
+  type SourcingCoverageResult,
 } from "@/lib/analysis-types";
 import type { ReportMetrics } from "@/lib/report-templates";
 import {
@@ -45,16 +46,27 @@ export default async function ReportDetailPage({
   };
   const periodId = summary.periodId!;
 
-  const [spend, abc, kraljic, cycleTime, performance, recommendations, supplierCategory] =
-    await Promise.all([
-      getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
-      getAnalysisResult<AbcResult>(periodId, "abc"),
-      getAnalysisResult<KraljicResult>(periodId, "kraljic"),
-      getAnalysisResult<CycleTimeResult>(periodId, "cycle_time"),
-      getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
-      getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
-      getSupplierCategoryMap(),
-    ]);
+  const [
+    spend,
+    abc,
+    kraljic,
+    cycleTime,
+    performance,
+    recommendations,
+    sourcingCoverage,
+    supplierCategory,
+  ] = await Promise.all([
+    getAnalysisResult<SpendOverviewResult>(periodId, "spend_overview"),
+    getAnalysisResult<AbcResult>(periodId, "abc"),
+    getAnalysisResult<KraljicResult>(periodId, "kraljic"),
+    getAnalysisResult<CycleTimeResult>(periodId, "cycle_time"),
+    getAnalysisResult<PerformanceSpendResult>(periodId, "performance_spend"),
+    getAnalysisResult<RecommendationsResult>(periodId, "recommendations"),
+    // Null for a report persisted before this analysis existed — the appendix
+    // section is simply omitted, exactly like a missing cycle_time.
+    getAnalysisResult<SourcingCoverageResult>(periodId, "sourcing_coverage"),
+    getSupplierCategoryMap(),
+  ]);
 
   // Reports persisted before Batch 5 lack the `cycle_framing` marker. Render
   // their stored pre/post cycle narrative as historical context rather than
@@ -107,6 +119,7 @@ export default async function ReportDetailPage({
     cycle_time: cycleTime,
     performance_spend: performance,
     recommendations,
+    sourcing_coverage: sourcingCoverage,
     breakdown,
     temporal,
   };

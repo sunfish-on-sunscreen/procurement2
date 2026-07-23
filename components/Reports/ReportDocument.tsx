@@ -11,6 +11,7 @@ import type {
   CycleTimeResult,
   PerformanceSpendResult,
   RecommendationsResult,
+  SourcingCoverageResult,
 } from "@/lib/analysis-types";
 import { deriveReportContext, TEMPLATES } from "@/lib/report-templates";
 import { type ReportConfig, type SectionKey } from "@/lib/report-config";
@@ -28,6 +29,12 @@ import {
 import type { ReportFocusData } from "@/lib/report-focus-types";
 import { buildClassificationAnomalies, buildAnomalyCrossref } from "@/lib/anomaly-crossref";
 import { deriveCycleFlags } from "@/lib/cycle-flags";
+import {
+  renderCoverageAppendix,
+  COVERAGE_METHOD_LABEL,
+  COVERAGE_METHOD_ORDER,
+  COVERAGE_BUCKET_LABEL,
+} from "@/lib/report-coverage";
 import { buildTemporalAnomalies } from "@/lib/temporal-anomalies";
 import { usePin } from "@/components/Reports/PinContext";
 import { ReportTOC } from "@/components/Reports/ReportTOC";
@@ -43,6 +50,10 @@ export type ReportAnalyses = {
   cycle_time: CycleTimeResult | null;
   performance_spend: PerformanceSpendResult | null;
   recommendations: RecommendationsResult | null;
+  // Competitive sourcing coverage. Appendix EVIDENCE only — it contributes no ranked
+  // finding to the argument, because the data that would justify one (a defensible
+  // price penalty for not competing) does not exist on this dataset.
+  sourcing_coverage?: SourcingCoverageResult | null;
   // Anomaly-hub extras, assembled server-side at report-build so they're present
   // in ALL render paths (incl. static PDF export) — no client fetch. breakdown
   // powers the PROCESS family; temporal (period-aware, BOTH modes — a discriminated
@@ -473,6 +484,11 @@ export function ReportDocument({
     add(sections.kraljic && analyses.kraljic, "kraljic", "Supplier Quadrant");
     add(sections.performanceSpend && analyses.performance_spend, "performanceSpend", "Performance vs Spend");
     add(sections.cycleTime && (legacyCycle || analyses.cycle_time), "cycleTime", "Cycle Time");
+    add(
+      sections.sourcingCoverage && analyses.sourcing_coverage,
+      "sourcingCoverage",
+      "Competitive Coverage",
+    );
     add(sections.actionDashboard, "actionDashboard", "Action Priorities");
     add(sections.methodology, "methodology", "Methodology");
     return list;
@@ -1045,6 +1061,122 @@ export function ReportDocument({
               >
                 {anomalyBlock}
               </section>
+            )}
+
+            {/* Competitive coverage — APPENDIX EVIDENCE ONLY.
+                ⚠️ The copy discipline holds in all three tones (see
+                lib/report-coverage): the split never collapses to a single
+                "competitive %", the framework bucket always carries its
+                explanation, the year-over-year move is called BEHAVIOURAL only
+                when the shared shift-share classifier says so, order-size-by-route
+                is STRUCTURAL with the OEM reason inside the same paragraph, and
+                the bidding descriptives carry no cut. */}
+            {sections.sourcingCoverage && analyses.sourcing_coverage && (
+              <ReportSection
+                id="sourcingCoverage"
+                title="Competitive Coverage"
+                embedded={embedded}
+                collapsed={collapsed.has("sourcingCoverage")}
+                onToggle={() => toggleCollapse("sourcingCoverage")}
+              >
+                {(() => {
+                  const cov = analyses.sourcing_coverage!;
+                  const copy = renderCoverageAppendix(cov, tone);
+                  const methods = [...Object.entries(cov.by_method)].sort(
+                    (a, b) =>
+                      COVERAGE_METHOD_ORDER.indexOf(a[0]) -
+                      COVERAGE_METHOD_ORDER.indexOf(b[0]),
+                  );
+                  return (
+                    <div className="flex flex-col gap-4 text-sm">
+                      <p>{copy.split}</p>
+
+                      {/* Three rows, never one number. */}
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b text-left text-muted-foreground">
+                            <th className="py-1.5 pr-3 font-medium">Route to market</th>
+                            <th className="py-1.5 pr-3 text-right font-medium">Orders</th>
+                            <th className="py-1.5 pr-3 text-right font-medium">Spend</th>
+                            <th className="py-1.5 text-right font-medium">Share of spend</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(["competed", "framework", "uncompeted"] as const).map((b) => (
+                            <tr key={b} className="border-b last:border-0">
+                              <td className="py-1.5 pr-3 font-medium">
+                                {COVERAGE_BUCKET_LABEL[b]}
+                              </td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">
+                                {cov.by_bucket[b].pos.toLocaleString("en-US")}
+                              </td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">
+                                ${(cov.by_bucket[b].spend / 1_000_000).toFixed(1)}M
+                              </td>
+                              <td className="py-1.5 text-right tabular-nums">
+                                {cov.by_bucket[b].spend_pct.toFixed(2)}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <p className="text-muted-foreground">{copy.dataGap}</p>
+
+                      {copy.moves.map((m, i) => (
+                        <p key={i}>{m}</p>
+                      ))}
+
+                      {/* ⚠️ The structural framing precedes the table it explains. */}
+                      <p className="text-muted-foreground">{copy.structure}</p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b text-left text-muted-foreground">
+                            <th className="py-1.5 pr-3 font-medium">Route</th>
+                            <th className="py-1.5 pr-3 font-medium">Bucket</th>
+                            <th className="py-1.5 pr-3 text-right font-medium">Orders</th>
+                            <th className="py-1.5 pr-3 text-right font-medium">Spend</th>
+                            <th className="py-1.5 text-right font-medium">Median order</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {methods.map(([m, v]) => (
+                            <tr key={m} className="border-b last:border-0">
+                              <td className="py-1.5 pr-3 font-medium">
+                                {COVERAGE_METHOD_LABEL[m] ?? m}
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                {v.bucket ? COVERAGE_BUCKET_LABEL[v.bucket] : "—"}
+                              </td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">
+                                {v.pos.toLocaleString("en-US")}
+                              </td>
+                              <td className="py-1.5 pr-3 text-right tabular-nums">
+                                ${(v.spend / 1_000_000).toFixed(1)}M
+                              </td>
+                              <td className="py-1.5 text-right tabular-nums">
+                                {v.median_po_value == null
+                                  ? "—"
+                                  : v.median_po_value >= 1_000_000
+                                    ? `$${(v.median_po_value / 1_000_000).toFixed(1)}M`
+                                    : `$${(v.median_po_value / 1_000).toFixed(1)}K`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <p className="text-xs text-muted-foreground">{copy.bidding}</p>
+                      <p className="text-xs text-muted-foreground">{copy.leakage}</p>
+                      {/* What is deliberately NOT measured. Lives here because the
+                          standalone Methodology page that carries the full list is
+                          gated behind SHOW_METHODOLOGY (currently off), and this
+                          appendix is a surface that flag does not affect. */}
+                      <p className="text-xs text-muted-foreground">{copy.exclusions}</p>
+                    </div>
+                  );
+                })()}
+              </ReportSection>
             )}
 
             {/* Methodology */}
