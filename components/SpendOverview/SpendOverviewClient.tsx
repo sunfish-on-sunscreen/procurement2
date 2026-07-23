@@ -23,6 +23,7 @@ import { PinProvider } from "@/components/Reports/PinContext";
 import { SupplierRankingTable } from "./SupplierRankingTable";
 import { SpendDecompositionPanel } from "./SpendDecompositionPanel";
 import { AbcParetoCard } from "./AbcParetoCard";
+import { CompetitiveCoverageCard } from "./CompetitiveCoverageCard";
 import { InsightsPanel } from "./InsightsPanel";
 
 const num0 = new Intl.NumberFormat("en-US");
@@ -148,6 +149,7 @@ export function SpendOverviewClient({
           spendOverview={spend}
           abc={data.abc}
           ranking={data.ranking}
+          sourcingCoverage={data.sourcing_coverage}
           periodLabel={periodLabel}
           isRangeMode={isRangeMode}
         />
@@ -203,6 +205,14 @@ export function SpendOverviewClient({
           <MonthlySpendTrendChart data={spend.monthly_trend} />
         </CardContent>
       </Card>
+
+      {/* Competitive coverage sits between the category donut and the ABC/Pareto
+          card: it is a spend-composition cut (how the money left the building),
+          so it belongs with the other composition surfaces rather than on a page
+          of its own. */}
+      {data.sourcing_coverage && (
+        <CompetitiveCoverageCard data={data.sourcing_coverage} />
+      )}
 
       {data.abc && <AbcParetoCard abc={data.abc} />}
 

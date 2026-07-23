@@ -1,6 +1,10 @@
 "use client";
 
-import type { SpendOverviewResult, AbcResult } from "@/lib/analysis-types";
+import type {
+  SpendOverviewResult,
+  AbcResult,
+  SourcingCoverageResult,
+} from "@/lib/analysis-types";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
 import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 import {
@@ -47,12 +51,15 @@ export function InsightsPanel({
   spendOverview,
   abc,
   ranking,
+  sourcingCoverage,
   periodLabel,
   isRangeMode,
 }: {
   spendOverview: SpendOverviewResult;
   abc: AbcResult;
   ranking: SupplierRankingRow[];
+  /** Null when the span is served from a cache row set predating this analysis. */
+  sourcingCoverage: SourcingCoverageResult | null;
   periodLabel: string;
   isRangeMode: boolean;
 }) {
@@ -173,6 +180,36 @@ export function InsightsPanel({
                     : "."}
                 </>
               )}
+            </p>
+          </div>
+        )}
+
+        {/* ⚠️ TWO SENTENCES, AND THE SPLIT IS NEVER ONE NUMBER. Reporting a single
+            "competitive %" forces the 44.78% framework share onto one side or the
+            other and misstates coverage by that whole amount in whichever direction
+            it falls. The second sentence is the DATA GAP stated as a finding: it
+            names a concrete schema fix, which is more actionable than any coverage
+            percentage on this page. */}
+        {sourcingCoverage && sourcingCoverage.total_spend > 0 && (
+          <div className="space-y-1">
+            <h3 className="font-medium">How the spend reached the market</h3>
+            <p>
+              <strong>{pct1(sourcingCoverage.by_bucket.competed.spend_pct)}</strong> of
+              spend was competitively sourced through an RFQ or tender,{" "}
+              <strong>{pct1(sourcingCoverage.by_bucket.framework.spend_pct)}</strong> drew
+              on framework agreements, and{" "}
+              <strong>{pct1(sourcingCoverage.by_bucket.uncompeted.spend_pct)}</strong> was
+              awarded directly or bought on the spot without a sourcing event.
+            </p>
+            <p className="text-muted-foreground">
+              The framework share is reported separately because its competitive basis{" "}
+              <strong className="text-foreground">cannot be verified</strong>: a call-off
+              draws on an agreement normally competed once at award, but framework records
+              carry no link to the sourcing event that awarded them. That leaves{" "}
+              {formatCompactCurrency(sourcingCoverage.unverifiable_share.spend)} —{" "}
+              {pct1(sourcingCoverage.unverifiable_share.spend_pct)} of all spend — that
+              this dashboard can neither confirm nor deny was competed. Linking a framework
+              to its awarding event would close the largest measurement gap on this page.
             </p>
           </div>
         )}
