@@ -134,7 +134,60 @@ export type CycleTimeResult = {
   anomalies: CycleAnomaly[];
   period_comparison: PeriodComparison;
   cycle_by_quadrant: Record<KraljicQuadrant, CycleDescriptive>;
+  // Per-buying-method cut + the mix-adjusted trend. Cycle time is near-deterministic
+  // in buying method (spot_buy ~44d -> direct ~130d), so the pooled mean is a WEIGHTED
+  // MIXTURE and a shift in method mix can reverse the apparent trend. Both OPTIONAL —
+  // analyses cached before this was added won't carry them.
+  cycle_by_method?: Record<string, CycleMethodDescriptive>;
+  mix_adjusted_trend?: MixAdjustedTrend;
   three_way_match_by_quadrant: Record<KraljicQuadrant, ThreeWayMatchQuadrant>;
+};
+
+/** cycle_by_method mirrors CycleDescriptive at the top level (so it reuses the same
+ *  rendering as cycle_by_quadrant), with internal-cycle + per-stage detail nested. */
+export type CycleMethodDescriptive = CycleDescriptive & {
+  internal: CycleDescriptive;
+  stage_breakdown: CycleStageBreakdown;
+};
+
+/** Shift-share decomposition: pooled change == mix effect + within-method effect.
+ *  `pooled_misleading` marks transitions the UI must not report naively. */
+export type MixAdjustedTransition = {
+  from: string;
+  to: string;
+  pooled_change: number | null;
+  mix_effect: number | null;
+  within_effect: number | null;
+  pooled_misleading: boolean;
+  reason: "sign_reversal" | "magnitude_masked" | null;
+  per_method: {
+    method: string;
+    from_mean: number | null;
+    to_mean: number | null;
+    within_change: number | null;
+    from_share_pct: number | null;
+    to_share_pct: number | null;
+  }[];
+};
+
+export type MixAdjustedMetric = {
+  per_period: Record<
+    string,
+    {
+      n: number;
+      pooled_mean: number | null;
+      shares_pct: Record<string, number | null>;
+      means: Record<string, number | null>;
+    }
+  >;
+  transitions: MixAdjustedTransition[];
+};
+
+export type MixAdjustedTrend = {
+  /** true when the window holds < 2 periods, so no transition can be computed. */
+  insufficient_data: boolean;
+  periods: string[];
+  metrics: { total?: MixAdjustedMetric; internal?: MixAdjustedMetric };
 };
 
 /**

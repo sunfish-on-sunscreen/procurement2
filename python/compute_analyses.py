@@ -462,6 +462,109 @@ def _comparison_block(a_vals, b_vals, a_bounds, b_bounds):
     return block
 
 
+def _mix_adjusted_trend(pmeth):
+    """Shift-share decomposition of the pooled cycle-time change per period pair.
+
+    pooled(b) - pooled(a) == MIX effect + WITHIN effect, exactly:
+        mix    = sum_m (w_b[m] - w_a[m]) * rate_a[m]     (composition moved)
+        within = sum_m  w_b[m] * (rate_b[m] - rate_a[m]) (each method itself moved)
+    The identity is exact because sum(w*rate) IS the pooled mean. A method absent
+    from one side takes the other side's rate, which attributes its whole
+    contribution to mix (a method appearing/vanishing IS a composition change)
+    and keeps the identity exact.
+
+    ⚠️ Transitions are built ONLY from the periods present in the window, so this
+    stays period-scoped like every other analysis — a single-year window yields
+    `insufficient_data` rather than reaching for data outside its own span.
+
+    `pooled_misleading` marks the cases the UI must not report naively: a SIGN
+    REVERSAL (pooled says better, methods say worse) or MAGNITUDE MASKING (pooled
+    looks flat while the methods moved materially).
+    """
+    periods = sorted(str(x) for x in pmeth["period"].dropna().unique())
+    out = {"insufficient_data": len(periods) < 2, "periods": periods, "metrics": {}}
+    if len(periods) < 2:
+        return out
+
+    methods = sorted(pmeth["_method"].dropna().unique())
+    for metric_key, col in (("total", "_cycle"), ("internal", "_internal")):
+        by_period = {}
+        for per in periods:
+            g = pmeth[pmeth["period"].astype(str) == per]
+            n = int(len(g))
+            rates, shares = {}, {}
+            for m in methods:
+                gm = g[g["_method"] == m]
+                v = pd.to_numeric(gm[col], errors="coerce").dropna()
+                shares[m] = (len(gm) / n) if n else 0.0
+                rates[m] = float(v.mean()) if len(v) else None
+            v_all = pd.to_numeric(g[col], errors="coerce").dropna()
+            by_period[per] = {
+                "n": n,
+                "pooled": float(v_all.mean()) if len(v_all) else None,
+                "rates": rates,
+                "shares": shares,
+            }
+
+        transitions = []
+        for a, b in zip(periods, periods[1:]):
+            A, B = by_period[a], by_period[b]
+            if A["pooled"] is None or B["pooled"] is None:
+                continue
+            mix = within = 0.0
+            per_method = []
+            for m in methods:
+                ra, rb = A["rates"][m], B["rates"][m]
+                if ra is None and rb is None:
+                    continue
+                # absent on one side -> take the other's rate (keeps the identity exact)
+                ra_e = ra if ra is not None else rb
+                rb_e = rb if rb is not None else ra
+                wa, wb = A["shares"][m], B["shares"][m]
+                mix += (wb - wa) * ra_e
+                within += wb * (rb_e - ra_e)
+                per_method.append({
+                    "method": m,
+                    "from_mean": num(ra, 2),
+                    "to_mean": num(rb, 2),
+                    "within_change": num(rb_e - ra_e, 2),
+                    "from_share_pct": num(wa * 100, 1),
+                    "to_share_pct": num(wb * 100, 1),
+                })
+            pooled_change = B["pooled"] - A["pooled"]
+            # Sign reversal, or a pooled move less than half the within-method move.
+            sign_flip = (pooled_change * within) < 0 and abs(within) >= 1.0
+            masked = (
+                not sign_flip
+                and abs(within) >= 1.0
+                and abs(pooled_change) < abs(within) / 2
+            )
+            transitions.append({
+                "from": a,
+                "to": b,
+                "pooled_change": num(pooled_change, 2),
+                "mix_effect": num(mix, 2),
+                "within_effect": num(within, 2),
+                "pooled_misleading": bool(sign_flip or masked),
+                "reason": "sign_reversal" if sign_flip else ("magnitude_masked" if masked else None),
+                "per_method": per_method,
+            })
+
+        out["metrics"][metric_key] = {
+            "per_period": {
+                per: {
+                    "n": by_period[per]["n"],
+                    "pooled_mean": num(by_period[per]["pooled"], 2),
+                    "shares_pct": {m: num(by_period[per]["shares"][m] * 100, 1) for m in methods},
+                    "means": {m: num(by_period[per]["rates"][m], 2) for m in methods},
+                }
+                for per in periods
+            },
+            "transitions": transitions,
+        }
+    return out
+
+
 def cycle_time_analysis(
     purchases, suppliers, metrics, range_start, range_end
 ):
@@ -469,6 +572,13 @@ def cycle_time_analysis(
     p["_date"] = _coalesced_date(p)
     cycle = pd.to_numeric(p["totalCycleDays"], errors="coerce")
     p["_cycle"] = cycle
+    # INTERNAL cycle = the org-controlled portion. PO->Delivery is physical supplier
+    # lead time, excluded for the same reason the slow-stage flag excludes it.
+    p["_internal"] = (
+        pd.to_numeric(p["prToPoDays"], errors="coerce")
+        + pd.to_numeric(p["deliveryToInvoiceDays"], errors="coerce")
+        + pd.to_numeric(p["invoiceToPaymentDays"], errors="coerce")
+    )
 
     # --- monthly trend + trailing 3-month rolling average ---------------- #
     pm = p.dropna(subset=["_date"]).copy()
@@ -602,6 +712,33 @@ def cycle_time_analysis(
         q: {**m, "is_worst": (q == worst_q)} for q, m in match_raw.items()
     }
 
+    # --- cycle by BUYING METHOD + mix-adjusted trend ---------------------- #
+    # Cycle time is near-deterministic in buying method (spot_buy ~44d ->
+    # direct ~130d), so the pooled mean is a WEIGHTED MIXTURE. A shift in method
+    # mix can move the pooled number while every method individually goes the
+    # other way — measured on this data in BOTH transitions, so the pooled trend
+    # alone is not a safe read. cycle_by_method mirrors cycle_by_quadrant's shape
+    # (mean/median/p25/p75/n at the top level) so it reuses the same rendering,
+    # with internal-cycle + per-stage detail nested underneath.
+    cycle_by_method = {}
+    mix_adjusted_trend = {"insufficient_data": True, "periods": [], "metrics": {}}
+    if "buyingMethod" in p.columns:
+        pmeth = p.copy()
+        pmeth["_method"] = pmeth["buyingMethod"].astype(str)
+        for m in sorted(pmeth["_method"].dropna().unique()):
+            sub = pmeth[pmeth["_method"] == m]
+            cycle_by_method[m] = {
+                **_desc_stats(sub["_cycle"]),
+                "internal": _desc_stats(sub["_internal"]),
+                "stage_breakdown": {
+                    "pr_to_po": _desc_stats(sub["prToPoDays"]),
+                    "po_to_delivery": _desc_stats(sub["poToDeliveryDays"]),
+                    "delivery_to_invoice": _desc_stats(sub["deliveryToInvoiceDays"]),
+                    "invoice_to_payment": _desc_stats(sub["invoiceToPaymentDays"]),
+                },
+            }
+        mix_adjusted_trend = _mix_adjusted_trend(pmeth)
+
     return {
         "monthly_trend": monthly_trend,
         "rolling_avg_trend": rolling_avg_trend,
@@ -610,6 +747,8 @@ def cycle_time_analysis(
         "anomalies": anomalies,
         "period_comparison": period_comparison,
         "cycle_by_quadrant": cycle_by_quadrant,
+        "cycle_by_method": cycle_by_method,
+        "mix_adjusted_trend": mix_adjusted_trend,
         "three_way_match_by_quadrant": three_way_match_by_quadrant,
     }
 
