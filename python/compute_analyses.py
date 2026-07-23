@@ -33,7 +33,7 @@ import pandas as pd
 from dotenv import load_dotenv
 import psycopg2
 
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, norm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scores  # shared score engine (single source of truth for the 6 formulas)
@@ -399,7 +399,16 @@ def abc_analysis(purchases, suppliers, metrics):
 #    (a fixed midpoint split).
 # --------------------------------------------------------------------------- #
 def _coalesced_date(purchases):
-    """Payment date when present, else PR date — mirrors the period tag."""
+    """Payment date when present, else PR date — the CASH-BASIS date, used for the
+    monthly money/cycle trends.
+
+    ⚠️ This is NOT the period tag. Period membership and the compute window are
+    ORDER-YEAR (`poDate`) since the normalized-model migration. Do NOT use this to
+    partition a window into sub-groups: bucketing by payment date inside an
+    order-date window selects short-cycle orders into the earlier group BY
+    CONSTRUCTION (an order can only be paid early if its cycle was short), which
+    manufactures a spurious "cycle time worsened" result. That was a real defect in
+    the period comparison — see _comparison_block."""
     pay = pd.to_datetime(purchases["paymentDate"], errors="coerce")
     pr = pd.to_datetime(purchases["prDate"], errors="coerce")
     return pay.fillna(pr)
@@ -430,12 +439,37 @@ def _effect_label(r):
     return "large"
 
 
-def _comparison_block(a_vals, b_vals, a_bounds, b_bounds):
+def _mde_a(n1, n2, alpha=0.05, power=0.80):
+    """Minimum detectable effect for a two-sided Mann-Whitney, expressed as the
+    probability of superiority A = P(X > Y) + ½P(X = Y). Noether's normal
+    approximation. Makes a NULL result informative: "no detectable change; it would
+    take A >= 0.57 to detect at 80% power" says far more than silence."""
+    if n1 < 1 or n2 < 1:
+        return None
+    lam = norm.ppf(1 - alpha / 2) + norm.ppf(power)
+    return num(0.5 + lam / np.sqrt(12 * n1 * n2 / (n1 + n2 + 1)))
+
+
+def _comparison_block(a_vals, b_vals, a_bounds, b_bounds, excluded_n=0):
     """Two-sided Mann-Whitney U + rank-biserial r between two cycle-day samples.
-    a_bounds/b_bounds are (start_str, end_str). <10 in either group -> skip the
-    test (insufficient_data) but still report bounds, n, and medians."""
+
+    ⚠️ The caller MUST partition on the same date basis the window is filtered by
+    (poDate / order date). Splitting an order-date window by PAYMENT date selects
+    short-cycle orders into the earlier group by construction and produced a
+    spurious "significant worsening" in every period.
+
+    `skip_reason` distinguishes the two ways a test can be unavailable:
+      "empty_group" — one side has no orders at all, so no comparison EXISTS
+                      (e.g. every order in the window was placed in the first half);
+      "too_few"     — both sides exist but one is under the 10-observation floor.
+    Either way no p-value is emitted. `mde_a` is reported whenever both sides are
+    non-empty so a null can be read as "underpowered" vs "genuinely flat", and
+    `excluded_n` records any window rows outside both groups (0 by construction
+    under a partition — reported so it can never go silently non-zero again)."""
     a = pd.to_numeric(pd.Series(a_vals), errors="coerce").dropna().to_numpy()
     b = pd.to_numeric(pd.Series(b_vals), errors="coerce").dropna().to_numpy()
+    empty = len(a) == 0 or len(b) == 0
+    too_few = not empty and (len(a) < 10 or len(b) < 10)
     block = {
         "period_a": {"start": a_bounds[0], "end": a_bounds[1], "n": int(len(a))},
         "period_b": {"start": b_bounds[0], "end": b_bounds[1], "n": int(len(b))},
@@ -445,7 +479,10 @@ def _comparison_block(a_vals, b_vals, a_bounds, b_bounds):
         "effect_size_label": None,
         "median_a": num(np.median(a)) if len(a) else None,
         "median_b": num(np.median(b)) if len(b) else None,
-        "insufficient_data": len(a) < 10 or len(b) < 10,
+        "insufficient_data": empty or too_few,
+        "skip_reason": "empty_group" if empty else ("too_few" if too_few else None),
+        "mde_a": None if empty else _mde_a(len(a), len(b)),
+        "excluded_n": int(excluded_n),
     }
     if block["insufficient_data"]:
         return block
@@ -460,6 +497,77 @@ def _comparison_block(a_vals, b_vals, a_bounds, b_bounds):
         }
     )
     return block
+
+
+def _method_significance(pmeth, periods, alpha=0.05, min_power=0.80):
+    """Per-buying-method period-over-period Mann-Whitney, BH-corrected, POWER-GATED.
+
+    Why per method and not pooled: pooled cycle time is a five-population mixture,
+    so its within-group variance is inflated (pooled IQR ~63d vs 13-29d per method)
+    and the pooled test is blind — on this data every pooled period-vs-period test
+    is null while real per-method effects exist. Pooling also makes the location-shift
+    reading incoherent (pooled is bimodal, each method is unimodal).
+
+    ⚠️ This is deliberately NOT a general significance surface. Testing 5 methods x
+    each transition is a multiplicity problem, and at these cell sizes (n 23-83) most
+    cells can only detect very large effects. So a finding is emitted ONLY if it
+    clears BOTH gates: Benjamini-Hochberg q < alpha AND observed power >= min_power.
+    On the current data exactly ONE of ten tests survives. Everything else is
+    reported as no-detectable-change by omission — `tested` and `alpha` are emitted
+    so the UI can say how many tests were run rather than implying only one existed.
+
+    Metric is TOTAL cycle only, which keeps the correction family well defined (one
+    family per transition set) and matches the headline the dashboard shows.
+    """
+    out = {
+        "tested": 0,
+        "alpha": alpha,
+        "min_power": min_power,
+        "correction": "benjamini-hochberg",
+        "findings": [],
+    }
+    if len(periods) < 2:
+        return out
+    methods = sorted(pmeth["_method"].dropna().unique())
+    raw = []
+    for a, b in zip(periods, periods[1:]):
+        ga = pmeth[pmeth["period"].astype(str) == a]
+        gb = pmeth[pmeth["period"].astype(str) == b]
+        for m in methods:
+            xa = pd.to_numeric(ga[ga["_method"] == m]["_cycle"], errors="coerce").dropna().to_numpy()
+            xb = pd.to_numeric(gb[gb["_method"] == m]["_cycle"], errors="coerce").dropna().to_numpy()
+            if len(xa) < 10 or len(xb) < 10:
+                continue
+            u, pv = mannwhitneyu(xa, xb, alternative="two-sided")
+            a_sup = u / (len(xa) * len(xb))  # P(X>Y)+½P(X=Y)
+            lam = abs(a_sup - 0.5) * np.sqrt(12 * len(xa) * len(xb) / (len(xa) + len(xb) + 1))
+            pw = float(norm.cdf(lam - norm.ppf(1 - alpha / 2)))
+            raw.append({
+                "method": m, "from": a, "to": b,
+                "n_from": int(len(xa)), "n_to": int(len(xb)),
+                "median_from": num(np.median(xa)), "median_to": num(np.median(xb)),
+                "p_value": float(pv), "power": num(pw), "_p": float(pv),
+            })
+    out["tested"] = len(raw)
+    if not raw:
+        return out
+    # Benjamini-Hochberg across the whole family.
+    raw.sort(key=lambda r: r["_p"])
+    k = len(raw)
+    for i, r in enumerate(raw, start=1):
+        r["q_value"] = num(min(1.0, r["_p"] * k / i))
+    for r in raw:
+        if (r["q_value"] is not None and r["q_value"] < alpha
+                and r["power"] is not None and r["power"] >= min_power):
+            direction = "faster" if (r["median_to"] or 0) < (r["median_from"] or 0) else "slower"
+            out["findings"].append({
+                "method": r["method"], "from": r["from"], "to": r["to"],
+                "n_from": r["n_from"], "n_to": r["n_to"],
+                "median_from": r["median_from"], "median_to": r["median_to"],
+                "p_value": num(r["p_value"], 5), "q_value": r["q_value"],
+                "power": r["power"], "direction": direction,
+            })
+    return out
 
 
 def _mix_adjusted_trend(pmeth):
@@ -657,22 +765,32 @@ def cycle_time_analysis(
                 }
             )
 
-    # --- period comparison (default midpoint split of the selected period) ---- #
+    # --- period comparison (midpoint split of the selected window) ------------ #
+    # ⚠️ SPLIT ON poDate — the SAME basis the window is filtered by. This used to
+    # split on _date (payment date), which is a different basis from the window's
+    # own membership rule and biased the result: an order can only be PAID in the
+    # first half if its cycle was short, so group A was selected for speed by
+    # construction. It reported a "significant worsening" in all three periods
+    # (2024 p=0.0002, 2025 p=0.0001, 2026 p=5e-10) that disappears entirely on the
+    # correct basis (2024 p=0.386, 2025 p=0.246 — both null; 2026 has no second
+    # group at all). It also silently dropped orders whose payment fell outside the
+    # window (32 in 2024, 38 in 2025). Partitioning on poDate covers every row.
     start_ts = pd.to_datetime(range_start)
     end_ts = pd.to_datetime(range_end)
     mid = (start_ts + (end_ts - start_ts) / 2).normalize()
-    a_start, a_end = start_ts.normalize(), mid
-    b_start, b_end = mid + pd.Timedelta(days=1), end_ts.normalize()
-
-    def _between(s, e):
-        return p[(p["_date"] >= s) & (p["_date"] <= e + pd.Timedelta(hours=23, minutes=59, seconds=59))]
+    po_date = pd.to_datetime(p["poDate"], errors="coerce")
+    in_a = po_date <= mid
+    in_b = po_date > mid
+    # A partition leaves nothing out; counted anyway so a future regression is loud.
+    excluded_n = int(len(p) - int(in_a.sum()) - int(in_b.sum()))
 
     fmt = lambda t: t.strftime("%Y-%m-%d")
     period_comparison = _comparison_block(
-        _between(a_start, a_end)["_cycle"],
-        _between(b_start, b_end)["_cycle"],
-        (fmt(a_start), fmt(a_end)),
-        (fmt(b_start), fmt(b_end)),
+        p[in_a]["_cycle"],
+        p[in_b]["_cycle"],
+        (fmt(start_ts.normalize()), fmt(mid)),
+        (fmt(mid + pd.Timedelta(days=1)), fmt(end_ts.normalize())),
+        excluded_n=excluded_n,
     )
 
     # --- per-Kraljic-quadrant descriptives (single population) ---------- #
@@ -722,6 +840,10 @@ def cycle_time_analysis(
     # with internal-cycle + per-stage detail nested underneath.
     cycle_by_method = {}
     mix_adjusted_trend = {"insufficient_data": True, "periods": [], "metrics": {}}
+    method_significance = {
+        "tested": 0, "alpha": 0.05, "min_power": 0.80,
+        "correction": "benjamini-hochberg", "findings": [],
+    }
     if "buyingMethod" in p.columns:
         pmeth = p.copy()
         pmeth["_method"] = pmeth["buyingMethod"].astype(str)
@@ -738,6 +860,9 @@ def cycle_time_analysis(
                 },
             }
         mix_adjusted_trend = _mix_adjusted_trend(pmeth)
+        method_significance = _method_significance(
+            pmeth, sorted(str(x) for x in pmeth["period"].dropna().unique())
+        )
 
     return {
         "monthly_trend": monthly_trend,
@@ -749,6 +874,7 @@ def cycle_time_analysis(
         "cycle_by_quadrant": cycle_by_quadrant,
         "cycle_by_method": cycle_by_method,
         "mix_adjusted_trend": mix_adjusted_trend,
+        "method_significance": method_significance,
         "three_way_match_by_quadrant": three_way_match_by_quadrant,
     }
 

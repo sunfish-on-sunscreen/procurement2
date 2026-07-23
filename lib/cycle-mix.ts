@@ -1,5 +1,15 @@
 import type { CycleTimeResult } from "@/lib/analysis-types";
 
+/** Display labels for the five buying methods. Shared so the per-method table and
+ *  the glance prose can never disagree about how a method is named. */
+export const METHOD_LABEL: Record<string, string> = {
+  spot_buy: "Spot buy",
+  call_off: "Call-off",
+  rfq: "RFQ",
+  tender: "Tender",
+  direct: "Direct",
+};
+
 /**
  * Shared derivation for the MIX-ADJUSTED reading of the cycle-time trend.
  *

@@ -10,7 +10,7 @@ import type {
   Recommendation,
 } from "@/lib/analysis-types";
 import type { ReportTone } from "@/lib/report-config";
-import { buildMixNoteFacts, mixDays, mixBecause } from "@/lib/cycle-mix";
+import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL } from "@/lib/cycle-mix";
 
 /**
  * Shape of a persisted report's `metricsJson`. The report renders LIVE from the
@@ -122,6 +122,14 @@ export type ReportContext = {
    * direction — so a report can never assert a trend the decomposition reverses.
    */
   mixNote: string | null;
+  /** Why the pooled midpoint test was skipped, if it was. */
+  cmpSkipReason: "empty_group" | "too_few" | null;
+  /** Minimum detectable effect (probability of superiority) at 80% power — makes a
+   *  null result informative instead of silent. */
+  cmpMdeA: number | null;
+  /** The one per-method change that survives BH correction AND the power floor,
+   *  pre-rendered. Null when nothing survives (the usual case). */
+  methodFinding: string | null;
   // recommendations
   recTotal: number;
   recByCategory: Record<string, number>;
@@ -209,6 +217,14 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
   // Mix-adjusted corrective — see ReportContext.mixNote. Uses the most recent
   // transition in the window; null when the window holds < 2 periods or when the
   // decomposition agrees with the pooled reading.
+  const cmpSkipReason = cmp?.skip_reason ?? null;
+  const cmpMdeA = cmp?.mde_a ?? null;
+  const msig = ct?.method_significance;
+  const surv = msig?.findings?.[0] ?? null;
+  const methodFinding = surv
+    ? `${METHOD_LABEL[surv.method] ?? surv.method} orders completed ${surv.direction} in ${surv.to} than ${surv.from} — median ${surv.median_from} to ${surv.median_to} days (Mann-Whitney p = ${(surv.p_value ?? 0).toFixed(3)}, Benjamini-Hochberg q = ${(surv.q_value ?? 0).toFixed(3)}, power ${(surv.power ?? 0).toFixed(2)}); the only one of ${msig?.tested ?? 0} per-method tests to survive correction.`
+    : null;
+
   const mixFacts = buildMixNoteFacts(ct);
   const mixNote = mixFacts
     ? ` Read that trend with care: from ${mixFacts.from} to ${mixFacts.to} pooled cycle time ${
@@ -288,6 +304,9 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
     cmpLabelA: cmp ? `${cmp.period_a.start} – ${cmp.period_a.end}` : "—",
     cmpLabelB: cmp ? `${cmp.period_b.start} – ${cmp.period_b.end}` : "—",
     mixNote,
+    cmpSkipReason,
+    cmpMdeA,
+    methodFinding,
     recTotal: recs?.summary_stats.total_recommendations ?? 0,
     recByCategory: recs?.summary_stats.by_category ?? {},
     topRec: recs?.summary_stats.highest_impact ?? null,
@@ -305,6 +324,28 @@ type SectionTemplates = {
   recommendedPriorities: (c: ReportContext) => string;
   methodology: (c: ReportContext) => string;
 };
+
+/** Why no pooled test ran. "empty_group" means one half of the window contains no
+ *  orders at all, so no comparison exists — never phrase that as stability. */
+function skipClause(c: ReportContext): string {
+  return c.cmpSkipReason === "empty_group"
+    ? " No within-window comparison is possible: every order in this window was placed in one half of it, so there is no second group to compare against."
+    : " There is not yet enough data in this window to compare two halves, so the trend is reported as monitoring only.";
+}
+
+/** A null reported WITH its minimum detectable effect, so the silence is informative. */
+function nullClause(c: ReportContext): string {
+  const mde = c.cmpMdeA != null ? ` — detecting one would take a probability of superiority of about ${c.cmpMdeA.toFixed(2)} at 80% power` : "";
+  return ` No statistically detectable change across the window${mde}.`;
+}
+
+/** ⚠️ A significant POOLED result is still a MIXTURE result: cycle time is
+ *  near-deterministic in buying method, so a pooled shift can reflect a change in
+ *  method composition rather than in process speed. Never instruct anyone to chase a
+ *  process regression off this test alone — point at the per-method view instead. */
+function pooledShiftClause(c: ReportContext): string {
+  return ` The pooled median moved from ${c.cmpMedianA.toFixed(0)} to ${c.cmpMedianB.toFixed(0)} days across the window (p ${c.cmpPStr}). This is a POOLED comparison, so it cannot separate a change in process speed from a change in buying-method mix — read it against the per-method breakdown before acting.`;
+}
 
 export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
   // ---- EXECUTIVE: CFO/COO. Strategic, short, business-impact framed, no names.
@@ -377,28 +418,22 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         0,
       )} days).`;
       if (c.cmpInsufficient) {
-        return `${head} There is not yet enough data in the selected period to compare two windows, so the trend is reported as monitoring only.`;
+        return `${head}${skipClause(c)}${c.methodFinding ? ` ${c.methodFinding}` : ""}`;
       }
-      const dir = c.cmpDelta > 0 ? "improved" : "deteriorated";
-      return `${head} Comparing the two halves of the period, performance has ${
-        c.cmpSignificant ? `${dir} materially` : "held broadly steady"
-      } — the median moved from ${c.cmpMedianA.toFixed(
-        0,
-      )} to ${c.cmpMedianB.toFixed(0)} days${
-        c.cmpSignificant ? "" : " (not a statistically meaningful shift)"
-      }. Sustained monitoring keeps working-capital efficiency on track.${c.mixNote ?? ""}`;
+      const body = c.cmpSignificant ? pooledShiftClause(c) : nullClause(c);
+      return `${head}${body} Sustained monitoring keeps working-capital efficiency on track.${
+        c.methodFinding ? ` ${c.methodFinding}` : ""
+      }${c.mixNote ?? ""}`;
     },
     keyFindings: (c) => [
       `Value is concentrated: the top ten suppliers carry ${pct(c.top10Pct)} of spend.`,
       `${c.stratN} business-critical suppliers hold ${pct(c.stratPct)} of spend and need protected relationships.`,
       `${c.criticalN} high-value supplier(s) are underperforming — the portfolio's main value-at-risk.`,
-      `Procure-to-pay cycle time holds at a median of ${c.cycleMedian.toFixed(
-        0,
-      )} days${
-        c.cmpSignificant && !c.mixNote
-          ? `, ${c.cmpDelta > 0 ? "improving" : "deteriorating"} across the period`
-          : ""
-      }.${c.mixNote ? " Method mix moved; see the cycle-time note." : ""}`,
+      `Procure-to-pay cycle time holds at a median of ${c.cycleMedian.toFixed(0)} days.${
+        c.cmpInsufficient || !c.cmpSignificant
+          ? " No statistically detectable change across the window."
+          : " The pooled median shifted, but pooled comparisons cannot separate process speed from buying-method mix."
+      }${c.mixNote ? " Method mix moved; see the cycle-time note." : ""}`,
     ],
     recommendedPriorities: (c) =>
       `The actions below are organised by the three diagnostic analyses — Spend, Suppliers, and Process — with the highest-exposure items first in each. They concentrate on the suppliers and processes where exposure — in spend, risk, or working capital — is greatest. We recommend owning the top ${Math.min(
@@ -456,19 +491,12 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         ? ` Investigate outliers such as ${c.topAnomaly.po_id} (${c.topAnomaly.supplier_name}, ${c.topAnomaly.cycle_days} days); ${c.anomalyCount} PO(s) exceeded the 2σ anomaly threshold.`
         : ` No POs exceeded the 2σ anomaly threshold this period.`;
       const cmp = c.cmpInsufficient
-        ? ` A period-vs-period comparison needs more data than the current selection provides.`
+        ? skipClause(c)
         : c.cmpSignificant
-          ? ` Cycle time ${
-              c.cmpDelta > 0 ? "improved" : "worsened"
-            } significantly between ${c.cmpLabelA} and ${c.cmpLabelB} (median ${c.cmpMedianA.toFixed(
-              0,
-            )}→${c.cmpMedianB.toFixed(0)} days, p ${c.cmpPStr}, ${c.cmpEffect} effect) — ${
-              c.cmpDelta > 0
-                ? "lock in the contributing changes"
-                : "trace the regression to its process stage"
-            }.`
-          : ` The two halves of the period show no statistically significant cycle-time difference.`;
-      return `${bottleneck}${outlier}${cmp}${c.mixNote ?? ""}`;
+          ? pooledShiftClause(c)
+          : nullClause(c);
+      const finding = c.methodFinding ? ` ${c.methodFinding}` : "";
+      return `${bottleneck}${outlier}${cmp}${finding}${c.mixNote ?? ""}`;
     },
     keyFindings: (c) => [
       `${usdM(c.totalSpend)} total spend across ${intl.format(c.totalPos)} purchase orders.`,
@@ -556,9 +584,13 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )} d).`;
       const anom = ` Z-score screening flags ${c.anomalyCount} PO(s) with cycle time > 2σ above the mean as outliers.`;
       const test = c.cmpInsufficient
-        ? ` The optional period comparison is not computable for the current selection (one window has < 10 POs: n_a = ${intl.format(
+        ? ` The optional within-window comparison is not computable for the current selection (n_a = ${intl.format(
             c.cmpNA,
-          )}, n_b = ${intl.format(c.cmpNB)}).`
+          )}, n_b = ${intl.format(c.cmpNB)}; ${
+            c.cmpSkipReason === "empty_group"
+              ? "one half contains no orders, so no comparison exists"
+              : "one side is under the 10-observation floor"
+          }).`
         : ` A two-sided Mann-Whitney U test compares two date windows (n_a = ${intl.format(
             c.cmpNA,
           )}, n_b = ${intl.format(
@@ -569,8 +601,13 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
             c.cmpEffectSize != null ? c.cmpEffectSize.toFixed(3) : "—"
           } (${c.cmpEffect} effect); ${
             c.cmpSignificant ? "significant" : "not significant"
-          } at α = 0.05. The non-parametric test is used because cycle-time distributions are right-skewed and violate normality.`;
-      return `${shape}${anom}${test}${c.mixNote ?? ""}`;
+          } at α = 0.05${
+            !c.cmpSignificant && c.cmpMdeA != null
+              ? `; at these n the minimum detectable effect is a probability of superiority of ${c.cmpMdeA.toFixed(2)} at 80% power`
+              : ""
+          }. ⚠️ The window is split by ORDER date (the same basis the window is filtered by); splitting by payment date would select short-cycle orders into the earlier group by construction. The comparison is POOLED across buying methods, so a shift in it cannot be attributed to process speed without the per-method view.`;
+      const finding = c.methodFinding ? ` ${c.methodFinding}` : "";
+      return `${shape}${anom}${test}${finding}${c.mixNote ?? ""}`;
     },
     keyFindings: (c) => [
       `Spend is heavy-tailed: top-decile share ≈ ${pct(c.top10Pct)}; Class A share ${pct(

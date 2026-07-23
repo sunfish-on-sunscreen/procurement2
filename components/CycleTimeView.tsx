@@ -31,6 +31,7 @@ import type { ControlExposure } from "@/lib/cycle-time-types";
 import { SortArrow } from "@/components/RankingCells";
 import { useTableSort, type SortDir } from "@/lib/use-table-sort";
 import { cardElevation, formatCompactCurrency } from "@/lib/utils";
+import { METHOD_LABEL } from "@/lib/cycle-mix";
 
 const QUAD_ORDER: KraljicQuadrant[] = [
   "Strategic",
@@ -199,13 +200,6 @@ type MethodCycleRow = {
 } & CycleDescriptive;
 
 const METHOD_ORDER = ["spot_buy", "call_off", "rfq", "tender", "direct"];
-const METHOD_LABEL: Record<string, string> = {
-  spot_buy: "Spot buy",
-  call_off: "Call-off",
-  rfq: "RFQ",
-  tender: "Tender",
-  direct: "Direct",
-};
 
 function CycleByMethodTable({ data }: { data: CycleTimeResult }) {
   const byMethod = data.cycle_by_method ?? {};

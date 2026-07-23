@@ -111,6 +111,41 @@ export type PeriodComparison = {
   median_a: number | null;
   median_b: number | null;
   insufficient_data: boolean;
+  /** Why no test was run. "empty_group" = one side has no orders, so no comparison
+   *  EXISTS (never emit a p-value for it); "too_few" = under the 10-obs floor. */
+  skip_reason?: "empty_group" | "too_few" | null;
+  /** Minimum detectable effect (probability of superiority) at 80% power — lets a
+   *  NULL be reported as informative rather than silent. */
+  mde_a?: number | null;
+  /** Window rows outside both groups. 0 under a partition; surfaced so a
+   *  regression to silent dropping is visible. */
+  excluded_n?: number;
+};
+
+/**
+ * Per-buying-method period-over-period tests that survive BOTH Benjamini-Hochberg
+ * correction and a power floor. Deliberately NOT a general significance surface:
+ * `findings` is usually empty, and `tested` says how many tests ran so the UI can
+ * report "1 of 10" rather than implying only one test existed.
+ */
+export type MethodSignificance = {
+  tested: number;
+  alpha: number;
+  min_power: number;
+  correction: string;
+  findings: {
+    method: string;
+    from: string;
+    to: string;
+    n_from: number;
+    n_to: number;
+    median_from: number | null;
+    median_to: number | null;
+    p_value: number | null;
+    q_value: number | null;
+    power: number | null;
+    direction: "faster" | "slower";
+  }[];
 };
 
 export type ThreeWayMatchQuadrant = {
@@ -140,6 +175,7 @@ export type CycleTimeResult = {
   // analyses cached before this was added won't carry them.
   cycle_by_method?: Record<string, CycleMethodDescriptive>;
   mix_adjusted_trend?: MixAdjustedTrend;
+  method_significance?: MethodSignificance;
   three_way_match_by_quadrant: Record<KraljicQuadrant, ThreeWayMatchQuadrant>;
 };
 

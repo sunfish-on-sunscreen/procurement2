@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { CycleTimeResult, KraljicQuadrant } from "@/lib/analysis-types";
 import type { CycleSupplierRow, CycleCategoryRow } from "@/lib/cycle-time-types";
 import { cardElevation } from "@/lib/utils";
-import { buildMixNoteFacts, mixDays, mixBecause } from "@/lib/cycle-mix";
+import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL } from "@/lib/cycle-mix";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const STAGES = [
@@ -100,12 +100,24 @@ export function CycleTimeGlancePanel({
     }
   }
 
-  // Within-period stability (Mann-Whitney midpoint split), when the test is computable.
+  // Within-window stability (Mann-Whitney on a midpoint split BY ORDER DATE — the
+  // same basis the window is filtered by). Three outcomes, and only one of them is
+  // a claim: a significant shift, a NULL reported with its minimum detectable
+  // effect (so the silence is informative), or no test at all when one side of the
+  // split has no orders — in which case we say nothing rather than imply stability.
   const cmp = cycleTime.period_comparison;
   const stability =
     cmp && !cmp.insufficient_data && cmp.p_value != null
-      ? { p: cmp.p_value, significant: cmp.p_value < 0.05 }
+      ? {
+          kind: cmp.p_value < 0.05 ? ("shifted" as const) : ("null" as const),
+          p: cmp.p_value,
+          mde: cmp.mde_a ?? null,
+        }
       : null;
+
+  // The one per-method change that survives BH correction AND the power floor.
+  const msig = cycleTime.method_significance;
+  const survivor = msig?.findings?.[0] ?? null;
 
   // --- Mix-adjusted reading of the trend -------------------------------- #
   // The pooled median is a WEIGHTED MIXTURE of the buying methods (spot_buy ~44d ->
@@ -221,15 +233,43 @@ export function CycleTimeGlancePanel({
                 (typical range {d0(dist.iqr)} days).
               </>
             )}
-            {stability && (
+            {stability && stability.kind === "shifted" && (
               <>
                 {" "}
-                Cycle time {stability.significant ? "shifted" : "held steady"} across the period
-                (Mann-Whitney p = {formatP(stability.p)}).
+                Cycle time shifted across the window (Mann-Whitney p ={" "}
+                {formatP(stability.p)}).
+              </>
+            )}
+            {stability && stability.kind === "null" && (
+              <>
+                {" "}
+                No detectable change across the window (Mann-Whitney p ={" "}
+                {formatP(stability.p)}
+                {stability.mde != null ? (
+                  <>
+                    ; it would take a probability of superiority of{" "}
+                    <strong>{stability.mde.toFixed(2)}</strong> to detect one at 80% power
+                  </>
+                ) : null}
+                ).
               </>
             )}{" "}
             This cadence is typical of capital-intensive procurement.
           </p>
+
+          {survivor && (
+            <p className="text-muted-foreground">
+              <strong className="text-foreground">One change stands up to testing:</strong>{" "}
+              {METHOD_LABEL[survivor.method] ?? survivor.method} orders completed{" "}
+              {survivor.direction} in {survivor.to} than {survivor.from} — median{" "}
+              <strong>
+                {survivor.median_from} → {survivor.median_to} days
+              </strong>{" "}
+              (Mann-Whitney p = {formatP(survivor.p_value ?? 1)}, Benjamini-Hochberg q ={" "}
+              {(survivor.q_value ?? 0).toFixed(3)}, power {(survivor.power ?? 0).toFixed(2)}).
+              {msig ? ` It is the only one of ${msig.tested} per-method tests to survive correction.` : ""}
+            </p>
+          )}
 
           {mixNote && (
             <p className="text-muted-foreground">
