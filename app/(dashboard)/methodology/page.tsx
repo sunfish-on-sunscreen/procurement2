@@ -1088,8 +1088,9 @@ export default async function MethodologyPage() {
               <strong>degenerate</strong>: they return the same answer for every input,
               or they measure an artifact rather than the thing they name. Each was
               tested before the decision was taken, not assumed. The first eight concern
-              competitive sourcing; the ninth (payment discipline) is recorded here
-              because it is the same failure mode and belongs in one catalogue.
+              competitive sourcing; the ninth (payment discipline) and tenth (delivery
+              slip magnitude) are recorded here because they are the same failure mode
+              and belong in one catalogue.
             </p>
             <ul className="list-disc space-y-2 pl-5">
               <li>
@@ -1177,6 +1178,47 @@ export default async function MethodologyPage() {
                 has no early tail by construction. A worst-payers league table built
                 on this would render beautifully and name innocent suppliers.
               </li>
+              <li>
+                <strong>Delivery slip magnitude.</strong> Delivery is recorded as a
+                boolean (on time against the promised date). The obvious refinement is
+                to measure <em>how late</em> — 483 of 647 orders (74.7%) are late,
+                averaging +7.9 days and reaching +33. Unlike payment lag this is not a
+                simple uniform draw (χ² rejects Uniform at <em>p</em> = 1.3 × 10⁻⁴⁷,
+                early deliveries exist at 21.0%), but it carries{" "}
+                <strong>no supplier information</strong>. Slip magnitude given the
+                order was late has ρ = −0.196, <em>p</em> = 0.207 against supplier
+                on-time rate — it adds nothing the boolean does not already say — and a
+                permutation test on the spread of supplier mean slip gives{" "}
+                <em>p</em> = 0.471, dead on the null. ⚠️{" "}
+                <strong>
+                  The on-time boolean is itself indistinguishable from a coin flip
+                </strong>{" "}
+                at the global rate: at supplier-period grain the binomial dispersion is
+                χ²/df = 1.03 (<em>p</em> = 0.411) — exactly binomial — and an exact
+                label permutation gives <em>p</em> = 0.955. There is no supplier signal
+                to refine. Lead time, meanwhile, is <strong>73–86% determined by
+                buying method</strong> (73.0% of order-level variance; method mix
+                explains 86.4% of between-supplier variance), with no residual supplier
+                effect (<em>p</em> = 0.266) and <strong>zero cross-channel
+                consistency</strong> — across 32 suppliers using two or more methods, a
+                supplier&rsquo;s lead residual in one channel does not predict its
+                residual in another (<em>r</em> = −0.015, <em>p</em> = 0.933). See
+                Section 10.3 for what this does and does not imply.
+                <br />
+                ⚠️ <strong>Corrected reading of delivery_score&rsquo;s two halves.</strong>{" "}
+                An earlier pass reported that the lead-time half &ldquo;drives&rdquo; the
+                score, from correlations of +0.880 (lead) against +0.555 (on-time). That
+                was an artifact: both halves are components of their own sum, so both
+                correlate positively with it by construction, and a raw standard
+                deviation is not a variance share. Under the same covariance
+                decomposition used elsewhere here, the two halves contribute{" "}
+                <strong>almost equally — on-time 48.6%, lead 51.4%</strong>; a drop-one
+                rank test agrees (Spearman +0.727 dropping the lead half, +0.794
+                dropping the on-time half). delivery_score is therefore roughly half
+                coin-flip and half channel proxy, not lead-dominated. The
+                &ldquo;+0.880 vs +0.555&rdquo; reading is recorded here so it is not
+                revived.
+              </li>
             </ul>
             <p>
               The bidding descriptives that <em>are</em> shown — bid depth (2–4 bidders,
@@ -1220,10 +1262,171 @@ export default async function MethodologyPage() {
         </CardContent>
       </Card>
 
-      {/* 10. References */}
+      {/* 10. Reading the composite */}
       <Card className={cardElevation}>
         <CardHeader>
-          <CardTitle>10. References</CardTitle>
+          <CardTitle>10. Reading the Composite Score</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5 text-sm leading-relaxed text-muted-foreground">
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              10.1 The composite becomes more structural the more you aggregate
+            </h3>
+            <p>
+              The composite is 30% Quality, 30% Delivery, 22% Process and 18% Risk. Those
+              are the <em>weights</em>. How much each component actually{" "}
+              <em>moves</em> the score is a different question, and the answer depends on
+              how much the window aggregates.
+            </p>
+            <p>
+              <strong className="text-foreground">
+                Risk is the only component that never varies within a supplier across
+                periods
+              </strong>{" "}
+              — it is structural (country distance × roster concentration), so it is
+              identical for a given supplier in every year: it varies for{" "}
+              <strong>0 of 55</strong> suppliers, against 49 of 55 for Delivery, 36 for
+              Process and 23 for Quality. Aggregating several years into one window
+              averages away within-supplier variation in the three behavioural
+              components while leaving Risk untouched:
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-left text-foreground">
+                    <th className="py-1.5 pr-3 font-medium">Component</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">sd, per supplier-period</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">sd, all-years window</th>
+                    <th className="py-1.5 text-right font-medium">Varies across periods</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b"><td className="py-1.5 pr-3">Quality</td><td className="py-1.5 pr-3 text-right tabular-nums">6.91</td><td className="py-1.5 pr-3 text-right tabular-nums">5.79</td><td className="py-1.5 text-right tabular-nums">23 of 55</td></tr>
+                  <tr className="border-b"><td className="py-1.5 pr-3">Delivery</td><td className="py-1.5 pr-3 text-right tabular-nums">20.46</td><td className="py-1.5 pr-3 text-right tabular-nums">14.99</td><td className="py-1.5 text-right tabular-nums">49 of 55</td></tr>
+                  <tr className="border-b"><td className="py-1.5 pr-3">Process</td><td className="py-1.5 pr-3 text-right tabular-nums">18.91</td><td className="py-1.5 pr-3 text-right tabular-nums">12.49</td><td className="py-1.5 text-right tabular-nums">36 of 55</td></tr>
+                  <tr><td className="py-1.5 pr-3 font-medium text-foreground">Risk</td><td className="py-1.5 pr-3 text-right tabular-nums">31.10</td><td className="py-1.5 pr-3 text-right font-medium tabular-nums text-foreground">31.22</td><td className="py-1.5 text-right font-medium tabular-nums text-foreground">0 of 55</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Risk&rsquo;s spread is the only one that does not fall. Its correlation
+              with the composite rises from +0.689 to +0.831 as a direct result. This is
+              a real property of the model, not an artifact of any one calculation: the
+              longer the window, the more a supplier&rsquo;s composite reflects{" "}
+              <em>where it is and what category it sells into</em> rather than how it
+              has performed.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              10.2 Variance shares are grain-dependent — always state the grain
+            </h3>
+            <p>
+              A variance share (the fraction of composite variance a component accounts
+              for, by covariance decomposition, summing to 100%) changes with the window:
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-left text-foreground">
+                    <th className="py-1.5 pr-3 font-medium">Grain</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">n</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">Quality</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">Delivery</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">Process</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">Risk</th>
+                    <th className="py-1.5 text-left font-medium">Leader</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b"><td className="py-1.5 pr-3 font-medium text-foreground">All years (default view)</td><td className="py-1.5 pr-3 text-right tabular-nums">55</td><td className="py-1.5 pr-3 text-right tabular-nums">−1.0%</td><td className="py-1.5 pr-3 text-right tabular-nums">35.5%</td><td className="py-1.5 pr-3 text-right tabular-nums">9.1%</td><td className="py-1.5 pr-3 text-right font-medium tabular-nums text-foreground">56.4%</td><td className="py-1.5">Risk</td></tr>
+                  <tr className="border-b"><td className="py-1.5 pr-3">2024</td><td className="py-1.5 pr-3 text-right tabular-nums">50</td><td className="py-1.5 pr-3 text-right tabular-nums">−0.7%</td><td className="py-1.5 pr-3 text-right font-medium tabular-nums text-foreground">44.0%</td><td className="py-1.5 pr-3 text-right tabular-nums">23.8%</td><td className="py-1.5 pr-3 text-right tabular-nums">32.8%</td><td className="py-1.5">Delivery</td></tr>
+                  <tr className="border-b"><td className="py-1.5 pr-3">2025</td><td className="py-1.5 pr-3 text-right tabular-nums">51</td><td className="py-1.5 pr-3 text-right tabular-nums">+8.5%</td><td className="py-1.5 pr-3 text-right tabular-nums">32.9%</td><td className="py-1.5 pr-3 text-right tabular-nums">12.9%</td><td className="py-1.5 pr-3 text-right font-medium tabular-nums text-foreground">45.7%</td><td className="py-1.5">Risk</td></tr>
+                  <tr><td className="py-1.5 pr-3">2026</td><td className="py-1.5 pr-3 text-right tabular-nums">50</td><td className="py-1.5 pr-3 text-right tabular-nums">+0.8%</td><td className="py-1.5 pr-3 text-right font-medium tabular-nums text-foreground">46.4%</td><td className="py-1.5 pr-3 text-right tabular-nums">15.5%</td><td className="py-1.5 pr-3 text-right tabular-nums">37.3%</td><td className="py-1.5">Delivery</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              <strong className="text-foreground">
+                Consequence for reading the dashboard:
+              </strong>{" "}
+              a user comparing suppliers on the all-years view and then on a single year
+              can get different orderings, for this systematic reason rather than because
+              anything changed. On the default view the composite leans structural; on a
+              single year it leans behavioural. That is not a bug, but it should be known
+              before two views are compared.
+            </p>
+            <p>
+              ⚠️{" "}
+              <strong className="text-foreground">
+                Standing rule: a variance share quoted without its grain is unusable.
+              </strong>{" "}
+              The figures above are safe to quote <em>with the grain attached</em>.
+              &ldquo;Risk is the dominant term in the composite&rdquo; stated{" "}
+              <em>without</em> a grain is <strong>not</strong> quotable — it is true on
+              the all-years view and false on 2024 and 2026. The single claim stable at
+              every grain is that <strong>Quality contributes approximately nothing</strong>{" "}
+              (−1.0% to +8.5%, within ±1% at four grains of six). A fifth population —
+              all 151 supplier-period rows pooled (Quality +2.4%, Delivery +42.6%,
+              Process +17.5%, Risk +37.5%) — is analytically useful for the spread table
+              in 10.1 but corresponds to <em>no view any user sees</em>, and should not
+              be quoted as a description of the dashboard.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              10.3 These are findings about the dataset, not defects in the model
+            </h3>
+            <p>
+              <strong className="text-foreground">
+                This distinction is the most important thing in this section.
+              </strong>{" "}
+              Tested on this synthetic data, none of the four components shows a
+              statistically detectable between-supplier <em>behavioural</em> signal:
+              Quality is flat (defect rate across suppliers <em>p</em> = 0.380,
+              complaints <em>p</em> = 0.467); Process is indistinguishable from chance
+              under an exact permutation (<em>p</em> = 0.367); Delivery is a coin flip
+              plus a channel proxy (Section 9.5, entry 10); and Risk is structural by
+              design and never claimed to be behavioural.
+            </p>
+            <p>
+              That is a property of <strong>the data generator</strong>, which draws
+              per-order outcomes independently of supplier identity. It is{" "}
+              <strong className="text-foreground">
+                not evidence that the scoring model is wrong
+              </strong>
+              , and no change to the locked formulas is warranted on the strength of it.
+              Real procurement data would plausibly show a genuine supplier lead-time
+              effect — and, importantly, causation running the other way as well:{" "}
+              <em>
+                buying method is chosen partly because of supplier capability
+              </em>
+              . Nobody runs an RFQ for a six-day emergency purchase. On real data a
+              short lead time on spot buys may be a real supplier property rather than a
+              channel artifact, and this dataset cannot distinguish the two — the
+              cross-channel test that would settle it returns exactly zero here
+              (<em>r</em> = −0.015), which is the generator&rsquo;s signature.
+            </p>
+            <p>
+              This is the same shape as the Quality finding recorded in 8.3: a component
+              that is inert on synthetic data and would be expected to discriminate on
+              real data. The honest summary is that{" "}
+              <strong className="text-foreground">
+                these components cannot be validated on this dataset
+              </strong>{" "}
+              — not that the composite fails to measure supplier behaviour in general.
+              The stronger claim is not supported and should not be written.
+            </p>
+          </section>
+        </CardContent>
+      </Card>
+
+      {/* 11. References */}
+      <Card className={cardElevation}>
+        <CardHeader>
+          <CardTitle>11. References</CardTitle>
         </CardHeader>
         <CardContent className="text-sm leading-relaxed text-muted-foreground">
           <ul className="list-disc space-y-1 pl-5">

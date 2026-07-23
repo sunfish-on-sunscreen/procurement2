@@ -183,6 +183,14 @@ proposed cut turned out to be buying method wearing a different label:
    rfq→Net 30 (151/151), tender→Net 30 (75/75), direct→Net 45 (98/98); only
    `call_off` splits (Net 30 63 / Net 45 66). Four of five methods carry exactly ONE
    term, so a per-term cut is a per-method cut.
+4. **LEAD TIME is 73-86% method-determined** — 73.0% of order-level variance; method
+   MIX explains 86.4% of between-supplier variance. There is NO residual supplier
+   effect (p = 0.266) and ZERO cross-channel consistency: across 32 suppliers using
+   two or more methods, a supplier's lead residual in one channel does not predict its
+   residual in another (r = -0.015, p = 0.933). Promised lead by method: spot_buy 6.4d,
+   call_off 12.5d, rfq 45.4d, tender 47.0d, direct 54.2d. ⚠️ This one reaches a LOCKED
+   INPUT — `delivery_score` carries 0.30 of the composite. See Methodology 10.3: it is
+   a DATASET property, not a model defect, and NO formula change is warranted.
 
 **The check is cheap: cross-tabulate the proposed dimension against `buying_method`
 before building anything.** If most methods map to one value of it, the breakdown
@@ -202,6 +210,34 @@ non-negative lower bound, not discipline. Full evidence in Methodology 9.5 entry
 read it from `PurchaseOrder` keyed by `poId` and INTERSECT against the view-derived
 frame — never re-spell `NOT EXISTS "PurchaseOrderVoid"`. The site count stays at FOUR.
 `lib/cycle-breakdown.ts` already does exactly this for the one salvaged finding below.
+
+⚠️ **DELIVERY SLIP MAGNITUDE IS DEAD — measured 2026-07-23, NOT built.** Slip adds
+nothing to the existing boolean (slip-given-late vs supplier on-time rate ρ = -0.196,
+p = 0.207; permutation on supplier mean slip p = 0.471). ⚠️ **The on-time BOOLEAN is
+itself a coin flip** at the global rate — exactly binomial at supplier-period grain
+(χ²/df = 1.03, p = 0.411), exact label permutation p = 0.955. There is no supplier
+signal to refine. ⚠️ **CORRECTED — `delivery_score`'s two halves contribute ~EQUALLY**
+(on-time 48.6% / lead 51.4% by covariance share; drop-one Spearman +0.727 / +0.794).
+An earlier reading called it lead-dominated from correlations of +0.880 vs +0.555 —
+that was a by-construction artifact (both halves correlate with their own sum). Do not
+revive it. Methodology 9.5 entry 10 carries the full evidence.
+⚠️ **`promisedDeliveryDate` is NOT on the `EnrichedPurchase` view** (same as
+`paymentTerms`). Any future build must read it from `PurchaseOrder` keyed by `poId`
+and INTERSECT against the view-derived frame — never re-spell `NOT EXISTS
+"PurchaseOrderVoid"`. The site count stays at FOUR.
+
+⚠️ **COMPOSITE VARIANCE SHARES ARE GRAIN-DEPENDENT — a share without its grain is
+UNUSABLE.** Risk is the only component that never varies within a supplier across
+periods (0 of 55, vs Delivery 49 / Process 36 / Quality 23), so aggregating years
+averages away the behavioural components while Risk's spread cannot move
+(sd 31.10 → 31.22). Shares by grain: **all-years default (55 suppliers) Q -1.0 /
+D 35.5 / P 9.1 / R 56.4** · 2024 (50) -0.7 / 44.0 / 23.8 / 32.8 · 2025 (51) +8.5 /
+32.9 / 12.9 / 45.7 · 2026 (50) +0.8 / 46.4 / 15.5 / 37.3. **"Risk is the dominant
+term" UNQUALIFIED IS NOT QUOTABLE** — true on the all-years view, false on 2024 and
+2026. Only "Quality contributes ~nothing" is stable at every grain. The pooled
+151-supplier-period population (Q +2.4 / D +42.6 / P +17.5 / R +37.5) is arithmetically
+fine but corresponds to NO view a user sees — do not quote it as a description of the
+dashboard. Full treatment in Methodology 10.
 
 ⚠️ **THE ONE REAL FINDING IT PRODUCED — 80% of Invoice→Payment is CONTRACTUAL.** The
 stage averages 36.3 days and is flagged as the slowest, which reads as ~36 days of
