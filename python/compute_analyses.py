@@ -8,7 +8,9 @@ Two modes:
   Mode B (on-the-fly):  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
       Computes over the date span and prints a single JSON object
       {spend_overview, abc, cycle_time, performance_spend, kraljic,
-      recommendations} to STDOUT. No DB writes.
+      recommendations, sourcing_coverage} to STDOUT. No DB writes.
+      ⚠️ SEVEN keys. This list is the de-facto contract for lib/range-analyses.ts
+      RANGE_TYPES — keep them in step when adding an analysis.
 
 Data is filtered by Purchase payment date — COALESCE(paymentDate, prDate) — so a
 period's compute covers exactly the rows tagged to it at import. Suppliers and
@@ -197,14 +199,76 @@ _ALL_METHOD_CYCLES = None
 
 
 def load_all_method_cycles(conn):
-    """Every PO's order-year, buying method and cycle days — the whole table, no
-    window filter. Reads the EnrichedPurchase VIEW, so voided orders are already
-    excluded and no new void-filter site is created."""
+    """Every PO's order-year, buying method, cycle days, VALUE and CATEGORY — the
+    whole table, no window filter. Reads the EnrichedPurchase VIEW, so voided orders
+    are already excluded and no new void-filter site is created.
+
+    Two consumers, both needing the same window-independent whole-table read:
+    cycle_time's mix-adjusted trend (period x method x cycle days) and
+    sourcing_coverage's mix decomposition (period x category x method x value).
+    ⚠️ `totalValueUsd` + `category` were ADDED for the second consumer. This is inert
+    for the first: _mix_adjusted_trend reads only `period`, `_method`, `_cycle` and
+    `_internal`, all derived from columns that were already here, so widening the
+    SELECT cannot move the cycle_time payload (proven by its unchanged md5)."""
     return _df(
         conn,
         'SELECT "poId", period, "buyingMethod", "totalCycleDays", "prToPoDays", '
-        '"deliveryToInvoiceDays", "invoiceToPaymentDays" '
+        '"deliveryToInvoiceDays", "invoiceToPaymentDays", "totalValueUsd", category '
         'FROM "EnrichedPurchase" ORDER BY "poId"',
+        (),
+    )
+
+
+# Sourcing bid graph + call-off framework windows. Both are keyed by poId and are
+# intersected against the WINDOW FRAME's poIds inside the emitter.
+#
+# ⚠️ NEITHER QUERY CARRIES A VOID FILTER, BY DESIGN. The window frame comes from the
+# EnrichedPurchase view and is therefore already void-excluded, so intersecting
+# against its poIds INHERITS the exclusion. Spelling `NOT EXISTS
+# "PurchaseOrderVoid"` here would create a FIFTH void-filter site — the exact trap
+# CLAUDE.md flags on load_po_lines ("THE EASY ONE TO MISS"), where a missed site
+# leaves a voided order moving one number while absent from every other. Four sites
+# is the documented count; keep it there.
+_SOURCING_EVENTS = None
+
+
+def load_sourcing_events(conn):
+    """Per-EVENT bid aggregates, joined to the PO(s) each event fed.
+
+    Aggregated PER EVENT rather than per bid row so an event feeding more than one
+    PO is still counted as ONE competitive process. The seeded data is 1:1 (226
+    events, 226 sourced POs) but the schema permits 1:N, and a bid-grain join would
+    silently double-count bids if it ever became so."""
+    return _df(
+        conn,
+        'SELECT po.id AS "poId", se.id AS "eventId", '
+        'agg.n_bids, agg.min_quote, agg.max_quote '
+        'FROM "SourcingEvent" se '
+        'JOIN "PurchaseOrder" po ON po."sourcingEventId" = se.id '
+        'JOIN (SELECT "sourcingEventId" AS eid, COUNT(*) AS n_bids, '
+        '             MIN("quotedUnitPriceUsd") AS min_quote, '
+        '             MAX("quotedUnitPriceUsd") AS max_quote '
+        '      FROM "Response" GROUP BY 1) agg ON agg.eid = se.id '
+        'ORDER BY se.id, po.id',
+        (),
+    )
+
+
+_CALLOFF_FRAMEWORKS = None
+
+
+def load_calloff_frameworks(conn):
+    """Call-off POs with a flag for whether the order fell outside its framework's
+    validity window. LEFT JOIN so a call-off with no framework is still returned
+    (it would be a data defect, and one worth being able to count)."""
+    return _df(
+        conn,
+        'SELECT po.id AS "poId", po."frameworkId", '
+        '(po."poDate" < f."startDate" OR po."poDate" > f."endDate") AS "outsideWindow" '
+        'FROM "PurchaseOrder" po '
+        'LEFT JOIN "Framework" f ON f.id = po."frameworkId" '
+        "WHERE po.\"buyingMethod\" = 'call_off' "
+        'ORDER BY po.id',
         (),
     )
 
@@ -1067,14 +1131,11 @@ def performance_spend_analysis(purchases, suppliers, metrics):
     }
 
 
-# cycle_time, kraljic and recommendations are computed separately in main()
-# because they need extra arguments beyond the (purchases, suppliers, metrics)
-# signature this loop uses.
-ANALYSES = [
-    ("spend_overview", spend_overview),
-    ("abc", abc_analysis),
-    ("performance_spend", performance_spend_analysis),
-]
+# ⚠️ The ANALYSES list moved DOWN, to just after sourcing_coverage's definition —
+# it holds function OBJECTS, so every member must already be defined when the module
+# executes this statement. It used to sit here (right after the last of its three
+# members); adding a fourth that is defined further down made that position a
+# NameError at import.
 
 
 # --------------------------------------------------------------------------- #
@@ -1357,7 +1418,492 @@ def kraljic_analysis(purchases, suppliers, metrics):
 
 
 # --------------------------------------------------------------------------- #
-# f) Recommendations engine  (synthesizes all 4 analyses into ranked actions)
+# f) Competitive sourcing coverage  (how the spend reached the market)
+# --------------------------------------------------------------------------- #
+# ⚠️ THREE BUCKETS, NOT TWO — and `framework` is PERMANENT, never folded into
+# either side. A call-off draws against a Framework agreement that in real
+# procurement was competed once, at framework award. But `Framework` carries NO
+# sourcing linkage in this schema — no awarded event, no responses, nothing — so
+# the data CANNOT say whether it was. Collapsing to a competed/uncompeted binary
+# would be wrong by the entire call-off share (44.78% of spend on the seeded data)
+# in whichever direction it were folded. That inability to verify is emitted as a
+# first-class finding (`unverifiable_share`), because naming the schema gap is more
+# actionable than any single coverage number.
+#
+# ⚠️ THIS DICT IS THE SINGLE DEFINITION of which method belongs to which bucket —
+# the same discipline SOURCED_METHODS/isSourcedMethod carries on the TS side. Never
+# re-inline a `method == "rfq"` style test; ask the map.
+COVERAGE_BUCKETS = {
+    "rfq": "competed",
+    "tender": "competed",
+    "call_off": "framework",
+    "direct": "uncompeted",
+    "spot_buy": "uncompeted",
+}
+BUCKET_ORDER = ("competed", "framework", "uncompeted")
+
+
+def _split(spend, pos, total_spend, total_pos):
+    """One bucket/slice as {spend, pos, spend_pct, pos_pct}."""
+    return {
+        "spend": num(float(spend), 2),
+        "pos": int(pos),
+        "spend_pct": num((float(spend) / total_spend * 100) if total_spend else 0.0, 2),
+        "pos_pct": num((pos / total_pos * 100) if total_pos else 0.0, 2),
+    }
+
+
+def _empty_coverage():
+    """A structurally complete, all-zero payload.
+
+    ⚠️ LOAD-BEARING. Mode A's success gate is `succeeded == len(all_types)`, so an
+    emitter that throws (or returns None) on a thin window turns EVERY recompute
+    into exit 1 — which would break supplier CRUD, imports, corrections and voids,
+    none of which are related to this analysis. Every early-out here returns a valid
+    payload instead of raising."""
+    zero = {"spend": 0, "pos": 0, "spend_pct": 0, "pos_pct": 0}
+    return {
+        "total_spend": 0,
+        "total_pos": 0,
+        "by_bucket": {b: dict(zero) for b in BUCKET_ORDER},
+        "by_method": {},
+        "by_category": [],
+        "by_supplier": [],
+        "bidding": {
+            "events": 0, "responses": 0, "avg_bids": None,
+            "min_bids": None, "max_bids": None, "bids_distribution": {},
+            "avg_quote_spread_pct": None, "median_quote_spread_pct": None,
+        },
+        "framework_leakage": {
+            "calloffs": 0, "with_framework": 0,
+            "outside_window": 0, "outside_window_spend": 0,
+        },
+        "unverifiable_share": {
+            "spend": 0, "spend_pct": 0, "pos": 0,
+            "reason": "framework_has_no_sourcing_linkage",
+        },
+        "unclassified": {"spend": 0, "pos": 0},
+        "mix_adjusted_coverage": {
+            "insufficient_data": True, "periods": [], "window_periods": [], "metrics": {},
+        },
+    }
+
+
+def _coverage_mix_shift(frame, window_periods=None):
+    """Shift-share of each bucket's SHARE OF SPEND, decomposed by CATEGORY.
+
+    For bucket k:  pooled_k = spend_k / spend_total = sum_c w_c * rate_c
+        w_c    = category c's share of the period's spend
+        rate_c = bucket k's share of category c's spend
+    The identity is exact because sum_c (spend_c/total) * (spend_ck/spend_c)
+    collapses to sum_c spend_ck / total. Hence:
+
+        mix    = sum_c (w_b[c] - w_a[c]) * rate_a[c]      (WHAT we bought changed)
+        within = sum_c  w_b[c] * (rate_b[c] - rate_a[c])  (HOW we bought it changed)
+        mix + within == pooled_b - pooled_a, exactly.
+
+    This is the whole point of the metric. Competitive coverage is strongly
+    ASSOCIATED with category (proprietary OEM items are bought direct because they
+    cannot be competed, not because anyone chose not to), so some part of any
+    year-over-year move is just a change in what was bought. The decomposition says
+    HOW MUCH — and the answer must be read, never assumed.
+
+    ⚠️ On this data it is NOT mostly mix. The 9.89-point fall in competed share in
+    2025 splits -3.51 MIX / -6.37 WITHIN, so roughly two thirds of it is a real
+    change in how the same categories were bought; the 2026 recovery (+7.43) is
+    almost entirely within (mix -0.02). An earlier draft of this very comment
+    asserted the opposite — that the move was "mostly a purchasing-mix shift" —
+    and the emitter it documents disproves it. That is exactly why the split is
+    computed instead of the intuition being stated as a finding. Do not
+    re-introduce a claim about which side dominates without re-reading the output.
+
+    A category absent from one side takes the other side's rate, which attributes
+    its whole contribution to MIX (a category appearing or vanishing IS a
+    composition change) and keeps the identity exact.
+
+    ⚠️ WINDOW-INDEPENDENT. `frame` is the WHOLE table, so a transition reads the
+    same number on every period selection; `window_periods` is carried purely as a
+    DISPLAY hint (show transitions ENDING inside the selection). Same contract as
+    _mix_adjusted_trend.
+
+    ⚠️ PARALLEL to _mix_adjusted_trend, deliberately NOT a refactor of it. That one
+    is COUNT-weighted over a per-PO numeric mean, keyed by METHOD; this one is
+    SPEND-weighted over a categorical share, keyed by CATEGORY. Extracting a shared
+    generic would put a verified, shipped cycle-time payload on the regression
+    surface to save a few dozen lines — the same call already made for
+    CorrectionCard vs RecordPurchaseCard.
+
+    ⚠️ DECOMPOSITION ONLY — an arithmetic identity, no distributional assumptions,
+    so no p-values and nothing here can be misread as inference. Effects are in
+    PERCENTAGE POINTS of spend share, since the metric is itself a share.
+    """
+    # A frame missing any input column degrades to "insufficient" instead of
+    # raising. The caller's own no-buyingMethod branch is only honest if this
+    # cannot throw behind it.
+    needed = ("period", "_value", "_cat", "_bucket")
+    if any(col not in frame.columns for col in needed):
+        return {
+            "insufficient_data": True, "periods": [],
+            "window_periods": sorted(str(x) for x in (window_periods or [])),
+            "metrics": {},
+        }
+    periods = sorted(str(x) for x in frame["period"].dropna().unique())
+    out = {
+        "insufficient_data": len(periods) < 2,
+        "periods": periods,
+        "window_periods": sorted(str(x) for x in (window_periods or [])),
+        "metrics": {},
+    }
+    if len(periods) < 2:
+        return out
+
+    cats = sorted(str(x) for x in frame["_cat"].dropna().unique())
+    for bucket in BUCKET_ORDER:
+        by_period = {}
+        for per in periods:
+            g = frame[frame["period"].astype(str) == per]
+            tot = float(g["_value"].sum())
+            rates, shares = {}, {}
+            for c in cats:
+                gc = g[g["_cat"].astype(str) == c]
+                cat_spend = float(gc["_value"].sum())
+                shares[c] = (cat_spend / tot) if tot else 0.0
+                if cat_spend:
+                    rates[c] = float(gc[gc["_bucket"] == bucket]["_value"].sum()) / cat_spend
+                else:
+                    rates[c] = None
+            pooled = (
+                float(g[g["_bucket"] == bucket]["_value"].sum()) / tot if tot else None
+            )
+            by_period[per] = {"pooled": pooled, "rates": rates, "shares": shares,
+                              "spend": tot, "n": int(len(g))}
+
+        transitions = []
+        for a, b in zip(periods, periods[1:]):
+            A, B = by_period[a], by_period[b]
+            if A["pooled"] is None or B["pooled"] is None:
+                continue
+            mix = within = 0.0
+            per_category = []
+            for c in cats:
+                ra, rb = A["rates"][c], B["rates"][c]
+                if ra is None and rb is None:
+                    continue
+                ra_e = ra if ra is not None else rb
+                rb_e = rb if rb is not None else ra
+                wa, wb = A["shares"][c], B["shares"][c]
+                mix += (wb - wa) * ra_e
+                within += wb * (rb_e - ra_e)
+                per_category.append({
+                    "category": c,
+                    "from_rate_pct": num(ra * 100, 2) if ra is not None else None,
+                    "to_rate_pct": num(rb * 100, 2) if rb is not None else None,
+                    "within_change_pct": num((rb_e - ra_e) * 100, 2),
+                    "from_share_pct": num(wa * 100, 2),
+                    "to_share_pct": num(wb * 100, 2),
+                })
+            pooled_change = B["pooled"] - A["pooled"]
+            # Sign reversal, or a pooled move under half the within-category move.
+            # Threshold is 1.0 PERCENTAGE POINT of spend share (the cycle-time
+            # sibling uses 1.0 DAY) — below that the decomposition is noise either way.
+            sign_flip = (pooled_change * within) < 0 and abs(within * 100) >= 1.0
+            masked = (
+                not sign_flip
+                and abs(within * 100) >= 1.0
+                and abs(pooled_change) < abs(within) / 2
+            )
+            # ⚠️ THIRD CASE, and the one this whole feature exists to prevent: a large
+            # pooled move that is almost entirely COMPOSITION. Without it, a coverage
+            # drop caused purely by buying more OEM equipment reads as a decline in
+            # buying discipline — the precise misreading the decomposition was built
+            # to stop. The other two branches only catch the pooled number being too
+            # SMALL; this catches it being real but attributable to the wrong cause.
+            # Inert on current data (no live transition is mix-dominated).
+            mix_dominated = (
+                not sign_flip and not masked
+                and abs(pooled_change * 100) >= 1.0
+                and abs(mix) >= 2 * abs(within)
+            )
+            # Exact by construction, EXCEPT where a category's period spend nets to
+            # zero while it still holds bucket spend (only reachable with signed
+            # values that cancel). Emitted rather than assumed: a silent residual
+            # would be a wrong decomposition wearing a correct-looking total, so it
+            # is surfaced the same way `unclassified` surfaces an unknown method.
+            residual = pooled_change - (mix + within)
+            transitions.append({
+                "from": a,
+                "to": b,
+                "from_pooled_pct": num(A["pooled"] * 100, 2),
+                "to_pooled_pct": num(B["pooled"] * 100, 2),
+                "pooled_change_pct": num(pooled_change * 100, 2),
+                "mix_effect_pct": num(mix * 100, 2),
+                "within_effect_pct": num(within * 100, 2),
+                "residual_pct": num(residual * 100, 4),
+                "pooled_misleading": bool(sign_flip or masked or mix_dominated),
+                "reason": (
+                    "sign_reversal" if sign_flip
+                    else "magnitude_masked" if masked
+                    else "mix_dominated" if mix_dominated
+                    else None
+                ),
+                "per_category": per_category,
+            })
+
+        out["metrics"][bucket] = {
+            "per_period": {
+                per: {
+                    "n": by_period[per]["n"],
+                    "spend": num(by_period[per]["spend"], 2),
+                    "pooled_pct": num(by_period[per]["pooled"] * 100, 2)
+                    if by_period[per]["pooled"] is not None else None,
+                    "shares_pct": {c: num(by_period[per]["shares"][c] * 100, 2) for c in cats},
+                    "rates_pct": {
+                        c: (num(by_period[per]["rates"][c] * 100, 2)
+                            if by_period[per]["rates"][c] is not None else None)
+                        for c in cats
+                    },
+                }
+                for per in periods
+            },
+            "transitions": transitions,
+        }
+    return out
+
+
+def sourcing_coverage(purchases, suppliers, metrics):
+    """Competitive-sourcing coverage: how much spend reached the market through a
+    competitive process, how much drew on a framework, and how much did neither.
+
+    ⚠️ DESCRIPTIVE, NOT AN INDICTMENT. High-value spend concentrates in the
+    sole-source OEM and framework channels (median PO value: spot_buy $57.8k, rfq
+    $608.5k, tender $1.21M, direct $2.08M, call_off $2.37M). That is NOT evidence of
+    weak buyer discipline: every `direct` order on this data carries a
+    proprietary/OEM sole-source justification, and an OEM part genuinely cannot be
+    competed. The emitter therefore reports the SHAPE of the portfolio and leaves it
+    at that — no scoring, no ranking, no recommendation.
+
+    ⚠️ SEVERAL OBVIOUS-LOOKING METRICS ARE DELIBERATELY ABSENT because they are
+    degenerate on this data. Verified before building, not assumed:
+      · award-to-cheapest      — 226/226 awards went to price rank 1; all-pass.
+      · single-bid exposure    — minimum bid count per event is 2; permanently zero.
+      · bid response rate      — invited always equals responded; permanently 100%.
+      · quote-spread CUTS      — spread is an order statistic of the bid count
+        (2 bids 9.22% / 3 bids 12.80% / 4 bids 13.06%). Holding bid count at 3, the
+        category (11.15-13.44), period (12.85/12.71/12.84) and supplier cuts all go
+        FLAT within sampling noise. A category breakdown would report the bid-count
+        mix wearing a category label. The PORTFOLIO number is emitted; no cut is.
+      · savings vs the field   — the award is always the minimum, so this is a
+        deterministic re-expression of the spread. It also has a scoping trap: a
+        Response carries ONE quoted price matching ONE PO line, and that line is
+        only ~65% of PO value on average, so any dollar figure invites being scaled
+        onto the full competed spend and overstating by ~1.5x.
+      · uncompeted price premium — computable on the 26 items bought both ways, and
+        pure noise: mean +4.58%, median -6.98%, sd 61.96%, with 14 of the 26 items
+        CHEAPER uncompeted against only 12 dearer. The scatter is ~13x the effect,
+        so the sign of the "premium" is decided by which items you happen to pick.
+    The Methodology page carries the full version of this list and the evidence for
+    each exclusion; keep the two in sync if either changes."""
+    if len(purchases) == 0:
+        return _empty_coverage()
+
+    p = purchases.copy()
+    p["_value"] = pd.to_numeric(p["totalValueUsd"], errors="coerce").fillna(0.0)
+    if "buyingMethod" in p.columns:
+        p["_method"] = p["buyingMethod"].astype(str)
+    else:
+        # Pre-migration view (no buyingMethod column). Everything lands in
+        # `unclassified` rather than being silently attributed to a bucket.
+        p["_method"] = ""
+    p["_bucket"] = p["_method"].map(COVERAGE_BUCKETS)
+
+    total_spend = float(p["_value"].sum())
+    total_pos = int(len(p))
+
+    by_bucket = {}
+    for b in BUCKET_ORDER:
+        g = p[p["_bucket"] == b]
+        by_bucket[b] = _split(g["_value"].sum(), len(g), total_spend, total_pos)
+
+    # An unknown/blank method is unreachable — both import paths reject the
+    # vocabulary — but it is COUNTED rather than absorbed, so a regression that
+    # introduced one would be visible instead of silently inflating a bucket.
+    # Mirrors PeriodComparison.excluded_n.
+    unk = p[p["_bucket"].isna()]
+    unclassified = {"spend": num(float(unk["_value"].sum()), 2), "pos": int(len(unk))}
+
+    by_method = {}
+    for m in sorted(p["_method"].dropna().unique()):
+        g = p[p["_method"] == m]
+        vals = g["_value"]
+        by_method[str(m)] = {
+            **_split(vals.sum(), len(g), total_spend, total_pos),
+            "bucket": COVERAGE_BUCKETS.get(str(m)),
+            "median_po_value": num(float(vals.median()), 2) if len(vals) else None,
+            "avg_po_value": num(float(vals.mean()), 2) if len(vals) else None,
+        }
+
+    # ⚠️ COMPLETE, never capped — the compute layer emits the full set and the
+    # DISPLAY decides what to truncate. Capping here is the documented trap that
+    # poisoned three separate displayed counts (.head(15) outliers, head(8)+Other
+    # categories, [:5] recommendations).
+    # ⚠️ A NULL category is STRUCTURALLY POSSIBLE — the view reaches `category` through
+    # `LEFT JOIN dom_cat`, so a PO carrying no lines would arrive with it unset (and
+    # with a NULL value too). Zero such rows exist today and no sanctioned write path
+    # can make one (every writer requires at least one line), but dropping NULLs here
+    # would silently shrink by_category below total_spend — the same silent-drop shape
+    # the compute-layer cap trap produced three times. Bucketed explicitly instead, so
+    # the rows always re-sum to the total.
+    if "category" in p.columns:
+        p["_cat"] = p["category"].where(p["category"].notna(), "(uncategorized)").astype(str)
+    else:
+        p["_cat"] = "(uncategorized)"
+    by_category = []
+    for c in sorted(str(x) for x in p["_cat"].unique()):
+        g = p[p["_cat"] == c]
+        cs = float(g["_value"].sum())
+        row = {"category": c, "spend": num(cs, 2), "pos": int(len(g))}
+        for b in BUCKET_ORDER:
+            gb = g[g["_bucket"] == b]
+            row[f"{b}_pct"] = num(
+                (float(gb["_value"].sum()) / cs * 100) if cs else 0.0, 2
+            )
+        by_category.append(row)
+    by_category.sort(key=lambda r: (-(r["spend"] or 0), r["category"]))
+
+    name_by_sid = {}
+    if len(p):
+        name_by_sid = (
+            p.drop_duplicates("supplierExternalId")
+            .set_index("supplierExternalId")["supplierName"]
+            .to_dict()
+        )
+    by_supplier = []
+    for sid in sorted(str(x) for x in p["supplierExternalId"].dropna().unique()):
+        g = p[p["supplierExternalId"].astype(str) == sid]
+        ss = float(g["_value"].sum())
+        row = {
+            "supplier_id": sid,
+            "supplier_name": str(name_by_sid.get(sid, sid)),
+            "spend": num(ss, 2),
+            "pos": int(len(g)),
+            "methods_used": int(g["_method"].nunique()),
+        }
+        for b in BUCKET_ORDER:
+            gb = g[g["_bucket"] == b]
+            row[f"{b}_pct"] = num(
+                (float(gb["_value"].sum()) / ss * 100) if ss else 0.0, 2
+            )
+        by_supplier.append(row)
+    by_supplier.sort(key=lambda r: (-(r["spend"] or 0), r["supplier_id"]))
+
+    # --- bidding descriptives (PORTFOLIO ONLY — see the docstring on cuts) ----- #
+    win_pos = set(p["poId"].astype(str))
+    bidding = dict(_empty_coverage()["bidding"])
+    if _SOURCING_EVENTS is not None and len(_SOURCING_EVENTS) > 0:
+        se = _SOURCING_EVENTS[_SOURCING_EVENTS["poId"].astype(str).isin(win_pos)]
+        # Per EVENT, not per PO: an event feeding two POs is one competitive process.
+        se = se.drop_duplicates("eventId")
+        if len(se) > 0:
+            nb = pd.to_numeric(se["n_bids"], errors="coerce").dropna()
+            lo = pd.to_numeric(se["min_quote"], errors="coerce")
+            hi = pd.to_numeric(se["max_quote"], errors="coerce")
+            spread = ((hi - lo) / lo * 100).where(lo > 0).dropna()
+            dist = nb.astype(int).value_counts().sort_index()
+            bidding = {
+                "events": int(len(se)),
+                "responses": int(nb.sum()) if len(nb) else 0,
+                "avg_bids": num(float(nb.mean()), 2) if len(nb) else None,
+                "min_bids": int(nb.min()) if len(nb) else None,
+                "max_bids": int(nb.max()) if len(nb) else None,
+                "bids_distribution": {str(int(k)): int(v) for k, v in dist.items()},
+                "avg_quote_spread_pct": num(float(spread.mean()), 2) if len(spread) else None,
+                "median_quote_spread_pct": num(float(spread.median()), 2) if len(spread) else None,
+            }
+
+    # --- framework leakage ---------------------------------------------------- #
+    # A call-off placed outside its framework's validity window: the one genuine
+    # exception the sourcing data carries. CLAUDE.md records the 15 seeded cases as
+    # a deliberate property (the date window is intentionally NOT enforced at
+    # write time), so this is a live check demonstrating on known data.
+    leakage = dict(_empty_coverage()["framework_leakage"])
+    calloff = p[p["_bucket"] == "framework"]
+    leakage["calloffs"] = int(len(calloff))
+    if _CALLOFF_FRAMEWORKS is not None and len(_CALLOFF_FRAMEWORKS) > 0 and len(calloff):
+        cf = _CALLOFF_FRAMEWORKS[_CALLOFF_FRAMEWORKS["poId"].astype(str).isin(win_pos)]
+        if len(cf) > 0:
+            value_by_po = dict(zip(p["poId"].astype(str), p["_value"]))
+            has_fw = cf[cf["frameworkId"].notna()]
+            outside = cf[cf["outsideWindow"].fillna(False).astype(bool)]
+            leakage["with_framework"] = int(len(has_fw))
+            leakage["outside_window"] = int(len(outside))
+            leakage["outside_window_spend"] = num(
+                float(sum(value_by_po.get(str(x), 0.0) for x in outside["poId"])), 2
+            )
+
+    # --- THE DATA GAP, as a finding ------------------------------------------- #
+    # Not a caveat buried in a footnote: the share of spend whose competitive basis
+    # CANNOT BE ESTABLISHED from this schema, stated as a number. It names a
+    # concrete schema improvement (link Framework to the sourcing event that
+    # awarded it) and is more actionable than any coverage percentage.
+    fw = by_bucket["framework"]
+    unverifiable = {
+        "spend": fw["spend"],
+        "spend_pct": fw["spend_pct"],
+        "pos": fw["pos"],
+        "reason": "framework_has_no_sourcing_linkage",
+    }
+
+    # --- window-independent mix decomposition --------------------------------- #
+    window_periods = (
+        sorted(str(x) for x in p["period"].dropna().unique())
+        if "period" in p.columns else []
+    )
+    if _ALL_METHOD_CYCLES is not None and len(_ALL_METHOD_CYCLES) > 0:
+        allm = _ALL_METHOD_CYCLES.copy()
+        allm["_value"] = pd.to_numeric(allm["totalValueUsd"], errors="coerce").fillna(0.0)
+        allm["_cat"] = allm["category"].astype(str)
+        allm["_bucket"] = allm["buyingMethod"].astype(str).map(COVERAGE_BUCKETS)
+    else:
+        # Direct unit-test call that never set the global (the _ROSTER_CAT_COUNTS
+        # convention) — fall back to the window frame.
+        # ⚠️ REUSE the columns already derived above (_value / _cat / _bucket) rather
+        # than re-deriving from raw ones. Re-deriving made this path depend on raw
+        # columns the caller may not carry, so the "everything lands in unclassified"
+        # branch above promised a graceful degradation that this line then defeated
+        # with a KeyError 150 lines later. Found by adversarial review; the two
+        # skeptics that examined it BOTH judged it unreachable and both were wrong —
+        # it reproduces on a plain drop(columns=["buyingMethod"]) call.
+        allm = p
+    mix_adjusted_coverage = _coverage_mix_shift(allm, window_periods=window_periods)
+
+    return {
+        "total_spend": num(total_spend, 2),
+        "total_pos": total_pos,
+        "by_bucket": by_bucket,
+        "by_method": by_method,
+        "by_category": by_category,
+        "by_supplier": by_supplier,
+        "bidding": bidding,
+        "framework_leakage": leakage,
+        "unverifiable_share": unverifiable,
+        "unclassified": unclassified,
+        "mix_adjusted_coverage": mix_adjusted_coverage,
+    }
+
+
+# cycle_time, kraljic and recommendations are computed separately in main()
+# because they need extra arguments beyond the (purchases, suppliers, metrics)
+# signature this loop uses.
+ANALYSES = [
+    ("spend_overview", spend_overview),
+    ("abc", abc_analysis),
+    ("performance_spend", performance_spend_analysis),
+    ("sourcing_coverage", sourcing_coverage),
+]
+
+
+# --------------------------------------------------------------------------- #
+# g) Recommendations engine  (synthesizes all 4 analyses into ranked actions)
 #    Self-contained: recomputes its own intermediate data via the shared 11A
 #    helpers so it never depends on execution order. All impact scores are
 #    normalized to [0, 100] so the global ranking is comparable across the
@@ -1803,11 +2349,25 @@ def main():
         )
 
         # Window-INDEPENDENT year-over-year mix decomposition (see _ALL_METHOD_CYCLES).
+        # Feeds BOTH cycle_time's mix-adjusted trend and sourcing_coverage's
+        # category mix decomposition — one whole-table read, two consumers.
         global _ALL_METHOD_CYCLES
         _ALL_METHOD_CYCLES = load_all_method_cycles(conn)
         log(
             f"Loaded all-period method cycles: {len(_ALL_METHOD_CYCLES)} POs across "
             f"{_ALL_METHOD_CYCLES['period'].nunique()} periods (window-independent)"
+        )
+
+        # Sourcing bid graph + call-off framework windows. Keyed by poId and
+        # intersected against the window frame inside the emitter, which inherits
+        # the view's void exclusion instead of re-spelling it (no 5th void site).
+        global _SOURCING_EVENTS, _CALLOFF_FRAMEWORKS
+        _SOURCING_EVENTS = load_sourcing_events(conn)
+        _CALLOFF_FRAMEWORKS = load_calloff_frameworks(conn)
+        log(
+            f"Loaded sourcing graph: {_SOURCING_EVENTS['eventId'].nunique()} events "
+            f"across {len(_SOURCING_EVENTS)} sourced POs, "
+            f"{len(_CALLOFF_FRAMEWORKS)} call-offs with framework windows"
         )
 
         suppliers, purchases, metrics = load_frames(conn, start_ts, end_ts)
