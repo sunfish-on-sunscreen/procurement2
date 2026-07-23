@@ -151,10 +151,14 @@ export function CycleTimeGlancePanel({
     ? [...categories].sort((a, b) => b.total_mean - a.total_mean)[0]
     : null;
 
-  // Outliers (z > 2σ) + the worst cycle among them.
+  // The slowest orders in the window + the worst cycle among them.
+  // NOT an outlier test: this is a descriptive top-slice above the window mean
+  // (see Methodology 3.4 — the distribution is a bounded plateau, and every
+  // spread-based detector flags nothing at all).
   const outlierRows = cycleTime.anomalies;
   const outliers = outlierRows.length;
   const maxOutlier = outliers ? Math.max(...outlierRows.map((a) => a.cycle_days ?? 0)) : 0;
+  const cycleMean = cycleTime.distribution.mean ?? 0;
 
   // Inconsistent suppliers (IQR > 1.5× portfolio-median IQR) — same rule as the anomaly card.
   const iqrMedian = medianOf(roster.map((r) => r.iqr));
@@ -174,14 +178,20 @@ export function CycleTimeGlancePanel({
   if (outliers > 0) {
     bullets.push(
       <li key="outliers">
-        <strong>{num0.format(outliers)}</strong> PO{outliers === 1 ? "" : "s"} run beyond 2σ
-        {maxOutlier > 0 ? (
+        {/* ⚠️ Lead with DAYS, not a z-score. "up to 171 days against an 88-day
+            average" is something a reader can act on; "z > 2" implies a
+            normality basis this data does not have (see Methodology 3.4). */}
+        <strong>{num0.format(outliers)}</strong> PO{outliers === 1 ? "" : "s"} ran well above
+        the window average
+        {maxOutlier > 0 && cycleMean > 0 ? (
           <>
             {" "}
-            (up to <strong>{num0.format(maxOutlier)}</strong> days)
+            — up to <strong>{num0.format(maxOutlier)}</strong> days, against a window
+            average of <strong>{num0.format(Math.round(cycleMean))}</strong> days
           </>
-        ) : null}{" "}
-        — flagged for investigation.
+        ) : null}
+        . Longest cycles, not a statistical outlier test — they are almost always
+        direct awards, which carry the longest lead times by design.
       </li>,
     );
   }

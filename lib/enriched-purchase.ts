@@ -33,6 +33,10 @@ export interface EnrichedPurchaseRow {
   defectCount: number;
   complaintCount: number;
   period: string; // order-year "2024" | "2025" | "2026"
+  /** rfq | tender | spot_buy | call_off | direct. Already returned by the
+   *  `SELECT *` above — this only declares a column the view has carried since
+   *  `20260723130000_add_buying_method_to_enriched_view`. No query change. */
+  buyingMethod: string;
 }
 
 export interface EnrichedPurchaseFilter {

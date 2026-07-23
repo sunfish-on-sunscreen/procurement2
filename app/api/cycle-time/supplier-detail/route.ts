@@ -41,7 +41,7 @@ const STAGE_FIELD: Record<CycleStageKey, "prToPoDays" | "poToDeliveryDays" | "de
  * Per-supplier cycle-time drill-down for the selected span: identity +
  * classification context (ABC / Kraljic / composite, period-scoped via
  * getRangeAnalyses) + per-stage medians (supplier vs portfolio) + the supplier's
- * PO list with the slowest stage per PO and an anomaly flag (total cycle > 2σ
+ * PO list with the slowest stage per PO and a long-cycle flag (total cycle far above
  * above the span mean, matching the cycle_time analysis). Login required.
  */
 export async function GET(request: Request) {
@@ -97,7 +97,8 @@ export async function GET(request: Request) {
     (s) => s.supplier_id === supplierId,
   );
 
-  // Portfolio cycle mean + sample std (ddof=1) for the anomaly z-score.
+  // Portfolio cycle mean + sample std (ddof=1). The std sets the flag threshold;
+  // it is NOT a normality claim - see Methodology 3.4.
   const allCycles = allPurchases.map((p) => p.totalCycleDays);
   const n = allCycles.length;
   const mean = n ? allCycles.reduce((s, x) => s + x, 0) / n : 0;
@@ -150,6 +151,7 @@ export async function GET(request: Request) {
         slowest_stage: slow.key,
         slowest_stage_label: labelOf(slow.key),
         is_anomaly: z > 2,
+        buying_method: p.buyingMethod,
       };
     })
     .sort((a, b) => b.total_cycle_days - a.total_cycle_days);

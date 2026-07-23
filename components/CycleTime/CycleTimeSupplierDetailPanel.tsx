@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { METHOD_LABEL } from "@/lib/cycle-mix";
 import { X, Loader2, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import {
   BarChart,
@@ -645,7 +646,21 @@ function PoList({
                 <td className="py-1.5 pl-3">
                   {isFlagged ? (
                     <span className="flex flex-wrap gap-1">
-                      {p.is_anomaly && <FlagBadge color="var(--warning)" label="Outlier" />}
+                      {p.is_anomaly && (
+                        <>
+                          <FlagBadge color="var(--warning)" label="Long cycle" />
+                          {/* ⚠️ The buying method rides WITH the flag, never apart from
+                              it. The long-cycle cut is effectively a proxy for "direct
+                              award" (the only method whose cycle range reaches the
+                              threshold), so a bare flag invites reading a process
+                              failure into the expected shape of that channel. */}
+                          {p.buying_method && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {METHOD_LABEL[p.buying_method] ?? p.buying_method}
+                            </span>
+                          )}
+                        </>
+                      )}
                       {isStageDom && <FlagBadge color="var(--destructive)" label="Stage-dom" />}
                     </span>
                   ) : (

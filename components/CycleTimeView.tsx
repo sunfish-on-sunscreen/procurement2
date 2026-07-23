@@ -564,32 +564,51 @@ function ThreeWayMatchTable({
   );
 }
 
-// ---- Outlier POs table (sortable, top 10 + show all) ----------------------- #
-// Native z>2σ anomaly list. Rendered in reports / range-compute; the dashboard
-// hides it (showAnomaliesTable={false}) since PO-level detail moved to the
-// per-supplier drill-down.
-function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
+// ---- Longest-cycle POs table (sortable, top 10 + show all) ----------------- #
+// The orders running furthest above the window's mean total cycle. Rendered in
+// reports / range-compute; the dashboard hides it (showAnomaliesTable={false})
+// since PO-level detail moved to the per-supplier drill-down.
+//
+// ⚠️ NOT an outlier test, and it must not be labelled as one. See Methodology 3.4:
+// the cycle distribution is a bounded plateau (excess kurtosis ~-1.19), so every
+// spread-based detector — Tukey 1.5x and 3x, MAD-z>3.5, z>3 — flags NOTHING. This
+// is a descriptive top-slice, so the table leads with DAYS ABOVE AVERAGE, which a
+// reader can act on, rather than a z-score, which would imply a normality basis.
+function AnomaliesTable({
+  data,
+  mean,
+  methodByPo,
+}: {
+  data: CycleTimeResult["anomalies"];
+  mean: number;
+  // Buying method per PO, supplied where the caller has the breakdown. The flagged
+  // set is almost entirely `direct` — the only method whose cycle range reaches the
+  // threshold at all — so naming it stops a reader inferring a process failure.
+  methodByPo?: Record<string, string>;
+}) {
   const [showAll, setShowAll] = useState(false);
   const { sorted, sort, toggle } = useTableSort<CycleTimeResult["anomalies"][number], string>(
     data,
     (r, k) => (r as unknown as Record<string, number | string | null>)[k],
-    "z_score",
+    "cycle_days",
     "desc",
   );
   const rows = showAll ? sorted : sorted.slice(0, 10);
   return (
     <Card id="cycle-anomalies" className={cardElevation}>
       <CardHeader>
-        <CardTitle>Outlier POs</CardTitle>
+        <CardTitle>Longest-cycle POs</CardTitle>
         <CardDescription>
-          POs with cycle time more than 2 standard deviations above the mean
-          (Z-score &gt; 2), worth investigating.
+          The orders running furthest above this window&rsquo;s {Math.round(mean)}-day
+          average cycle. A descriptive list of the slowest orders, not a statistical
+          outlier test &mdash; see Methodology.
+          {methodByPo ? " Buying method is shown because these are almost always direct awards, which carry the longest lead times by design." : ""}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            No POs exceeded the 2σ anomaly threshold this period.
+            No order ran far enough above the window average to stand out this period.
           </p>
         ) : (
           <>
@@ -599,8 +618,9 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
                   <SortHead label="PO ID" sortKey="po_id" active={sort.key === "po_id"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
                   <SortHead label="Supplier" sortKey="supplier_name" active={sort.key === "supplier_name"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
                   <SortHead label="Invoice Date" sortKey="invoice_date" active={sort.key === "invoice_date"} dir={sort.dir} onSort={toggle} defaultDir="asc" />
+                  {methodByPo && <TableHead>Method</TableHead>}
                   <SortHead label="Cycle Days" sortKey="cycle_days" active={sort.key === "cycle_days"} dir={sort.dir} onSort={toggle} align="right" />
-                  <SortHead label="Z-Score" sortKey="z_score" active={sort.key === "z_score"} dir={sort.dir} onSort={toggle} align="right" />
+                  <TableHead className="text-right">vs average</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -611,9 +631,16 @@ function AnomaliesTable({ data }: { data: CycleTimeResult["anomalies"] }) {
                     <TableCell className="tabular-nums text-muted-foreground">
                       {a.invoice_date ?? "—"}
                     </TableCell>
+                    {methodByPo && (
+                      <TableCell className="text-muted-foreground">
+                        {METHOD_LABEL[methodByPo[a.po_id] ?? ""] ?? methodByPo[a.po_id] ?? "—"}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right tabular-nums">{a.cycle_days ?? "—"}</TableCell>
                     <TableCell className="text-right font-medium tabular-nums text-destructive">
-                      {a.z_score.toFixed(2)}
+                      {a.cycle_days != null && mean > 0
+                        ? `+${Math.round(a.cycle_days - mean)}d`
+                        : "—"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -680,6 +707,7 @@ export function CycleTimeView({
   data,
   embedded = false,
   showAnomaliesTable = true,
+  methodByPo,
   showMonthlyTrend = true,
   showStatGrid = true,
   showStageDecomposition = true,
@@ -693,6 +721,9 @@ export function CycleTimeView({
   // The dashboard hides the Outlier POs table (PO detail moved to the per-supplier
   // drill-down); reports + range-compute keep it (default true).
   showAnomaliesTable?: boolean;
+  // Per-PO buying method for the longest-cycle table. Optional: range-compute has
+  // no breakdown to derive it from, and the column simply omits there.
+  methodByPo?: Record<string, string>;
   // The dashboard replaces the Monthly Cycle Time Trend with the stage-occupancy
   // chart (in CycleTimeClient); reports + range-compute keep the trend (default true).
   showMonthlyTrend?: boolean;
@@ -786,7 +817,13 @@ export function CycleTimeView({
 
       {showMethodBreakdown && <CycleByMethodTable data={data} />}
 
-      {showAnomaliesTable && <AnomaliesTable data={data.anomalies} />}
+      {showAnomaliesTable && (
+        <AnomaliesTable
+          data={data.anomalies}
+          mean={data.distribution.mean ?? 0}
+          methodByPo={methodByPo}
+        />
+      )}
     </>
   );
 }

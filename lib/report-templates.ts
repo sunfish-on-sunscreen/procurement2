@@ -487,8 +487,8 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         1,
       )} days — the first place to look for cycle-time savings.`;
       const outlier = c.topAnomaly
-        ? ` Investigate outliers such as ${c.topAnomaly.po_id} (${c.topAnomaly.supplier_name}, ${c.topAnomaly.cycle_days} days); ${c.anomalyCount} PO(s) exceeded the 2σ anomaly threshold.`
-        : ` No POs exceeded the 2σ anomaly threshold this period.`;
+        ? ` The longest cycles are worth a look — ${c.topAnomaly.po_id} (${c.topAnomaly.supplier_name}) ran ${c.topAnomaly.cycle_days} days against a ${c.cycleMean.toFixed(0)}-day average; ${c.anomalyCount} PO(s) sit in the slowest slice of this window.`
+        : ` No PO ran far enough above the ${c.cycleMean.toFixed(0)}-day average to stand out this period.`;
       const cmp = c.cmpInsufficient
         ? skipClause(c)
         : c.cmpSignificant
@@ -516,7 +516,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           : ""
       }`,
     methodology: () =>
-      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned performance score against spend. Cycle time is monitored on total procure-to-pay days, with Z-score outlier detection and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendations are grouped by source analysis (Spend / Suppliers / Process); use the named actions directly, each mapping to a specific supplier or process stage.`,
+      `ABC uses fixed 80% / 95% thresholds (Pareto principle). Supplier segmentation uses the Kraljic Matrix — a median split of profit impact (log spend) against supply risk into four quadrants. Performance vs Spend crosses the CIPS-aligned performance score against spend. Cycle time is monitored on total procure-to-pay days, with a descriptive slowest-orders cut and an optional period-vs-period Mann-Whitney U comparison (α = 0.05). Recommendations are grouped by source analysis (Spend / Suppliers / Process); use the named actions directly, each mapping to a specific supplier or process stage.`,
   },
 
   // ---- ANALYTICAL: analyst. Data-heavy, statistical framing, caveats, methodology.
@@ -581,7 +581,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )}); ${skewPhrase}. The slowest sub-process is ${c.slowestStage} (mean ${c.slowestStageMean.toFixed(
         1,
       )} d).`;
-      const anom = ` Z-score screening flags ${c.anomalyCount} PO(s) with cycle time > 2σ above the mean as outliers.`;
+      const anom = ` ${c.anomalyCount} PO(s) run far enough above the ${c.cycleMean.toFixed(0)}-day window average to be listed as the slowest orders — a descriptive cut, not a statistical outlier test.`;
       const test = c.cmpInsufficient
         ? ` The optional within-window comparison is not computable for the current selection (n_a = ${intl.format(
             c.cmpNA,
@@ -634,7 +634,7 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
     recommendedPriorities: () =>
       `Recommendations are grouped by source analysis (Spend / Suppliers / Process) and, within each category, ordered by a per-category priority rank — so ordering is comparable within a category but not strictly commensurable across them. Treat the ranking as a triage aid; the underlying reasoning strings carry the supporting evidence.`,
     methodology: (c) =>
-      `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (supply concentration, cost premium, import friction); performance-vs-spend via a median × median cross of spend against the performance score; cycle-time process-health monitoring on total procure-to-pay days (median/IQR distribution, trailing 3-month rolling trend, Z-score outliers at > 2σ) with an optional two-sided Mann-Whitney U comparison (α = 0.05) and rank-biserial effect size between two date windows (current comparison n_a = ${intl.format(
+      `Methods (all fixed): ABC at 80%/95% cumulative-spend cut-points; Kraljic via a median split of log1p(spend) against a 0–100 supply-risk composite (supply concentration, cost premium, import friction); performance-vs-spend via a median × median cross of spend against the performance score; cycle-time process-health monitoring on total procure-to-pay days (median/IQR distribution, trailing 3-month rolling trend, plus a descriptive list of the orders furthest above the window mean) with an optional two-sided Mann-Whitney U comparison (α = 0.05) and rank-biserial effect size between two date windows (current comparison n_a = ${intl.format(
         c.cmpNA,
       )}, n_b = ${intl.format(
         c.cmpNB,

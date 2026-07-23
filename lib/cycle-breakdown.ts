@@ -174,8 +174,9 @@ export async function computeCycleBreakdown(
   // ---- Stage anomalies: POs where one stage dominates the cycle ----------- #
   // A PO is a "stage anomaly" when a single stage's share of its total cycle
   // exceeds 60% (decision: surfacing existing per-PO stage shares — no new
-  // methodology). z_score is over the in-span cycle population (ddof=1), the
-  // same definition the cycle_time analysis uses, so the table can show it.
+  // methodology). The z_score below is computed only because CycleAnomaly requires
+  // the field; it is never read or displayed for these rows — see the WARNING on
+  // CycleBreakdown.stageAnomalies.
   const allCycles = purchases.map((p) => p.totalCycleDays);
   const cn = allCycles.length;
   const cMean = cn ? allCycles.reduce((s, x) => s + x, 0) / cn : 0;
@@ -202,6 +203,10 @@ export async function computeCycleBreakdown(
       supplier_name: p.supplierName,
       invoice_date: iso(p.invoiceDate),
       cycle_days: p.totalCycleDays,
+      // WRITE-ONLY (see CycleBreakdown.stageAnomalies): required by CycleAnomaly,
+      // read by no consumer, and deliberately never displayed for a stage-dominated
+      // PO - it measures distance from the mean TOTAL cycle, which says nothing
+      // about whether one stage dominated that PO.
       z_score: cStd > 0 ? Math.round(((p.totalCycleDays - cMean) / cStd) * 100) / 100 : 0,
     }))
     .sort((a, b) => (b.cycle_days ?? 0) - (a.cycle_days ?? 0));
@@ -221,5 +226,12 @@ export async function computeCycleBreakdown(
     n_total_suppliers: new Set(purchases.map((p) => p.supplierExternalId)).size,
   };
 
-  return { bySupplier, byCategory, stageAnomalies, controlExposure };
+  // Per-PO buying method. The slowest-order lists lean almost entirely to
+  // `direct` (the only method whose cycle range reaches the flag threshold at
+  // all), so showing the method next to each order lets a reader see that
+  // immediately instead of reading a process failure into it.
+  const methodByPo: Record<string, string> = {};
+  for (const p of purchases) if (p.buyingMethod) methodByPo[p.poId] = p.buyingMethod;
+
+  return { bySupplier, byCategory, stageAnomalies, controlExposure, methodByPo };
 }

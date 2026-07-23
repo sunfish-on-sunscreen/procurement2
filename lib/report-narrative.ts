@@ -827,7 +827,7 @@ const PROC_FLAG_PROSE: Record<
   "has_outlier" | "inconsistent" | "has_stage_dom",
   string
 > = {
-  has_outlier: "unusually slow POs (cycle time beyond 2σ of the mean)",
+  has_outlier: "orders whose cycle ran far above the window average",
   inconsistent: "an inconsistent cycle — a wide spread in how long orders take",
   has_stage_dom: "orders where a single stage dominates the cycle",
 };

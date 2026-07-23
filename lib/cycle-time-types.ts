@@ -24,7 +24,7 @@ export type SupplierFlagState = Record<CycleFlagKey, boolean>;
  * wording stays consistent everywhere the flag surfaces. */
 export const FLAG_TOOLTIP: Record<CycleFlagKey, string> = {
   has_outlier:
-    "Outlier: this supplier has at least one PO whose total cycle time ran more than 2σ above the period mean.",
+    "Long cycle: this supplier has at least one order among those running furthest above the period average. A descriptive cut of the slowest orders, not a statistical outlier test - the flagged set skews heavily to direct awards, which carry the longest lead times by design.",
   inconsistent:
     "Inconsistent: this supplier's cycle times vary more widely than typical for this period's supplier base — its interquartile spread exceeds the variability threshold set across all suppliers. It's a supplier-level pattern, not tied to any single PO, so a supplier can be flagged in one period and not another.",
   has_stage_dom:
@@ -64,7 +64,7 @@ export type CycleStageComparison = {
 };
 
 /** One PO in the supplier's selected-span history. `is_anomaly` mirrors the
- * cycle_time analysis flag (total cycle > 2σ above the span mean). */
+ * cycle_time analysis flag (among the orders furthest above the span mean). */
 export type CyclePoRow = {
   po_id: string;
   // The 5 procure-to-pay milestone dates (ISO YYYY-MM-DD; null if absent). The
@@ -78,6 +78,11 @@ export type CyclePoRow = {
   slowest_stage: CycleStageKey;
   slowest_stage_label: string;
   is_anomaly: boolean;
+  /** Buying method for this order. Shown beside the long-cycle flag because the
+   *  flagged set is almost entirely `direct` — the only method whose cycle range
+   *  reaches the threshold — so naming it prevents reading a process failure into
+   *  what is the expected shape of that channel. */
+  buying_method: string;
 };
 
 export type CycleSupplierDetail = {
@@ -133,10 +138,17 @@ export type CycleCategoryRow = {
 export type CycleBreakdown = {
   bySupplier: CycleSupplierRow[];
   byCategory: CycleCategoryRow[];
-  // POs where one stage's share of total cycle exceeds 60% (stage-dominated
-  // outliers); z_score is over the in-span cycle population. Optional so any
-  // older cached/consumer shape stays valid.
+  // POs where one stage's share of total cycle exceeds 60% (stage-dominated).
+  // Optional so any older cached/consumer shape stays valid.
+  // WARNING: these rows carry a `z_score` only because CycleAnomaly requires the
+  // field. It is WRITE-ONLY here - no consumer reads it (they take po_id /
+  // supplier_id only) and it must not be surfaced: stage dominance is a within-PO
+  // share, unrelated to distance from the mean TOTAL cycle. Displaying one next to
+  // the other would imply a relationship that does not exist.
   stageAnomalies?: CycleAnomaly[];
+  // buying method per PO, for labelling the slowest-order lists. Derived here
+  // because the Python payload does not carry it and must not change.
+  methodByPo?: Record<string, string>;
   // Spend-at-risk control metric: the value of POs that FAILED the 3-way match,
   // over the same span. Optional so older consumers stay valid.
   controlExposure?: ControlExposure;

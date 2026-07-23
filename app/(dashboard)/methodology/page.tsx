@@ -303,15 +303,19 @@ export default async function MethodologyPage() {
                 subprocess durations.
               </li>
               <li>
-                <strong>Z-score anomaly detection</strong>: POs with cycle time
-                more than 2 standard deviations above the mean are flagged as
-                outliers warranting investigation.
+                <strong>Longest-cycle orders</strong>: a descriptive cut listing the
+                orders furthest above the window&apos;s mean total cycle. See 3.4.1 for
+                what this is and — importantly — what it is not.
               </li>
               <li>
                 <strong>Mann-Whitney U non-parametric hypothesis test</strong>:
                 a period-vs-period comparison via a two-sample
-                non-parametric test. Chosen over Student&apos;s t-test because
-                cycle times are right-skewed and violate normality assumptions.
+                non-parametric test. Chosen over Student&apos;s t-test because it
+                assumes nothing about the shape of the distribution — which matters
+                here, since the cycle distribution is a bounded plateau rather than a
+                bell curve (see 3.4.1). Note it is <em>not</em> chosen because the data
+                is skewed: measured skew is approximately zero (+0.02). The reason is
+                the flat, bounded shape and the absence of a normal tail, not asymmetry.
               </li>
               <li>
                 <strong>Rank-biserial correlation effect size</strong>:
@@ -321,14 +325,66 @@ export default async function MethodologyPage() {
             </ol>
             <p>
               The supplier roster surfaces three per-supplier flags:{" "}
-              <strong>Has outlier POs</strong> (at least one PO beyond the 2σ
-              threshold above); <strong>Inconsistent</strong> — a supplier whose
+              <strong>Has long-cycle POs</strong> (at least one order in the
+              longest-cycle cut described in 3.4.1);{" "}
+              <strong>Inconsistent</strong> — a supplier whose
               typical range (IQR) exceeds 1.5× the median of all suppliers&apos;
               IQRs, the Tukey convention for unusually wide spread; and{" "}
               <strong>Stage-dominated POs</strong>{" "}
               (at least one PO where a single procure-to-pay stage exceeds 60% of
               that PO&apos;s total cycle).
             </p>
+            <h4 className="pt-2 text-sm font-semibold text-foreground">
+              3.4.1 The longest-cycle cut is descriptive, not an outlier test
+            </h4>
+            <p>
+              <strong className="text-foreground">
+                What the rule is:
+              </strong>{" "}
+              an order is listed when its total cycle sits more than two standard
+              deviations above the mean of the selected window. In practice that is a
+              top-percentile cut — it selects roughly the slowest 1% of orders (6 of
+              647 across the full range; 3, 1 and 2 in 2024, 2025 and 2026).
+            </p>
+            <p>
+              <strong className="text-foreground">
+                What it is not: a normality-based outlier test.
+              </strong>{" "}
+              Describing this as &ldquo;2σ&rdquo; or &ldquo;z-score anomaly
+              detection&rdquo; would assert a distributional basis this data does not
+              have. Total cycle time here is a bounded plateau, not a bell curve:
+              excess kurtosis is <strong>−1.19</strong> pooled (−1.23 / −1.27 / −0.98
+              by year), skew is essentially zero, and Shapiro-Wilk rejects normality
+              outright (p ≈ 4 × 10⁻¹²). The practical consequence is decisive — the
+              largest z-score anywhere in the data is only <strong>2.30</strong>, and{" "}
+              <strong>
+                every genuine spread-based detector flags nothing at all
+              </strong>
+              : Tukey 1.5×, Tukey 3×, MAD-z &gt; 3.5 and z &gt; 3 each return zero
+              orders in every window. Nothing in this dataset is an outlier in any
+              standard sense. The list is useful as &ldquo;show me the slowest
+              orders&rdquo;; it is not evidence that anything is anomalous.
+            </p>
+            <p>
+              <strong className="text-foreground">
+                The flagged set skews to long-lead-time buying methods.
+              </strong>{" "}
+              Cycle time is near-deterministic in buying method, and the threshold sits
+              around 160 days — above the <em>maximum</em> cycle of every method except
+              one. Spot buys top out at 68 days, call-offs at 109, RFQs and tenders at
+              149; only direct awards (max 171) can reach it at all. Every flagged order
+              in the current data is a direct award. So the flag is, in effect, a proxy
+              for &ldquo;this was a direct purchase&rdquo; — which is why the buying
+              method is shown next to each listed order. A long cycle on a direct award
+              is the expected shape of that channel, not a process failure.
+            </p>
+            <p>
+              This section follows the same principle as Section 9.5: a measure that
+              cannot support the claim its name implies is documented rather than quietly
+              relabelled. The rule is unchanged and the numbers are unchanged — only the
+              description has been corrected to match what is actually computed.
+            </p>
+
             <p>
               Period comparison is a <strong>midpoint split of the currently
               selected period</strong> — its first half against its second — so it
@@ -901,7 +957,7 @@ export default async function MethodologyPage() {
               <li>
                 The methodology is <strong>fixed and not user-adjustable</strong> —
                 ABC at 80% / 95%, median splits on both classification matrices, the
-                2σ outlier rule, the 8-day slow-stage flag, and the Mann-Whitney U
+                longest-cycle cut, the 8-day slow-stage flag, and the Mann-Whitney U
                 comparison are all constants. There are no parameter sliders.
               </li>
               <li>

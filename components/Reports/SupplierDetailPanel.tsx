@@ -183,7 +183,7 @@ export function SupplierDetailPanel({
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{a.po_id}</span>
                       <span className="font-semibold text-destructive">
-                        z {a.z_score.toFixed(2)}
+                        {a.cycle_days ?? "-"} days
                       </span>
                     </div>
                     <div className="text-muted-foreground">

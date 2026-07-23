@@ -27,7 +27,7 @@ const plural = (n: number) => (n === 1 ? "" : "s");
 function descFor(key: CycleFlagKey, poCounts: Partial<Record<CycleFlagKey, number>>): string {
   if (key === "has_outlier") {
     const p = poCounts.has_outlier ?? 0;
-    return `${p} outlier PO${plural(p)} · z > 2σ`;
+    return `${p} PO${plural(p)} furthest above the window average`;
   }
   if (key === "inconsistent") {
     return "Typical range > 1.5× the portfolio median";

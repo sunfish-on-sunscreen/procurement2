@@ -6,7 +6,8 @@ import { usePortalTooltip, PortalTooltip } from "./PortalTooltip";
 
 /**
  * Single-population horizontal box plot of total cycle days: box = P25–P75,
- * line = median, whiskers = min–max, dots = Z-score outliers (> 2σ above mean).
+ * line = median, whiskers = min-max, dots = the orders furthest above the mean
+ * (a descriptive top-slice, NOT an outlier test - see Methodology 3.4).
  * Hand-composed SVG (Recharts has no native box plot), matching the codebase's
  * existing box-plot approach.
  */
@@ -29,6 +30,9 @@ export function CycleTimeBoxPlot({
 }) {
   const { pinnedSupplierId, pin } = usePin();
   const tooltip = usePortalTooltip<CycleAnomaly>();
+  // Window mean, so a dot can be described in DAYS ABOVE AVERAGE rather than as a
+  // z-score (which would imply a normality basis this distribution lacks).
+  const mean = d.mean ?? 0;
   if (
     d.min == null ||
     d.max == null ||
@@ -179,7 +183,7 @@ export function CycleTimeBoxPlot({
         </text>
       </svg>
       <p className="mt-1 text-center text-xs text-muted-foreground">
-        Box = typical range · whiskers = range · line = median · red dots = outlier POs
+        Box = typical range · whiskers = range · line = median · red dots = the slowest orders
       </p>
       {tooltip.tip && (
         <PortalTooltip x={tooltip.tip.x} y={tooltip.tip.y}>
@@ -188,8 +192,13 @@ export function CycleTimeBoxPlot({
             {tooltip.tip.data.supplier_name}
           </div>
           <div className="mt-1 text-muted-foreground">
-            {tooltip.tip.data.cycle_days} days &middot; z{" "}
-            {tooltip.tip.data.z_score.toFixed(2)}
+            {tooltip.tip.data.cycle_days} days
+            {mean > 0 && tooltip.tip.data.cycle_days != null ? (
+              <>
+                {" "}&middot; +{Math.round(tooltip.tip.data.cycle_days - mean)} vs the{" "}
+                {Math.round(mean)}-day average
+              </>
+            ) : null}
           </div>
         </PortalTooltip>
       )}

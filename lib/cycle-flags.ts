@@ -9,7 +9,7 @@
  *
  * The three flags (unchanged thresholds):
  *   - has_outlier    : the supplier appears in cycle_time.anomalies (≥1 PO whose
- *                      total cycle ran > 2σ above the period mean).
+ *                      total cycle ran far above the period mean - a descriptive cut, not an outlier test).
  *   - inconsistent   : the supplier's cycle-day IQR exceeds 1.5 × the median of
  *                      all suppliers' IQRs (Tukey 1.5×IQR convention). The IQR
  *                      itself is computed server-side (breakdown.bySupplier[].iqr);

@@ -1040,7 +1040,11 @@ export function ReportDocument({
                     collapsed={collapsed.has("cycleTime")}
                     onToggle={() => toggleCollapse("cycleTime")}
                   >
-                    <CycleTimeView data={analyses.cycle_time} embedded={embedded} />
+                    <CycleTimeView
+                      data={analyses.cycle_time}
+                      embedded={embedded}
+                      methodByPo={analyses.breakdown?.methodByPo}
+                    />
                     <p className="text-sm leading-relaxed text-muted-foreground">
                       {T.cycleTime(ctx)}
                     </p>
