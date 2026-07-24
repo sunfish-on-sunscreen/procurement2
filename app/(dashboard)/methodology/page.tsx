@@ -1088,9 +1088,9 @@ export default async function MethodologyPage() {
               <strong>degenerate</strong>: they return the same answer for every input,
               or they measure an artifact rather than the thing they name. Each was
               tested before the decision was taken, not assumed. The first eight concern
-              competitive sourcing; the ninth (payment discipline) and tenth (delivery
-              slip magnitude) are recorded here because they are the same failure mode
-              and belong in one catalogue.
+              competitive sourcing; the ninth (payment discipline), tenth (delivery slip
+              magnitude) and eleventh (requisition estimate accuracy) are recorded here
+              because they are the same failure mode and belong in one catalogue.
             </p>
             <ul className="list-disc space-y-2 pl-5">
               <li>
@@ -1218,6 +1218,106 @@ export default async function MethodologyPage() {
                 coin-flip and half channel proxy, not lead-dominated. The
                 &ldquo;+0.880 vs +0.555&rdquo; reading is recorded here so it is not
                 revived.
+              </li>
+              <li>
+                <strong>Requisition estimate accuracy.</strong>{" "}
+                <code>Requisition.estimatedValueUsd</code> against the value of the order
+                it became looks like the one place this dataset records a human judgement
+                — a budget owner&rsquo;s guess, made before the market answered. It is
+                not a judgement. The generator is{" "}
+                <strong>
+                  identified, not merely consistent with:{" "}
+                  <code>estimatedValueUsd = totalValueUsd × (1 + v)</code>, with{" "}
+                  <em>v</em> drawn from Uniform(−0.10, +0.15)
+                </strong>
+                . Tested with those parameters <em>fixed and unfitted</em>, so the fit
+                had nothing to tune: Kolmogorov–Smirnov <em>D</em> = 0.0200,{" "}
+                <em>p</em> = 0.953, and χ² is null at every resolution tried — 10, 20, 25
+                and 50 equal bins give <em>p</em> = 0.651, 0.655, 0.867, 0.452. The
+                moments land on the window to four decimals (mean 0.0251840 against
+                0.0250000; sd 0.0723471 against 0.0721688; excess kurtosis −1.2197
+                against −1.2000). The observed support is [−0.0998566, +0.1499267]
+                against the order statistics expected of 647 draws, −0.0996142 and
+                +0.1496142, with <strong>no value outside the window at all</strong>.
+                Every competing shape rejects hard: Normal <em>p</em> = 5.2 × 10⁻³,
+                Shapiro–Wilk 2.0 × 10⁻¹³, a symmetric uniform 2.9 × 10⁻¹⁶, triangular
+                9.8 × 10⁻¹¹.
+                <br />
+                ⚠️{" "}
+                <strong className="text-foreground">
+                  The Jensen effect — why this one is the most deceptive entry in the
+                  catalogue.
+                </strong>{" "}
+                Read the natural way, as{" "}
+                <code>(actual − estimate) / estimate</code>, the field yields a mean
+                absolute error of <strong>6.27%</strong> and an under-estimation bias of{" "}
+                <strong>−1.97%</strong> that is significant at{" "}
+                <em>t</em> = −7.20, <em>p</em> &lt; 10⁻¹¹. Both are pure algebra. That
+                expression is <code>1/(1 + v) − 1</code>, a{" "}
+                <em>nonlinear</em> transform of the window, and a nonlinear transform of
+                a distribution symmetric about a non-zero mean does not stay centred:
+                E[|1/(1+<em>v</em>)−1|] = <strong>6.2394%</strong> against the observed
+                6.2687%, and E[1/(1+<em>v</em>)−1] = <strong>−1.9510%</strong> against
+                the observed −1.9674%. The share of orders coming in under estimate is
+                likewise fixed by the window at 0.10/0.25 = 40.00%, observed 41.58%
+                (binomial <em>p</em> = 0.42).{" "}
+                <strong>
+                  A <em>p</em>-value below 10⁻¹¹ is not evidence of behaviour when the
+                  quantity being tested is a nonlinear transform of a fixed window.
+                </strong>{" "}
+                What that <em>p</em> measures is the precision with which the constant
+                −1.9510% has been estimated from 647 samples — nothing about anyone&rsquo;s
+                estimating. Significance answers &ldquo;is this reliably non-zero&rdquo;,
+                never &ldquo;does this mean anything&rdquo;, and the gap between those two
+                questions is widest exactly here.
+                <br />
+                Nothing explains the residual variance. Buying method is the{" "}
+                <em>weakest</em> dimension of all — η² = 0.00087, ANOVA{" "}
+                <em>p</em> = 0.968, and a permutation test on the spread of method means
+                gives <em>p</em> = 0.956, the observed spread (0.0027) sitting{" "}
+                <em>below</em> the null (0.0063), the same less-varied-than-chance
+                signature payment discipline showed. Category η² = 0.018 (
+                <em>p</em> = 0.58), department 0.012 (<em>p</em> = 0.37), supplier 0.086
+                (<em>p</em> = 0.39). No correlate is real: against order value{" "}
+                <em>r</em> = +0.028, line count −0.012, promised lead −0.015, total cycle
+                −0.012; absolute error by three-way-match outcome is 6.21% against 6.65%
+                (<em>p</em> = 0.29) and by on-time outcome 6.23% against 6.28% (
+                <em>p</em> = 0.86).
+                <br />
+                ⚠️{" "}
+                <strong className="text-foreground">
+                  One signal cleared Bonferroni and was still refused.
+                </strong>{" "}
+                Recorded because it is reachable by anyone who re-runs this analysis and
+                looks convincing when found. A max-statistic permutation across the twelve
+                requesters — the multiplicity-exact test — returns{" "}
+                <em>p</em> = 0.0083: one requester&rsquo;s 46 orders sit{" "}
+                <strong>3.3 points below the window mean</strong> (−0.0076 against
+                +0.0250), which survives a Bonferroni correction and is worth $1.5M
+                against their $46.5M of spend. It is refused on three grounds, the first
+                of which is sufficient alone.{" "}
+                <strong>
+                  The estimate is computed <em>from</em> the actual value, so causality
+                  runs backwards
+                </strong>{" "}
+                — a requisition estimate that is a jittered copy of the eventual order
+                value cannot evidence how anyone estimates, because it was never a
+                forecast. There is no mechanism for the finding to be about. Second,
+                drop-one collapses the entire family: remove that one requester and the
+                same test returns <em>p</em> = 0.747, so what looks like a dimension with
+                structure is one person. Third, the permutation on the spread of requester
+                means — the test that settled both payment discipline and delivery slip —
+                does not reject (<em>p</em> = 0.083); and the shape is a pure location
+                shift, since recentring their draws on the window mean restores
+                uniformity (<em>p</em> = 0.176). A per-requester estimating scorecard is
+                therefore not a weak finding to be shored up with more data. It is
+                unavailable in principle from a field built this way.
+                <br />
+                The portfolio aggregate is a constant for the same reason. Summed
+                estimates of $726,480,991.35 against actuals of $707,687,316.20 give a
+                $18.79M, +2.66% apparent over-budgeting — which is E[<em>v</em>] = +2.5%
+                and moves only with sampling noise. It would read as a systematic
+                planning finding and is a property of the window.
               </li>
             </ul>
             <p>

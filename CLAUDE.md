@@ -170,7 +170,7 @@ encodes which is which:**
   (`CoverageBucket`, `CoverageBidding`, `CoverageMixTransition`).
 
 ⚠️⚠️ **STANDING CHECK — BEFORE BUILDING ANY BREAKDOWN, TEST WHETHER
-`buying_method` DETERMINES IT.** This has now bitten THREE times, and each time the
+`buying_method` DETERMINES IT.** This has now bitten FOUR times, and each time the
 proposed cut turned out to be buying method wearing a different label:
 1. **Pooled cycle time is a five-population MIXTURE** (spot_buy ~44d → direct ~130d),
    so a shift in method mix moves the pooled number while every method individually
@@ -197,6 +197,14 @@ before building anything.** If most methods map to one value of it, the breakdow
 will re-report method under another name — and because cycle time, order value and
 payment terms are all near-deterministic in method on this data, that is the DEFAULT
 outcome, not an edge case. Say so in the plan rather than shipping the cut.
+
+⚠️ **IT HAS NOW RUN FIVE TIMES AND CLEARED ONCE — the check is DISCRIMINATING, not a
+rubber stamp.** Requisition estimate accuracy (2026-07-24) is the first NEGATIVE:
+method is the WEAKEST dimension of every one tested — η² = 0.00087, ANOVA p = 0.968,
+and the permutation on the spread of method means gives p = 0.956 with the observed
+spread (0.0027) sitting BELOW the null (0.0063). That cut genuinely was not method.
+**The field was still dead, for an unrelated reason** (dead metric #11 below).
+**A clear on this check buys you one surviving hypothesis, never a build.**
 
 ⚠️ **PAYMENT DISCIPLINE IS DEAD — measured 2026-07-23, NOT built.** Days paid past
 terms is a uniform random draw on {0..15}: χ² p = 0.336 against Uniform, mean 7.27 vs
@@ -225,6 +233,85 @@ revive it. Methodology 9.5 entry 10 carries the full evidence.
 `paymentTerms`). Any future build must read it from `PurchaseOrder` keyed by `poId`
 and INTERSECT against the view-derived frame — never re-spell `NOT EXISTS
 "PurchaseOrderVoid"`. The site count stays at FOUR.
+
+⚠️ **REQUISITION ESTIMATE ACCURACY IS DEAD — measured 2026-07-24, NOT built. Dead
+metric #11, and the most DECEPTIVE of the eleven.** `Requisition.estimatedValueUsd`
+looks like the one human judgement in the dataset — a budget owner's guess made
+before the market answered. It is a jittered copy of the order it became:
+**`estimatedValueUsd = totalValueUsd × (1 + v)`, `v ~ Uniform(−0.10, +0.15)`** —
+IDENTIFIED, not merely "consistent with", because the parameters were held FIXED and
+UNFITTED so the fit had nothing to tune: KS D = 0.0200 **p = 0.953**; χ² null at every
+resolution (10/20/25/50 equal bins → p = 0.651 / 0.655 / 0.867 / 0.452); moments land
+to four decimals (mean 0.0251840 vs 0.0250000, sd 0.0723471 vs 0.0721688, excess
+kurtosis −1.2197 vs −1.2000); support [−0.0998566, +0.1499267] against the order
+statistics expected of 647 draws (−0.0996142 / +0.1496142), with **ZERO values outside
+the window**. Every competing shape rejects hard: Normal p = 5.2e-03, Shapiro–Wilk
+2.0e-13, symmetric uniform 2.9e-16, triangular 9.8e-11.
+- ⚠️ **THE JENSEN TRAP — a p-value below 1e-11 that means NOTHING. This is why the
+  entry is here.** Read the natural way, as `(actual − estimate) / estimate`, the field
+  yields MAE **6.27%** and an under-estimation bias of **−1.97%** significant at
+  t = −7.20, **p < 1e-11**. Both are pure algebra. That expression is `1/(1+v) − 1`, a
+  NONLINEAR transform of the window, and a nonlinear transform of a distribution
+  symmetric about a non-zero mean does not stay centred: E[|1/(1+v)−1|] = 6.2394%
+  (observed 6.2687%), E[1/(1+v)−1] = −1.9510% (observed −1.9674%), P(under estimate)
+  = 0.10/0.25 = 40.00% (observed 41.58%, binomial p = 0.42). **The p-value measures how
+  precisely the CONSTANT −1.9510% was pinned down by 647 samples — nothing about
+  anyone's estimating. Significance answers "is this reliably non-zero", never "does
+  this mean anything".**
+- **Nothing explains the residual.** Category η² = 0.018 (p = 0.58), department 0.012
+  (p = 0.37), supplier 0.086 (p = 0.39), method 0.00087 (p = 0.968 — see the standing
+  check above, this is its first negative). No correlate is real: order value r = +0.028,
+  line count −0.012, promised lead −0.015, total cycle −0.012; |err| by three-way-match
+  outcome 6.21% vs 6.65% (p = 0.29), by on-time outcome 6.23% vs 6.28% (p = 0.86).
+- ⚠️ **ONE SIGNAL CLEARS BONFERRONI AND IS STILL REFUSED** — recorded because anyone
+  re-running this will find it and it looks convincing. A max-statistic permutation
+  across the 12 requesters (the multiplicity-exact test) returns **p = 0.0083**: one
+  requester's 46 orders sit **3.3 points below the window mean** (−0.0076 vs +0.0250),
+  worth $1.5M against their $46.5M of spend. **Refused because the estimate is computed
+  FROM the actual, so causality runs BACKWARDS** — a jittered copy of the eventual order
+  value was never a forecast and cannot evidence how anyone forecasts. There is no
+  mechanism for the finding to be about. Drop-one confirms the whole family is one
+  person (p = 0.747 without them); the spread-of-requester-means permutation — the test
+  that settled #9 and #10 — does not reject (p = 0.083); and recentring their draws on
+  the window mean restores uniformity (p = 0.176), so it is a location shift, not a
+  different shape. **A per-requester estimating scorecard is not a weak finding needing
+  more data; it is unavailable in principle from a field built this way.**
+- **The portfolio aggregate is a constant for the same reason.** Summed estimates
+  $726,480,991.35 vs actuals $707,687,316.20 = **+$18.79M / +2.66%**, which is
+  E[v] = +2.5% and moves only with sampling noise. It would read as a systematic
+  planning finding.
+- ⚠️ **LATENT WRITE BUG — NOT firing today, and worth fixing on its own merits.**
+  `lib/transaction-create.ts:381` sets `estimatedValueUsd: totalValueUsd`, so every
+  UI-recorded transaction gets a **mathematically perfect estimate**. Currently 0 of 647
+  POs have `est == actual`, so it is invisible; but any accuracy metric on this field
+  would score UI-created orders at 0% error forever and would be measuring **PROVENANCE
+  (seeded vs hand-entered), not accuracy**. The record-purchase form collects no
+  estimate, so the value is FABRICATED rather than recorded. **NOT FIXED** — needs a
+  decision: add an optional form field, or write `null` (the column is `NOT NULL` today,
+  0 nulls, min $14,411.85 / max $4,672,072.94, so that route needs a migration).
+- ⚠️ **`estimatedValueUsd` is NOT on the `EnrichedPurchase` view — but it DIFFERS from
+  `paymentTerms` / `promisedDeliveryDate`.** The view ALREADY carries
+  `JOIN "Requisition" r ON r.id = po."prId"` (it sources `prDate` from there), so the
+  column could be appended to the END of the select list purely additively — the exact
+  `buyingMethod` precedent (`20260723130000`) — and would inherit the void filter for
+  free. **Use the view; never read `Requisition` directly in TS or Python**, which is
+  the only path that would need the poId-intersect. Either way **the site count stays at
+  FOUR**.
+- Full evidence in Methodology 9.5 entry 11.
+
+⚠️ **RELATIVE CHANGE HAS NO CANONICAL DENOMINATOR — STATE IT OR DON'T SHIP IT.** Same
+class of hazard as the grain-dependence below: a number that is UNUSABLE without its
+convention attached. On the estimate field the choice **flips the sign of the
+headline**: `(actual − est)/est` = **−1.97%** ("buyers under-run their estimates")
+against `(est − actual)/actual` = **+2.52%** ("buyers over-estimate"), with MAE 6.2687%
+vs 6.5357% — same 647 rows, opposite conclusions, on nothing but a denominator choice.
+✅ **Both shipped ratio surfaces already comply (checked 2026-07-24):** the cycle-time
+year-over-year transition table states it in its own subhead — "Percentages are of the
+earlier year's pooled mean" (`components/CycleTimeView.tsx`) — and the coverage surfaces
+sidestep it entirely by reporting percentage POINTS and absolute levels, never a
+relative change (`changePts` is typed "in percentage points"; `pointsLabel` renders the
+unit into the sentence; the card says "25.11% to 15.22%"). **Any NEW ratio surface must
+do one of those two things.**
 
 ⚠️ **COMPOSITE VARIANCE SHARES ARE GRAIN-DEPENDENT — a share without its grain is
 UNUSABLE.** Risk is the only component that never varies within a supplier across
