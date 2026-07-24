@@ -10,6 +10,12 @@ import {
 import { cardElevation } from "@/lib/utils";
 import { StatBlock, type StatBlockProps } from "@/components/ui/stat-block";
 import { ParetoChart } from "@/components/charts/ParetoChart";
+import {
+  buildSpendConcentration,
+  ratioLabel,
+  EVEN_REFERENCE_PCT,
+  PARETO_REFERENCE_PCT,
+} from "@/lib/spend-concentration";
 
 const ABC_CLASSES = ["A", "B", "C"] as const;
 const ABC_ACCENT: Record<"A" | "B" | "C", StatBlockProps["accent"]> = {
@@ -27,6 +33,7 @@ const pct1 = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
  * editor's ABC section; the supplier ranking table below carries ABC class too.
  */
 export function AbcParetoCard({ abc }: { abc: AbcResult }) {
+  const conc = buildSpendConcentration(abc);
   return (
     <Card className={cardElevation}>
       <CardHeader>
@@ -46,6 +53,25 @@ export function AbcParetoCard({ abc }: { abc: AbcResult }) {
         </div>
 
         <ParetoChart data={abc.classifications} />
+
+        {/* ⚠️ The premise this card rests on, MEASURED rather than assumed. Window-scoped
+            (it reads the selected span's own `abc` payload), client-side, no payload field.
+            Stated here because this is where the 80/20 citation is made. */}
+        {conc && (
+          <p className="text-xs text-muted-foreground">
+            Observed on this spend base: the top {conc.topCount} suppliers — a fifth of{" "}
+            {conc.supplierCount} — hold {conc.topSharePct.toFixed(1)}% of spend, a{" "}
+            <strong className="font-medium text-foreground">{ratioLabel(conc)}</strong> split
+            against the textbook{" "}
+            <strong className="font-medium text-foreground">
+              {EVEN_REFERENCE_PCT}/{PARETO_REFERENCE_PCT}
+            </strong>
+            .{" "}
+            {conc.meetsPareto
+              ? "Spend follows the Pareto premise, so Class A isolates a short list of vital few."
+              : "Spend is flatter than the Pareto premise, so Class A is a broad group rather than a selective one."}
+          </p>
+        )}
 
         <p className="text-xs text-muted-foreground">
           Pareto Principle: 80/20 spend concentration. Thresholds fixed at

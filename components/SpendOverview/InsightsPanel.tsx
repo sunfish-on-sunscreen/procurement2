@@ -6,6 +6,11 @@ import type {
   SourcingCoverageResult,
 } from "@/lib/analysis-types";
 import type { SupplierRankingRow } from "@/lib/spend-overview-types";
+import {
+  buildSpendConcentration,
+  paretoExpectedCount,
+  PARETO_REFERENCE_PCT,
+} from "@/lib/spend-concentration";
 import { cardElevation, formatCompactCurrency } from "@/lib/utils";
 import {
   Card,
@@ -71,11 +76,13 @@ export function InsightsPanel({
   const cN = abc.summary.C.n;
   const aPct = abc.summary.A.pct_of_spend * 100;
   const cPct = abc.summary.C.pct_of_spend * 100;
-  // Let the Class-A spend share pick the adjective — don't hardcode "heavily
-  // concentrated" (it would contradict a genuinely distributed spend base).
-  const concentrationWord =
-    aPct >= 70 ? "heavily concentrated" : aPct >= 50 ? "concentrated" : "relatively distributed";
-  const isConcentrated = aPct >= 50;
+  // ⚠️ The adjective derives from TOP-FIFTH SHARE, never from
+  // `summary.A.pct_of_spend`. Class A is defined as the suppliers covering the first
+  // 80% of spend, so that figure is pinned to (0.80 − largest_single_share, 0.80] by
+  // construction: on this data it never leaves [73.4%, 80%], so it always selected
+  // "heavily concentrated" and always fired the "typical Pareto distribution" clause,
+  // both of which are false here. See lib/spend-concentration for the full note.
+  const conc = buildSpendConcentration(abc);
 
   // Categories (descending). ⚠️ `by_category` is a top-8 + synthetic "Other"
   // rollup for the donut — so it must NOT be used to COUNT or NAME categories.
@@ -151,12 +158,21 @@ export function InsightsPanel({
         <p>
           You spent <strong>{formatCompactCurrency(total)}</strong> across{" "}
           {num0.format(spendOverview.total_pos)} invoices with{" "}
-          {num0.format(spendOverview.active_suppliers)} suppliers {phrase}. Spend is{" "}
-          {concentrationWord}: the top {aN} suppliers (Class A) account for{" "}
-          <strong>{pct1(aPct)}</strong> of total expenditure, while the bottom {cN}{" "}
-          suppliers (Class C) contribute just {pct1(cPct)}.
-          {isConcentrated &&
-            " This Pareto distribution is typical of capital-intensive procurement."}
+          {num0.format(spendOverview.active_suppliers)} suppliers {phrase}.
+          {conc && (
+            <>
+              {" "}
+              Spend is <strong>{conc.word}</strong>: the top {conc.topCount} suppliers — a
+              fifth of the roster — hold <strong>{pct1(conc.topSharePct)}</strong> of it,
+              against the {PARETO_REFERENCE_PCT}% the 80/20 rule would predict.
+            </>
+          )}{" "}
+          Class A covers {aN} suppliers ({pct1(aPct)} of spend) and the bottom {cN} (Class C)
+          contribute just {pct1(cPct)}.
+          {conc &&
+            (conc.meetsPareto
+              ? " That is the classic Pareto shape ABC assumes, so Class A is a genuinely short list."
+              : " Spend here is flatter than the 80/20 rule assumes, so Class A is a broad group rather than a short list — a property of this spend base, not a fault of the method.")}
         </p>
 
         {topCategory && (
@@ -226,9 +242,14 @@ export function InsightsPanel({
             )}
             {activeRanking.length > 0 && (
               <li>
-                Spend is steeply concentrated: just {sup50} supplier{sup50 === 1 ? "" : "s"} make
-                up 50% of spend, and {sup80} cover 80% — the remaining{" "}
-                {Math.max(0, activeRanking.length - sup80)} contribute the long tail.
+                It takes {sup50} of {activeRanking.length} supplier
+                {activeRanking.length === 1 ? "" : "s"} to reach half of spend and {sup80} to
+                reach 80% — {pct1(share(sup80, activeRanking.length))} of the roster, where the
+                80/20 rule would predict about {paretoExpectedCount(activeRanking.length)}.
+                {conc &&
+                  (conc.meetsPareto
+                    ? " That is close to the classic Pareto split."
+                    : " The spend base is broad rather than top-heavy.")}
               </li>
             )}
             {totalCategories > 0 && (
