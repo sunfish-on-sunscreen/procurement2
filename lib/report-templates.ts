@@ -11,6 +11,13 @@ import type {
 } from "@/lib/analysis-types";
 import type { ReportTone } from "@/lib/report-config";
 import { buildMixNoteFacts, mixDays, mixBecause, METHOD_LABEL, comparisonSkipText } from "@/lib/cycle-mix";
+import {
+  buildSpendConcentration,
+  ratioLabel,
+  EVEN_REFERENCE_PCT,
+  PARETO_REFERENCE_PCT,
+  type SpendConcentration,
+} from "@/lib/spend-concentration";
 
 /**
  * Shape of a persisted report's `metricsJson`. The report renders LIVE from the
@@ -68,6 +75,12 @@ export type ReportContext = {
   bPct: number;
   cN: number;
   cPct: number;
+  // Supplier-spend concentration — the DIRECT Pareto test (top-fifth share), shared
+  // with the dashboard via lib/spend-concentration so the two surfaces cannot disagree.
+  // ⚠️ Do NOT judge concentration from aPct: Class A is DEFINED as the suppliers
+  // covering the first 80% of spend, so aPct is pinned near 80% by construction and
+  // measures the cut-point, not the distribution. null on an empty/zero window.
+  conc: SpendConcentration | null;
   // kraljic
   stratN: number;
   stratPct: number;
@@ -249,6 +262,7 @@ export function deriveReportContext(a: Analyses, period: string): ReportContext 
     top10Pct: s?.total_spend ? (top10 / s.total_spend) * 100 : 0,
     aN: A.n,
     aPct: A.pct_of_spend * 100,
+    conc: buildSpendConcentration(abc),
     bN: B.n,
     bPct: B.pct_of_spend * 100,
     cN: C.n,
@@ -346,6 +360,14 @@ function pooledShiftClause(c: ReportContext): string {
   return ` The pooled median moved from ${c.cmpMedianA.toFixed(0)} to ${c.cmpMedianB.toFixed(0)} days across the window (p ${c.cmpPStr}). This is a POOLED comparison, so it cannot separate a change in process speed from a change in buying-method mix — read it against the per-method breakdown before acting.`;
 }
 
+// ⚠️ CONCENTRATION-FRAMING NOTE. `cover` below already scales its adjective to the
+// data (the guard on the next lines) — but `cover` is INERT (the argument-based report
+// never renders it). The RENDERED methods (spendOverview, abc) shipped WITHOUT that
+// guard and asserted "small set / small group / 80-20" unconditionally, which is false
+// on a broad base. The guard existed; it was simply in the one method that doesn't
+// render. Fixed 2026-07-24 by threading `c.conc` (the top-fifth Pareto test, shared
+// with the dashboard via lib/spend-concentration) into the rendered methods. `cover`
+// is left untouched — do not revive it just to reconcile the two.
 export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
   // ---- EXECUTIVE: CFO/COO. Strategic, short, business-impact framed, no names.
   executive: {
@@ -384,16 +406,37 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
           c.cat2Pct,
         )}).`;
       }
-      return `${lead} With the top ten suppliers carrying ${pct(
-        c.top10Pct,
-      )} of spend, negotiation leverage and continuity risk are concentrated in a small set of relationships.`;
+      // ⚠️ Was an unconditional "concentrated in a small set of relationships" — false
+      // on a broad base (top-fifth 40% here). Scale it to the observed top-fifth share,
+      // shared with the dashboard so the two cannot disagree.
+      const conc = c.conc;
+      const supplier = conc
+        ? conc.meetsPareto
+          ? ` The top fifth of suppliers carry ${conc.topSharePct.toFixed(
+              0,
+            )}% of spend (${ratioLabel(conc)}), so leverage and continuity risk sit with a small set of relationships.`
+          : ` The top fifth of suppliers carry ${conc.topSharePct.toFixed(
+              0,
+            )}% of spend — a ${ratioLabel(conc)} split against the textbook ${EVEN_REFERENCE_PCT}/${PARETO_REFERENCE_PCT} — so leverage is spread across a broad base, not a few relationships.`
+        : "";
+      return `${lead}${supplier}`;
     },
-    abc: (c) =>
-      `A small group of suppliers drives the bulk of value: ${c.aN} account for ${pct(
-        c.aPct,
-      )} of spend, while the long tail of ${c.cN} contributes only ${pct(
+    abc: (c) => {
+      // ⚠️ aN (Class-A count) is NOT "a small group" on this data — 30 suppliers is
+      // ~55% of the roster. Whether it is small is the top-fifth test, not the count.
+      const conc = c.conc;
+      const opener =
+        conc && !conc.meetsPareto
+          ? `Class A is a broad group here, not a select few: ${c.aN} suppliers account for ${pct(
+              c.aPct,
+            )} of spend, and even the top fifth hold ${conc.topSharePct.toFixed(
+              0,
+            )}% (${ratioLabel(conc)} against the textbook ${EVEN_REFERENCE_PCT}/${PARETO_REFERENCE_PCT})`
+          : `${c.aN} Class-A suppliers account for ${pct(c.aPct)} of spend`;
+      return `${opener}, while the long tail of ${c.cN} contributes only ${pct(
         c.cPct,
-      )}. The priority is to govern the high-value group tightly.`,
+      )}. The priority is to govern the high-value group tightly.`;
+    },
     kraljic: (c) =>
       `Mapped by value and replaceability, ${c.stratN} suppliers are business-critical and hard to replace, holding ${pct(
         c.stratPct,
@@ -529,8 +572,21 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
       )} suppliers for ${c.period}. Four fixed analyses are applied — Pareto/ABC classification, a Kraljic median-split segmentation, a performance-vs-spend median cross, and cycle-time process-health monitoring with an optional period-vs-period Mann-Whitney U comparison. Spend is right-skewed and highly concentrated (top-decile share ≈ ${pct(
         c.top10Pct,
       )}), which shapes the interpretation of every downstream cut.`,
-    spendOverview: (c) =>
-      `The category distribution is concentrated, with ${c.cat1} (${pct(
+    spendOverview: (c) => {
+      // ⚠️ Was "…consistent with the Pareto pattern the ABC step formalises" — the same
+      // false Pareto claim as the old abc close, and it would now contradict the fixed
+      // abc method below. Replaced with the actual top-fifth test.
+      const conc = c.conc;
+      const paretoClause = conc
+        ? `, though the top fifth reach only ${conc.topSharePct.toFixed(
+            1,
+          )}% — a ${ratioLabel(conc)} split against the textbook ${EVEN_REFERENCE_PCT}/${PARETO_REFERENCE_PCT}, ${
+            conc.meetsPareto
+              ? "close to the Pareto pattern the ABC step formalises"
+              : "flatter than the Pareto pattern the ABC step assumes"
+          }`
+        : "";
+      return `The category distribution is concentrated, with ${c.cat1} (${pct(
         c.cat1Pct,
       )}) and ${c.cat2} (${pct(
         c.cat2Pct,
@@ -540,15 +596,28 @@ export const TEMPLATES: Record<ReportTone, SectionTemplates> = {
         c.monthlyMax,
       )}; point-in-time totals should be read against that range. The supplier spend distribution is heavy-tailed — the top ten account for ${pct(
         c.top10Pct,
-      )} — consistent with the Pareto pattern the ABC step formalises.`,
-    abc: (c) =>
-      `Cumulative-spend classification (80% / 95% cut-points) yields ${c.aN} Class A (${pct(
+      )}${paretoClause}.`;
+    },
+    abc: (c) => {
+      // ⚠️ The old close — "the A-share of 80% is broadly consistent with an 80/20
+      // concentration" — was a FACTUAL ERROR, not just tone: aPct is pinned near 80%
+      // BY CONSTRUCTION (Class A = the suppliers covering the first 80% of spend), so
+      // it cannot evidence 80/20. The direct test is the top-fifth share, shared with
+      // the dashboard Pareto card via lib/spend-concentration.
+      const conc = c.conc;
+      const tail = conc
+        ? ` The A-share of ${pct(c.aPct)} is a property of the ${PARETO_REFERENCE_PCT}% cut-point, not a measure of concentration. The direct Pareto test is the top fifth of suppliers: they hold ${conc.topSharePct.toFixed(
+            1,
+          )}% of spend — a ${ratioLabel(conc)} split against the textbook ${EVEN_REFERENCE_PCT}/${PARETO_REFERENCE_PCT} — so spend on this base is ${
+            conc.meetsPareto
+              ? "close to the classic Pareto split"
+              : "flatter than the Pareto premise, and Class A is a broad group rather than a selective one"
+          }.`
+        : "";
+      return `Cumulative-spend classification (${PARETO_REFERENCE_PCT}% / 95% cut-points) yields ${c.aN} Class A (${pct(
         c.aPct,
-      )}), ${c.bN} Class B (${pct(c.bPct)}), and ${c.cN} Class C (${pct(
-        c.cPct,
-      )}). The A-share of ${pct(
-        c.aPct,
-      )} is broadly consistent with an 80/20 concentration.`,
+      )}), ${c.bN} Class B (${pct(c.bPct)}), and ${c.cN} Class C (${pct(c.cPct)}).${tail}`;
+    },
     kraljic: (c) =>
       `Quadrants are assigned by a median split of log-spend (median ≈ ${c.spendMedianLog.toFixed(
         1,
