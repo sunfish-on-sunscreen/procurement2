@@ -748,14 +748,45 @@ read by nothing, and the sole source of a cross-run non-determinism.
 > split across periods. **Whole-window aggregates survived the migration; every per-period
 > cut did not.** That is the fault line to check first, next time.
 >
-> ⚠️ **NOT RE-DERIVED — do NOT trust these two until measured against a running app:**
-> **Process Health `14/2/35`** and the **AP hub `46/36/11/18` (19 compound / 17 important)**.
-> Only the first component of the PH triple sits in a stored payload — z>2 cycle outliers,
-> now **5 suppliers / 6 POs** on the Range (2024 3/3 · 2025 1/1 · 2026 2/2) against the
-> 14 suppliers / 24 POs recorded. "Inconsistent" and "stage-dominated" come from the live
-> `/api/cycle-time/breakdown` roster, and the AP hub is assembled client-side from cycle
-> flags + breakdown + perf/kraljic + the temporal matrix, so neither is readable offline.
-> **Treat every `14/2/35` and `46/36/11/18` elsewhere in this file as PRE-MIGRATION.**
+> ✅ **NOW LIVE-MEASURED (2026-07-24) — these two are NOT in any stored payload, so
+> they were measured by running the PRODUCTION LIBS against the live DB**, not derived
+> from `AnalysisResult`. Harness ran `computeCycleBreakdown` + `deriveCycleFlags` (the
+> Process Health path, `lib/cycle-flags.ts`) and `buildAnomalyHub` +
+> `loadTemporalMatrix` + `buildTemporalAnomalies` (the Action Priorities path,
+> `ActionDashboardView`) — the exact modules the pages execute at request time — with
+> every prisma write method overridden to throw as an abort guard. Read-only confirmed:
+> `AnalysisResult` row count and newest `computedAt` byte-identical before and after.
+> **⚠️ These are the ONE class of baseline that cannot be checked from the payloads — a
+> future session must re-run the libs (or the live pages) to re-verify, never `grep` a
+> payload.**
+>
+> **Process Health flag triple (outlier / inconsistent / stage-dominated SUPPLIERS):**
+> - **Range: `5 / 19 / 37`** (was doc'd `14 / 2 / 35`; PO-level outlier 6 / stage-dom 116, iqrCutoff 46.5)
+> - **2024: `3 / 15 / 26`** (iqrCutoff 31.875) · **2025: `1 / 20 / 25`** (iqrCutoff 24.75) ·
+>   **2026: `2 / 17 / 19`** (iqrCutoff 19.5)
+> - ⚠️ **The pre-migration `14/2/35` was WILDLY off on the middle term** — inconsistent
+>   went **2 → 19** on the Range. The Tukey `1.5×median(IQR)` cutoff is population-relative,
+>   so re-sorting POs into order-year windows reshaped the IQR distribution and far more
+>   suppliers now clear it. The outlier term fell the other way (14 → 5). **Only the
+>   whole-window baseline at the top of this file survives the migration; every derived
+>   count moved.**
+> - ⚠️ **RECONCILIATION — the value a reader sees depends entirely on the selected
+>   window.** A screen showing **inconsistent = 20 with a 51-supplier roster is the 2025
+>   view**, not the Range default (Range is 19 on 55). Always pair this number with its
+>   window before quoting it.
+>
+> **AP hub (distinct / process / classification / temporal · compound · important):**
+> - **Range: `49 / 43 / 8 / 25` · compound 24 · important 29** (was doc'd `46/36/11/18`, 19 compound, 17 important)
+> - **2024: `33 / 32 / 8 / 0` · 7 · 22** (temporal `no-prior` — earliest year) ·
+>   **2025: `44 / 33 / 12 / 25` · 21 · 20** · **2026: `43 / 31 / 8 / 25` · 17 · 22**
+> - ⚠️ `distinct` is the UNION across the three families (process ∪ classification ∪
+>   temporal), so it is < their sum. The temporal family now fires at **25** on Range
+>   because 2026 is no longer a partial year under order-year tagging (157 POs / $181M is
+>   65% of 2025, above the 0.5 partial-year guard), so the range comparison is 2025→2026,
+>   not the old 2024→2025 that gave 18.
+>
+> **⚠️ Every `14/2/35` and `46/36/11/18` ELSEWHERE in this file is PRE-MIGRATION** — the
+> values here supersede them.
 >
 > ⚠️⚠️ **STANDING RULE — now with a DOCUMENTED FAILURE CASE, which is why it is worded
 > more broadly than it used to be.** The rule read: *if you change the scoring model,
@@ -893,12 +924,13 @@ data/numbers, calmer layout.
 3. **Build staged** — smallest safe increments; do the regression-sensitive part first.
 4. **Verify against LIVE data** — independently recompute the expected numbers +
    screenshot; treat any shared-code extraction as a REGRESSION SURFACE and re-verify
-   the source page. ⚠️ **Do NOT use `14/2/35` as the Process Health gate — it is
-   PRE-MIGRATION and unverified** (see the 2026-07-24 re-record near the top: the
-   outlier component alone went 14 suppliers → **5** on the Range). Re-measure the
-   triple against a running app before trusting it as a regression gate. The stable
-   gate is the whole-window BASELINE line at the top of this file, which the migration
-   did not move.
+   the source page. ⚠️ **The current Process Health gate is `5 / 19 / 37` on the Range**
+   (outlier / inconsistent / stage-dominated suppliers), live-measured 2026-07-24 — NOT
+   the pre-migration `14/2/35`. ⚠️ It is NOT payload-derived: re-verify by running the
+   production libs (`computeCycleBreakdown` + `deriveCycleFlags`) or loading the live
+   page, never by grepping a payload. See the 2026-07-24 re-record near the top for the
+   per-period triples and the AP hub. The most robust gate remains the whole-window
+   BASELINE line at the top of this file, which the migration did not move.
 5. **HOLD before committing** — present the diff + verification and let the operator
    review; commit (and update this file) only on their go.
 6. **Standard gotchas** — the browser preview intermittently redirects to
