@@ -133,6 +133,7 @@ export function RecordPurchaseCard({
   const [invited, setInvited] = useState("3");
   const [requester, setRequester] = useState("");
   const [department, setDepartment] = useState("");
+  const [estimate, setEstimate] = useState("");
   const [terms, setTerms] = useState<(typeof PAYMENT_TERMS)[number]>("Net 30");
   const [invoiceNo, setInvoiceNo] = useState("");
   /** PO-level complaint count; blank means none, matching the zod default of 0. */
@@ -176,6 +177,18 @@ export function RecordPurchaseCard({
 
   const requesterError = nameError(requester, "person");
   const departmentError = nameError(department, "org");
+  // Mirrors the required, positive, capped rule in CreateTransactionBody's
+  // estimated_value_usd (zod is authoritative). Required because the column is NOT
+  // NULL and no fallback may fabricate it.
+  const estimateNum = Number(estimate);
+  const estimateError =
+    estimate.trim() === ""
+      ? "Estimated value is required"
+      : !Number.isFinite(estimateNum) || estimateNum <= 0
+        ? "Estimated value must be greater than zero"
+        : estimateNum > 1_000_000_000
+          ? "Estimated value looks implausibly large"
+          : null;
   // Receiving names follow the same rules, per receipt.
   const receiptNameError = receipts.some(
     (r) => nameError(r.site, "org") || nameError(r.received_by, "person"),
@@ -198,6 +211,7 @@ export function RecordPurchaseCard({
       setInvited("3");
       setRequester("");
       setDepartment("");
+      setEstimate("");
       setTerms("Net 30");
       setInvoiceNo("");
       setComplaints("");
@@ -270,6 +284,7 @@ export function RecordPurchaseCard({
         ...(isSourcedMethod(method) ? { num_suppliers_invited: Number(invited) || 3 } : {}),
         requester,
         department,
+        estimated_value_usd: estimateNum,
         payment_terms: terms,
         supplier_invoice_no: invoiceNo,
         // Blank -> 0, matching the zod default; a fractional entry is floored so
@@ -506,6 +521,26 @@ export function RecordPurchaseCard({
                 <Label htmlFor="rp-department">Department</Label>
                 <TypeableCombobox id="rp-department" aria-label="Department" value={department} onChange={setDepartment} options={opts(departments)} creatable placeholder="Select or type" />
                 {departmentError && <p className="text-[11px] text-destructive">{departmentError}</p>}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="rp-estimate">Estimated value (USD)</Label>
+                <Input
+                  id="rp-estimate"
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={estimate}
+                  onChange={(e) => setEstimate(e.target.value)}
+                  placeholder="e.g. 250000"
+                />
+                {estimateError ? (
+                  <p className="text-[11px] text-destructive">{estimateError}</p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    The budget owner&rsquo;s pre-market estimate for this requisition — what
+                    was approved before the order was placed. Need not match the order total.
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="rp-terms">Payment terms</Label>
@@ -832,7 +867,7 @@ export function RecordPurchaseCard({
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={saving || !!requesterError || !!departmentError || receiptNameError || overReceived}
+                disabled={saving || !!requesterError || !!departmentError || !!estimateError || receiptNameError || overReceived}
               >
                 {saving ? "Recording…" : "Record purchase"}
               </Button>

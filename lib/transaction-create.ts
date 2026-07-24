@@ -215,6 +215,17 @@ export const CreateTransactionBody = z
 
     requester: personName("Requester"),
     department: orgName("Department"),
+    // The budget owner's pre-market estimate — what gets approved before the order
+    // is placed. REQUIRED, because `Requisition.estimatedValueUsd` is NOT NULL and any
+    // fallback on a blank field would fabricate the value again (the exact bug this
+    // replaces: it used to be silently set to the order total). Deliberately NOT
+    // constrained relative to the order total — a real estimate over- or under-shoots,
+    // and coupling it would re-introduce a synthetic relationship. Positive, finite,
+    // and capped only to reject an obviously fat-fingered entry.
+    estimated_value_usd: z
+      .number({ message: "Estimated value is required" })
+      .positive("Estimated value must be greater than zero")
+      .max(1_000_000_000, "Estimated value looks implausibly large"),
     payment_terms: z.enum(PAYMENT_TERMS),
     supplier_invoice_no: z.string().trim().min(1, "Supplier invoice number is required"),
     complaint_count: z.number().int().nonnegative().default(0),
@@ -378,7 +389,7 @@ export async function createTransactionChain(
       department: input.department,
       category: dominant.category,
       needByDate: utc(input.promised_delivery_date),
-      estimatedValueUsd: totalValueUsd,
+      estimatedValueUsd: input.estimated_value_usd,
       status: "approved",
     },
   });

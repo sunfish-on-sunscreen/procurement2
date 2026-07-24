@@ -280,15 +280,24 @@ the window**. Every competing shape rejects hard: Normal p = 5.2e-03, Shapiro–
   $726,480,991.35 vs actuals $707,687,316.20 = **+$18.79M / +2.66%**, which is
   E[v] = +2.5% and moves only with sampling noise. It would read as a systematic
   planning finding.
-- ⚠️ **LATENT WRITE BUG — NOT firing today, and worth fixing on its own merits.**
-  `lib/transaction-create.ts:381` sets `estimatedValueUsd: totalValueUsd`, so every
-  UI-recorded transaction gets a **mathematically perfect estimate**. Currently 0 of 647
-  POs have `est == actual`, so it is invisible; but any accuracy metric on this field
-  would score UI-created orders at 0% error forever and would be measuring **PROVENANCE
-  (seeded vs hand-entered), not accuracy**. The record-purchase form collects no
-  estimate, so the value is FABRICATED rather than recorded. **NOT FIXED** — needs a
-  decision: add an optional form field, or write `null` (the column is `NOT NULL` today,
-  0 nulls, min $14,411.85 / max $4,672,072.94, so that route needs a migration).
+- ✅ **FABRICATED-ESTIMATE BUG — FIXED 2026-07-24 (route a: collect it).**
+  `lib/transaction-create.ts` used to set `estimatedValueUsd: totalValueUsd`, so every
+  UI-recorded transaction got a **mathematically perfect estimate** — any accuracy metric
+  on this field would have scored hand-entered orders at 0% error forever, measuring
+  **PROVENANCE (seeded vs hand-entered), not accuracy**. Now the record-purchase form
+  COLLECTS the estimate (`estimated_value_usd` on `RecordPurchaseCard`, in the requisition
+  group beside requester/department) and `createTransactionChain` writes the SUBMITTED
+  value. Made **REQUIRED** in `CreateTransactionBody` (positive, finite, ≤ $1B), not
+  optional, because the column is `NOT NULL` and any fallback on a blank field would
+  fabricate it again — the same failure in a new place. ⚠️ **Deliberately NOT constrained
+  relative to the order total** (over- and under-estimates are both legitimate; coupling
+  it would re-introduce the very synthetic relationship the dead-metric analysis exposed).
+  Verified with a rolled-back write: order total 10,000, submitted estimate 7,777,
+  persisted 7,777 — uses the submitted value, no fabrication; the 647 seeded rows are
+  untouched (their estimates are pre-existing, still the `× (1+v)` jitter). **The
+  provenance hazard is closed for NEW rows**; the historical dataset is unchanged, so the
+  metric stays dead (this fix does not resurrect it — it just stops manufacturing perfect
+  estimates on new orders).
 - ⚠️ **`estimatedValueUsd` is NOT on the `EnrichedPurchase` view — but it DIFFERS from
   `paymentTerms` / `promisedDeliveryDate`.** The view ALREADY carries
   `JOIN "Requisition" r ON r.id = po."prId"` (it sources `prDate` from there), so the
