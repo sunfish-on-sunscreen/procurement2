@@ -1365,7 +1365,7 @@ export default async function MethodologyPage() {
       {/* 10. Reading the composite */}
       <Card className={cardElevation}>
         <CardHeader>
-          <CardTitle>10. Reading the Composite Score</CardTitle>
+          <CardTitle>10. Reading the Composite and the Classification Lenses</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5 text-sm leading-relaxed text-muted-foreground">
           <section className="space-y-2">
@@ -1518,6 +1518,124 @@ export default async function MethodologyPage() {
               </strong>{" "}
               — not that the composite fails to measure supplier behaviour in general.
               The stronger claim is not supported and should not be written.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-base font-semibold text-foreground">
+              10.4 The analyses are not independent readings of a supplier
+            </h3>
+            <p>
+              Spend Overview and Supplier Classification present what looks like several
+              perspectives on the same supplier: an ABC class, a Kraljic quadrant, a
+              performance zone, a composite score. Three of the relationships between
+              them are <em>mechanical</em>. Knowing which is which changes how much
+              corroboration two agreeing views are worth — because two lenses that share
+              an axis will agree on that axis whatever the data says.
+            </p>
+
+            <h4 className="pt-1 font-medium text-foreground">
+              (a) The composite&rsquo;s Risk term and Kraljic&rsquo;s risk axis are one signal
+            </h4>
+            <p>
+              The composite&rsquo;s <code>risk_score</code> and Kraljic&rsquo;s{" "}
+              <code>supply_risk_score</code> correlate at <strong>r = −0.852</strong>. The
+              sign is negative by design — composite Risk is oriented so that higher is{" "}
+              <em>safer</em>, Kraljic supply risk so that higher is <em>riskier</em> — and
+              the magnitude is high because both are built on the same structural
+              roster-concentration measure (Sections 4.3 and 3.2). They are two
+              presentations of one quantity, not two readings of a supplier. So wherever
+              Risk leads the composite&rsquo;s variance, the composite&rsquo;s largest
+              single contributor is a number already plotted as the vertical axis of the
+              Classification page.
+            </p>
+            <p>
+              ⚠️{" "}
+              <strong className="text-foreground">
+                This one carries a grain label, and the magnitude moves with it.
+              </strong>{" "}
+              Risk leads at <strong>56.4%</strong> of composite variance on the all-years
+              default (55 suppliers), but on 2024 it is 32.8% against Delivery&rsquo;s
+              44.0%, and on 2026 it is 37.3% against Delivery&rsquo;s 46.4% — Delivery
+              leads on both. Per 10.2,{" "}
+              <strong className="text-foreground">
+                &ldquo;Risk is the dominant term&rdquo; must never be written unqualified
+              </strong>
+              . What is stable across grains is the weaker, more useful statement: when
+              Risk does lead, it leads with a chart the reader has already seen.
+            </p>
+
+            <h4 className="pt-1 font-medium text-foreground">
+              (b) Kraljic and Performance-vs-Spend share an entire axis
+            </h4>
+            <p>
+              Both matrices split on <em>the same</em> log-spend median — 15.2464 — so
+              their horizontal axes are not merely similar but identical. The consequence
+              is visible in the cross-tab: the quadrant × zone table has{" "}
+              <strong>zero off-diagonal cells on the spend split</strong>. Strategic and
+              Leverage suppliers map only into Stars and Critical Issues; Bottleneck and
+              Routine map only into Hidden Gems and Long Tail. That is not an empirical
+              near-miss to be explained; it is one median applied twice. The two analyses
+              differ only in their <em>second</em> axis — supply risk against performance.
+            </p>
+            <p>
+              ABC collapses further still: its cutpoints are taken on cumulative spend, so
+              class membership is spend rank by construction and correlates with the
+              supplier ranking at approximately 1.0. Taken together, the
+              supplier-classification trio is{" "}
+              <strong className="text-foreground">
+                spend, supply risk and delivery-driven performance replotted three ways
+              </strong>{" "}
+              — three views, not three independent analyses.
+            </p>
+            <p>
+              ⚠️ Unlike (a), this is <strong>structural rather than data-dependent</strong>.
+              Any dataset would produce the shared axis, because both frameworks are
+              anchored on spend deliberately: Kraljic&rsquo;s horizontal axis <em>is</em>{" "}
+              profit impact proxied by spend, and ABC <em>is</em> a spend-ranking method. A
+              different concentration profile would move which suppliers land in which
+              cell; it would never make the axis stop being shared.
+            </p>
+
+            <h4 className="pt-1 font-medium text-foreground">
+              (c) Even quadrant and zone populations are forced by the median split
+            </h4>
+            <p>
+              Performance zones divide <strong>14 / 13 / 13 / 15</strong> across the
+              all-years window, and Kraljic quadrants <strong>14 / 11 / 12 / 14</strong> in
+              2025. Both are approximately quartiles, and both are approximately quartiles{" "}
+              <strong className="text-foreground">by construction</strong>: a median puts
+              half the population on each side of it, so crossing two medians yields four
+              cells near <em>n</em>/4 unless the two axes are strongly correlated.
+            </p>
+            <p>
+              ⚠️ Therefore{" "}
+              <strong className="text-foreground">
+                &ldquo;the quadrants are balanced&rdquo; and &ldquo;no zone is
+                empty&rdquo; are not findings about the supplier base
+              </strong>{" "}
+              — they are arithmetic, and they would hold on almost any input. Neither
+              should be read as evidence of a healthy or well-diversified portfolio. The
+              genuinely informative case is the opposite one: a <em>strongly skewed</em>{" "}
+              cross-tab would indicate the two axes are correlated, which is exactly what
+              the shared spend axis in (b) produces. This point is purely methodological —
+              it is a property of median-split matrices generally, not of this dataset.
+            </p>
+
+            <p>
+              <strong className="text-foreground">
+                None of the three is a defect, and none warrants a change.
+              </strong>{" "}
+              Kraljic and ABC are standard frameworks applied here as specified, and their
+              overlap follows from both being anchored on spend — which is what they are
+              designed to do. The redundancy is the price of using two spend-anchored
+              frameworks together, and it is a price worth paying, because the second axes
+              genuinely differ and that is where each view earns its place. The three
+              findings differ in kind, and the distinction matters when quoting them: (a)
+              is a magnitude that moves with the grain, (b) is structural and would hold on
+              any data, (c) is methodological and would hold for any median split. What all
+              three rule out is the same habit — treating agreement between two of these
+              views as independent confirmation.
             </p>
           </section>
         </CardContent>
