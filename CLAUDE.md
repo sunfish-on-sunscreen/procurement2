@@ -709,27 +709,71 @@ read by nothing, and the sole source of a cross-run non-determinism.
 > commit `5b8ede2` and never updated for the **very next commit `aca864c`** (per-PO
 > quality + Service dimension dropped + reweight to 0.30/0.30/0.22/0.18), which MOVED the
 > composite. The app computes the current zones correctly (cache == a fresh Mode-B
-> recompute, 0 diffs); only the doc numbers were stale. ⚠️ **CURRENT zone baseline
-> (Stars / Critical Issues / Hidden Gems / Long Tail):**
-> - **Range 2024–2026: `15 / 12 / 12 / 16`** (was doc'd 19/8/8/20) — perf_median **78.11**
-> - **2024: `16 / 10 / 10 / 17`** (was 17/9/9/18)
-> - **2025: `16 / 9 / 9 / 16`** (was 19/6/6/19) — perf_median **81.185** (was 79.24)
-> - **2026: `6 / 4 / 4 / 6`** (unchanged — was already correct)
+> recompute, 0 diffs); only the doc numbers were stale. **⚠️ THE 2026-07-14 VALUES THAT
+> STOOD HERE ARE THEMSELVES SUPERSEDED — see the re-record immediately below.**
+
+> ⚠️⚠️ **PER-PERIOD BASELINES RE-RECORDED (2026-07-24) — EVERY per-period number in the
+> block above was stale, not just the zones.** The values there were measured 2026-07-14,
+> BEFORE the normalized-data migration (2026-07-20) moved period tagging from PAYMENT year
+> to ORDER year. That re-sorted which POs fall in which window, so every per-period figure
+> moved — **including the ones the block called composite-INDEPENDENT and named as the
+> trustworthy regression gates.** Read below straight from the stored `AnalysisResult`
+> payloads; no recompute was run.
 >
-> ⚠️ **FRAGILE vs STABLE baselines — know which is which before you "verify nothing
-> broke":** the zones (+ avg_performance, the perf-derived recommendation membership)
-> are **COMPOSITE-DERIVED** — they MOVE whenever the scoring model changes, so re-derive
-> them on any `scores.py` change. Everything **spend/risk-based is COMPOSITE-INDEPENDENT
-> and did NOT move**: ABC (10/9/31 for 2025), Kraljic quadrants (10/15/15/10 for 2025),
-> spend/PO counts ($283,596,813.69 / 313 / 50 for 2025), control exposure ($42.47M),
-> **Process Health 14/2/35**, and the **AP hub 46/36/11/18 (19 compound / 17 important)** —
-> all verified live-current. Treat those as the trustworthy regression gates.
+> **Zones (Stars / Critical Issues / Hidden Gems / Long Tail) + perf_median:**
+> - **Range 2024–2026: `14 / 13 / 13 / 15`** — perf_median **70.83** (was doc'd 15/12/12/16, 78.11)
+> - **2024: `12 / 13 / 13 / 12`** — perf_median **68.585** (was 16/10/10/17)
+> - **2025: `12 / 13 / 13 / 13`** — perf_median **70.17** (was 16/9/9/16, 81.185)
+> - **2026: `14 / 11 / 11 / 14`** — perf_median **69.495** (was 6/4/4/6; that window held 20
+>   suppliers under payment-year tagging and holds **50** under order-year — the clearest
+>   single illustration that the migration changed the POPULATION, not just the scores)
 >
-> ⚠️ **STANDING RULE (2nd time the doc lagged the code on scores):** *if you change the
-> scoring model, re-record EVERY composite-derived baseline in the SAME commit* (zones per
-> period, perf_median, and any perf-membership counts). Don't leave stale numbers behind
-> a "byte-identical elsewhere" claim — the composite-derived surfaces are exactly the ones
-> that move.
+> **Kraljic (Strategic / Leverage / Bottleneck / Routine) + risk_median:** Range
+> **`15 / 12 / 13 / 15`** (25.718) · 2024 **`15 / 10 / 10 / 15`** (27.0417) · 2025
+> **`14 / 11 / 12 / 14`** (27.2499 — was doc'd 10/15/15/10) · 2026 **`12 / 13 / 13 / 12`** (29.2601).
+>
+> **ABC (A/B/C):** Range **30/14/11** · 2024 **26/14/10** · 2025 **24/14/13** (was 10/9/31) ·
+> 2026 **24/13/13**. ⚠️ The A-tier is now ~55% of the roster — see §10.4 of Methodology and
+> the spend-concentration note: this spend base is not Pareto-distributed (top fifth hold
+> 40.4%), so ABC does not isolate a short list here.
+>
+> **Spend / POs / active suppliers:** Range **$707,687,316.20 / 647 / 55** · 2024
+> **$248,990,387.96 / 240 / 50** · 2025 **$277,331,133.43 / 250 / 51** (was $283,596,813.69 /
+> 313 / 50) · 2026 **$181,365,794.81 / 157 / 50**. All four windows carry **14** categories.
+>
+> **Control exposure (3-way-match failures):** Range **$82,253,733.40** (81 POs, 11.62%) ·
+> 2024 **$38,135,183.43** (35) · 2025 **$28,297,257.41** (27 — was $42.47M) · 2026
+> **$15,821,292.56** (19). ⚠️ The RANGE figure is the ONE number in this block that did not
+> move, and for a reason worth internalising: an all-years total does not care how POs are
+> split across periods. **Whole-window aggregates survived the migration; every per-period
+> cut did not.** That is the fault line to check first, next time.
+>
+> ⚠️ **NOT RE-DERIVED — do NOT trust these two until measured against a running app:**
+> **Process Health `14/2/35`** and the **AP hub `46/36/11/18` (19 compound / 17 important)**.
+> Only the first component of the PH triple sits in a stored payload — z>2 cycle outliers,
+> now **5 suppliers / 6 POs** on the Range (2024 3/3 · 2025 1/1 · 2026 2/2) against the
+> 14 suppliers / 24 POs recorded. "Inconsistent" and "stage-dominated" come from the live
+> `/api/cycle-time/breakdown` roster, and the AP hub is assembled client-side from cycle
+> flags + breakdown + perf/kraljic + the temporal matrix, so neither is readable offline.
+> **Treat every `14/2/35` and `46/36/11/18` elsewhere in this file as PRE-MIGRATION.**
+>
+> ⚠️⚠️ **STANDING RULE — now with a DOCUMENTED FAILURE CASE, which is why it is worded
+> more broadly than it used to be.** The rule read: *if you change the scoring model,
+> re-record every composite-derived baseline in the same commit.* **That scope was too
+> narrow, and the block above is the evidence.** The normalized-data migration was NOT a
+> scoring change, so the rule as written never fired — yet it moved period membership,
+> which moved everything per-period. The block then stood telling readers that ABC,
+> Kraljic, spend/PO counts and control exposure "did NOT move" and were "the trustworthy
+> regression gates", when every one of those per-period figures was wrong. **The list of
+> supposedly STABLE baselines became the most misleading content in the file** — more
+> harmful than the composite-derived numbers it was warning about, precisely because it
+> invited trust.
+>
+> **Restated:** *if you change ANYTHING that alters which rows land in which window — the
+> scoring model, the period tag, the date filter, the void set, an import — re-record
+> EVERY per-period baseline in the SAME commit.* Ask what moved the **population**, not
+> only what moved the formula. And when you write a "these did not move" list, **date it**:
+> that claim rots faster than the numbers it vouches for.
 
 > ⚠️ **AUDIT-DRIVEN DISPLAY FIXES (2026-07-14) — two wrong counts corrected + a NAMED
 > recurring pattern.** An adversarial integrity audit surfaced two displayed numbers
@@ -849,9 +893,12 @@ data/numbers, calmer layout.
 3. **Build staged** — smallest safe increments; do the regression-sensitive part first.
 4. **Verify against LIVE data** — independently recompute the expected numbers +
    screenshot; treat any shared-code extraction as a REGRESSION SURFACE and re-verify
-   the source page (e.g. Process Health flags must stay **14/2/35** on the Range —
-   see the ⚠️ note below; this was 11/2/35 before the 2026-07-14 outlier-cap fix, and
-   most HISTORICAL "11/2/35" mentions in this file predate that fix).
+   the source page. ⚠️ **Do NOT use `14/2/35` as the Process Health gate — it is
+   PRE-MIGRATION and unverified** (see the 2026-07-24 re-record near the top: the
+   outlier component alone went 14 suppliers → **5** on the Range). Re-measure the
+   triple against a running app before trusting it as a regression gate. The stable
+   gate is the whole-window BASELINE line at the top of this file, which the migration
+   did not move.
 5. **HOLD before committing** — present the diff + verification and let the operator
    review; commit (and update this file) only on their go.
 6. **Standard gotchas** — the browser preview intermittently redirects to
@@ -1699,9 +1746,10 @@ the TS duplicate is deleted. Staged in 4 stages, **held for commit** (not yet in
   window-independent. *(This corrects the earlier stale "0.45 dependent / 0.55 pinned"
   note, which pre-dated the Service-removal + per-PO-Quality changes.)*
 - **VERIFIED numbers.** ⚠️ **STALE — these zone counts predate `aca864c` (the very
-  next commit) and are SUPERSEDED; see "PERFORMANCE-ZONE BASELINE CORRECTED" near the
-  top for the current baseline (Range 15/12/12/16, 2024 16/10/10/17, 2025 16/9/9/16,
-  2026 6/4/4/6).** SINGLE-YEAR is **byte-identical to the prior stored**
+  next commit) and are SUPERSEDED **twice** — first by `aca864c`, then by the
+  order-year migration. See "PER-PERIOD BASELINES RE-RECORDED (2026-07-24)" near the
+  top; no figures are repeated here so this pointer cannot go stale again.**
+  SINGLE-YEAR is **byte-identical to the prior stored**
   composite: 2024 **17/9/9/18** (med 74.18), 2025 **19/6/6/19** (79.24), 2026
   **6/4/4/6** (82.96) — 0 composite diffs. RANGE moved from the latest-snapshot
   **18/9/9/19** to the true span-aggregate **19/8/8/20** (perf_median **80.01 →
@@ -1776,10 +1824,13 @@ backend computes all 6 scores server-side.** Commits: `b34c40a` (Stage 1),
 
 ⚠️ **VERIFIED CURRENT NUMBERS (post-Stage-3, computedAt 2026-07-06) — supersede any
 older doc.** SupplierMetric **payment-bucketed 53/50/20**. Only performance zones
-moved (they read the composite); everything spend/risk-based is unchanged. ⚠️ **The
-ZONE counts in this block are STALE (pre-`aca864c`) — SUPERSEDED by "PERFORMANCE-ZONE
-BASELINE CORRECTED" near the top (current: Range 15/12/12/16, 2024 16/10/10/17, 2025
-16/9/9/16, 2026 6/4/4/6). The spend/risk-based numbers below are still current.**
+moved (they read the composite); everything spend/risk-based is unchanged. ⚠️⚠️ **THE
+WHOLE BLOCK IS NOW HISTORY — every per-period figure below is PRE-MIGRATION.** The zone
+counts were already stale (pre-`aca864c`); the order-year migration then moved the
+spend/risk-based ones too, so the "spend/risk-based numbers below are still current"
+claim that stood here **was wrong and has been removed** — 2025 Kraljic, ABC, control
+exposure, PO count and spend all moved. Current values: see "PER-PERIOD BASELINES
+RE-RECORDED (2026-07-24)" near the top.
 - **2025:** zones still **19 / 6 / 6 / 19** but with 2 rebucket swaps (**S054
   Stars→Critical, S061 Critical→Stars**; perf_median 79.70→79.24). UNCHANGED:
   Kraljic **10/15/15/10**, ABC **10/9/31**, risk split 25/25, control **$42.47M**,
@@ -1791,8 +1842,10 @@ BASELINE CORRECTED" near the top (current: Range 15/12/12/16, 2024 16/10/10/17, 
   $7.45M — unchanged.
 - Whole-portfolio SupplierMetric means: composite **77.40**, risk **68.42**.
 - ✅ **RESOLVED — `defense.md` was aligned to the current model in `e451f93`** (this
-  older "zone numbers need update" flag is done). **Kraljic 10/15/15/10 is still
-  current** (A1/B5, purchase/roster-based, unaffected by the rebucket).
+  older "zone numbers need update" flag is done). ⚠️ **The "Kraljic 10/15/15/10 is
+  still current" claim that stood here is REVOKED** — it was true of the rebucket it
+  was written about, but the order-year migration moved it to **14/11/12/14** for 2025.
+  See the 2026-07-24 re-record near the top.
 
 **⚠️ PENDING — NEXT TASK: sample-data reconcile + update.** The sample file
 (`data/raw/procurement_data_raw.xlsx`, served by `app/api/sample-data/route.ts`)
