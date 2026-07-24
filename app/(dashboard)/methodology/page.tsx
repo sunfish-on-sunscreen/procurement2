@@ -79,7 +79,8 @@ export default async function MethodologyPage() {
             </li>
             <li>
               <strong>CIPS Knowledge Hub supplier scorecard methodology</strong> —
-              quality and risk weighting.
+              the supplier-KPI categories (quality, delivery, risk). CIPS names the
+              categories; it prescribes no weights (see Section 4.2).
             </li>
             <li>
               <strong>MOPS Singapore</strong> (Mean of Platts Singapore) — fuel
@@ -266,12 +267,13 @@ export default async function MethodologyPage() {
             <p>
               The diagnostic cross-references with the Kraljic quadrant analysis
               via the color coding on the scatter, surfacing engagement
-              priorities. Performance score uses the CIPS-aligned composite score
-              (quality 30%, delivery 30%, process 22%, risk 18% — see Section 4).
+              priorities. Performance score uses the composite score (quality 30%,
+              delivery 30%, process 22%, risk 18% — see Section 4.2, where the weights
+              are an organisational calibration choice, not a CIPS prescription).
             </p>
             <p className="text-xs">
-              Reference: CIPS supplier scorecard methodology; cross-tabulation
-              diagnostic pattern from strategic sourcing practice.
+              Reference: CIPS supplier scorecard methodology (dimension selection);
+              cross-tabulation diagnostic pattern from strategic sourcing practice.
             </p>
           </section>
 
@@ -476,8 +478,63 @@ export default async function MethodologyPage() {
               redistributed across the remaining four dimensions in proportion to their
               prior weights (the clean 30/30/22/18 above), leaving the relative
               priorities unchanged: Quality and Delivery co-dominant, Process above Risk.
-              Weights align with CIPS and APQC supplier-scorecard guidance for heavy
-              industry.
+            </p>
+            <p>
+              ⚠️{" "}
+              <strong className="text-foreground">
+                The dimensions follow a framework; the weights are an organisational
+                choice.
+              </strong>{" "}
+              CIPS Supplier Performance Management and the APQC Process Classification
+              Framework name the KPI categories a scorecard should cover (order
+              fulfilment, delivery, quality, vendor risk, complaints) — but{" "}
+              <strong>
+                CIPS prescribes the framework and dimension selection and leaves weight
+                calibration to the organisation
+              </strong>
+              . No framework sets universal weights, and published industry examples
+              differ widely (40/30/20/10, 30/25/20/15/10, and others). The 30/30/22/18
+              split is a calibration choice reflecting mining priorities — operational
+              reliability dominant, audit compliance elevated — not a value any source
+              prescribes.
+            </p>
+            <p>
+              <strong className="text-foreground">
+                Validation — weight-sensitivity analysis.
+              </strong>{" "}
+              Because the weights were not formally derived, they are validated the
+              recognised way: by <strong>perturbing them and testing whether the supplier
+              ranking holds</strong>. A drop-one test removes each dimension,
+              re-normalises the remaining three, and Spearman-correlates the resulting
+              ranking against the original. On the all-years live composite (55
+              suppliers, the default view),{" "}
+              <strong>
+                dropping Quality leaves the ranking almost unchanged (ρ = 0.97), Process
+                0.94, Delivery 0.86, and Risk moves it most (ρ = 0.72)
+              </strong>{" "}
+              — every value a strong positive rank correlation, so no single weight
+              reorders the portfolio materially. ⚠️ Per Section 10.2 the exact figures
+              are grain-dependent: pooled over the per-period metric rows they are
+              Quality 0.97 / Process 0.91 / Delivery 0.82 / Risk 0.78, and in 2026 Risk
+              (0.84) and Delivery (0.83) swap the bottom two — but{" "}
+              <strong>
+                Quality is the least influential weight at every grain and Process
+                second
+              </strong>
+              , and every drop-one stays above 0.72. This is a{" "}
+              <em>different</em> test from the delivery-score half-weighting drop-one in
+              Section 9.5 (ρ = +0.727 / +0.794), which probes the two inputs{" "}
+              <em>inside</em> one sub-score, not the four composite weights.
+            </p>
+            <p className="text-xs">
+              The formal alternative not used is the{" "}
+              <strong>Analytic Hierarchy Process</strong> (Saaty, 1980): pairwise
+              comparison of the dimensions on a 9-point scale, weights read from the
+              priority (eigenvector) of the comparison matrix, accepted when the
+              consistency ratio is below 0.1. AHP requires an expert panel to fill the
+              pairwise matrix — a domain input this project does not have — so the weights
+              are set by transparent calibration and validated by the sensitivity
+              analysis above instead.
             </p>
           </section>
 

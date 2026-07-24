@@ -338,10 +338,16 @@ For a supervisor/auditor reviewing the supplier scorecard:
   ceiling, percentages bounded 0–100. They're documented and citable, not tuned to
   hit a target distribution.
 - **Why these formulas / weights?** Min-max normalization with direction-aware
-  inversion and equal within-dimension weighting is textbook scorecard practice;
-  the 25/25/20/15/15 composite weights align with **CIPS** supplier-scorecard
-  guidance and **APQC** benchmarks for heavy industry. Alternative weights are
-  defensible and would shift results — a known, disclosed sensitivity.
+  inversion is textbook scorecard practice. The two inputs inside Quality and inside
+  Delivery are weighted **equally (a 50/50 choice, not a derived one)** — its
+  consequence is disclosed on the Methodology page §8.4 (the bounds leave the two
+  halves unequal headroom). The composite weights are **30/30/22/18** (four
+  dimensions, after the Service dimension was removed and its 15% redistributed
+  proportionally — NOT the old five-dimension 25/25/20/15/15). ⚠️ **CIPS and APQC
+  name the KPI categories but prescribe NO weights** — the 30/30/22/18 split is an
+  organisational calibration choice, validated by a weight-sensitivity (drop-one
+  Spearman) analysis rather than derived; see Methodology §4.2 for the figures and
+  their grain labels.
 - **Why is risk non-random now?** The previous `risk_score` used Gaussian noise and
   was *higher = riskier* while being positively weighted in the composite (a
   polarity bug). It is now a deterministic `100 − weighted(country, complaints,
@@ -350,12 +356,16 @@ For a supervisor/auditor reviewing the supplier scorecard:
 
 ### Limitations
 
-The composite formula's weights are *one defensible choice* among several. If a
-supervisor or auditor pushes back on weights, the defense is "this aligns with
-CIPS/APQC convention for heavy industry procurement," but acknowledge that
-alternative weights would produce different results — a known sensitivity in
-supplier scorecard methodology. The raw inputs themselves are synthetic (see
-Types 6–7); the scorecard *derivation* over them is exact and reproducible.
+The composite formula's weights are *one defensible choice* among several. CIPS and
+APQC prescribe the dimensions, not the weights; if a supervisor or auditor pushes
+back, the defense is NOT "this aligns with CIPS convention" (it does not — no
+framework sets weights) but rather: the weights are a transparent organisational
+calibration, and the supplier ranking is **robust to them** — a drop-one
+weight-sensitivity analysis leaves every dimension's Spearman ≥ 0.72 against the
+original ranking (Quality ≈ 0.97, Risk the most influential ≈ 0.72 at the all-years
+grain; see Methodology §4.2 for the grain-labelled figures). The raw inputs
+themselves are synthetic (see Types 6–7); the scorecard *derivation* over them is
+exact and reproducible.
 
 ---
 
